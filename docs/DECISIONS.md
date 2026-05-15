@@ -641,3 +641,68 @@ No installer build workflow yet — `electron-builder` lives in Session 14 and i
 - `.github/workflows/ci.yml`
 - `.github/workflows/pages.yml`
 - [DEC-018](#dec-018)
+
+---
+
+## DEC-020 — Per-lesson drag uses `extractAndMoveLesson`, which always produces `splitType: "manual"` pieces
+**Date:** 2026-05-15
+**Session:** 9
+**Status:** Accepted
+
+### Context
+The Lesson view exposes individual lesson cards within a `PlacedBlock`'s lessonRange. Dragging a single lesson to another half-term must split the source block as needed:
+- Lesson at the start of a range → shrink range from the left
+- Lesson at the end → shrink range from the right
+- Interior lesson → split into two surviving pieces around it
+- Sole lesson → remove the source block entirely
+
+`BUILD_PLAN.md` Session 9 step 4 also mentions adjacency-merging: *"either extends an existing PlacedBlock (if it's the adjacent lesson of the same sub-topic) or creates a split"*.
+
+### Decision
+- New `extractAndMoveLesson(timeline, placedBlockId, localLessonIdx, toTermId, options?)` placement op handles all four shape cases.
+- The moved lesson and the (zero, one, or two) survivors all get `splitType: "manual"` and share the same `splitFrom` group key — the original block's `splitFrom` if it had one, otherwise the original block's id. Recombine still gathers every piece across the timeline.
+- **Adjacency-merging is deferred.** Dropping a lesson into a half-term that already has a placed block of the same sub-topic produces an independent piece, not a merged extended range. Cleanly testable, predictable, and the recombine action exists to flatten any messes after the fact.
+
+### Alternatives considered
+- **Use the existing `splitBlock` + `moveBlock`.** Doesn't work cleanly for interior lessons because `splitBlock` splits at one position and produces two pieces; an interior-lesson extraction needs three operations (split-left, split-right, move-one). Composing them is more lines than just writing the extract op.
+- **Merge on adjacency at drag time.** Tempting but layers a second concept (merging) on top of placement. Tests for "where do my pieces go after this drag?" become "where would they go assuming merging rules, given the current adjacency?" — harder to reason about. Defer to a polish pass.
+
+### Consequences
+- Lesson view drag-to-extract is implemented in one store action + one model function, with 7 unit tests covering edges, interior, sole-lesson, splitFrom chain preservation, same-term no-op, and error paths.
+- A user wanting to clean up multiple pieces uses the BlockEditModal's "Recombine" action (still wired in the Lesson view because lesson cards open `BlockEditModal` for EoHT/custom placements).
+
+### Related
+- `SPEC.md` §4.3
+- `BUILD_PLAN.md` Session 9 step 4
+- `src/model/placement.ts` (`extractAndMoveLesson`)
+- `src/components/LessonView.tsx` (`handleDragEnd`)
+- [DEC-017](#dec-017) (term→term drag in Sub-topic view, identity-preserving)
+
+---
+
+## DEC-021 — Lesson edits commit to the working spec only; `importedSpec` remains immutable
+**Date:** 2026-05-15
+**Session:** 9
+**Status:** Accepted
+
+### Context
+The `LessonEditModal` lets the user edit lesson title, practical, depth, separate-only, and the objectives list. `SPEC.md` §3.3 establishes the two-spec model: `importedSpec` is immutable, edits land in `workingSpec`. The model module `specEdits.ts` exposes `updateLesson`, `setLessonObjectives`, and `appendLesson` as pure spec→spec functions.
+
+### Decision
+Store actions `editLesson`, `setLessonObjectives`, and `addLesson` always operate on `subject.workingSpec`. The `importedSpec` is never touched by the Lesson view. The user can call `restoreSubjectToImport` (Subject Tab menu) to discard all working-spec edits and reset.
+
+### Alternatives considered
+- **Edit both specs simultaneously.** Defeats the purpose of having an immutable baseline.
+- **Soft-delete via a "userEdits" overlay on lessons (like `PlacedBlock.userEdits.title`).** Would let the user revert per-lesson with no spec change, but compounds the tree's complexity: every reader (export, view, validation) would need to apply the overlay. The two-spec model is simpler.
+
+### Consequences
+- Restoring to imported spec drops every Lesson view edit. Documented and intentional.
+- Lesson title/practical/flags edits are propagated to all four views via the shared `workingSpec` — no cross-view sync code needed.
+- `Lesson.id` is stable across edits, so placements (which use `subTopicCode` + `lessonRange` index, not `Lesson.id`) keep working even if titles change.
+
+### Related
+- `SPEC.md` §3.3, §4.3
+- `BUILD_PLAN.md` Session 9 step 5
+- `src/model/specEdits.ts`
+- `src/store/useWorkspaceStore.ts` (`editLesson`, `setLessonObjectives`, `addLesson`)
+- [DEC-013](#dec-013) (`restoreSubjectToImport` returns orphans)

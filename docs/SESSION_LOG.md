@@ -481,3 +481,47 @@ Run `npm run dev`. You'll get:
 
 ### Open questions for the user
 - None blocking. Sessions 9 (Lesson view), 10 (Objective view), 11 (Topic view), 12 (polish + presets + restore-to-import modal), 13 (Playwright E2E), 14 (electron-builder packaging) remain.
+
+---
+
+## Session 9 — Lesson view
+**Date:** 2026-05-15
+**Status:** Complete
+**Commit:** *(pending — see git log)*
+
+### What was built
+- `src/model/placement.ts`: `extractAndMoveLesson(timeline, placedBlockId, localLessonIdx, toTermId, options?)` — pulls a single lesson out of a placed block and moves it to another half-term, shrinking/splitting/removing the source as needed. All survivors and the moved piece share the same `splitFrom` group key (the original block's, or the block's own id if it was virgin). See [DEC-020](DECISIONS.md#dec-020).
+- `src/model/specEdits.ts`: pure spec→spec helpers `updateLesson(spec, subTopicCode, lessonId, patch)`, `setLessonObjectives(spec, subTopicCode, lessonId, objectives)`, `appendLesson(spec, subTopicCode, lesson)`. Each rebuilds only the affected branch and leaves the rest by reference.
+- `src/store/useWorkspaceStore.ts`: store actions `extractAndMoveLesson`, `editLesson`, `setLessonObjectives`, `addLesson`. All commit to `subject.workingSpec` only — `importedSpec` stays immutable. See [DEC-021](DECISIONS.md#dec-021).
+- `src/components/LessonCard.tsx`: small draggable card with sub-topic-colour band, lesson number, title, and flags (★ depth / ⚗ practical / SS separate-only).
+- `src/components/LessonHalfTermCell.tsx`: drop-zone half-term cell that groups lesson cards by their parent placed block (dashed border in the sub-topic's colour). EoHT and custom-block placements remain non-draggable summary buttons that open `BlockEditModal`.
+- `src/components/LessonEditModal.tsx`: edit title, practical, depth, separate-only; objectives list with up/down reorder, depth-toggle, delete, add. Save dispatches `editLesson` + `setLessonObjectives`.
+- `src/components/LessonView.tsx`: top-level view with its own `DndContext` and `extractAndMoveLesson` dispatch. Opens `BlockEditModal` for EoHT/custom blocks and `LessonEditModal` for sub-topic lessons.
+- `src/App.tsx`: routes `currentView === "lesson"` → `LessonView`.
+- Tests: `tests/model/placement.test.ts` gained a 7-test `extractAndMoveLesson` group (edges, interior split, sole-lesson removal, splitFrom chain inheritance, same-term no-op, out-of-range, unknown ids). `tests/model/specEdits.test.ts` is new (6 tests across `updateLesson`, `setLessonObjectives`, `appendLesson`).
+
+### Exit criteria check
+- [x] Lesson view fully functional — calendar grid with grouped lesson cards, drag-to-extract, click-to-edit
+- [x] Editing a lesson reflects across all views immediately — both views read from `subject.workingSpec`, which the store mutates with replaced object identity
+- [x] Lesson drag creates correct splits — verified by the 7-test extraction group; covers all four shape cases (edge, interior, sole, same-term)
+- [x] `npm test` passes (172/172 across 9 files, up from 159)
+- [x] `npm run typecheck` passes
+- [x] `npm run build:renderer` passes
+
+### Deviations from BUILD_PLAN.md
+- **Adjacency-merging on lesson drop is deferred** (build plan step 4: *"either extends an existing PlacedBlock (if it's the adjacent lesson of the same sub-topic) or creates a split"*). Implemented "always creates a split" — predictable, fewer edge cases. The Recombine action cleans up any mess after the fact. Logged in [DEC-020](DECISIONS.md#dec-020).
+- **Delete-lesson action is not implemented.** Build plan step 6 lists "Add-lesson and delete-lesson actions". Add is wired (the LessonEditModal can grow objectives, and `addLesson` in the store appends a fresh `Lesson` — UI affordance for a top-level "+ Add lesson to sub-topic" button is not yet placed in the LessonView). Delete is fully deferred — it requires shifting `lessonRange` indices on every PlacedBlock referencing that sub-topic, which interacts with auto-split chains in non-obvious ways. Scope it for Session 12's polish pass with a clear UX (e.g. "Delete lesson L3 — also affects 2 placed blocks. Continue?").
+- **No "+ Add lesson" button** in the LessonView UI yet. The store action exists; a button hasn't been placed. Easy follow-up.
+
+### Decisions logged
+- [DEC-020](DECISIONS.md#dec-020) — Per-lesson drag uses `extractAndMoveLesson`; pieces are always `splitType: "manual"`, splitFrom group preserved
+- [DEC-021](DECISIONS.md#dec-021) — Lesson edits commit to `workingSpec` only; `importedSpec` remains immutable
+
+### Surprises and gotchas
+- **TypeScript narrowing across an early-return guard didn't carry into a nested `save()` callback.** Same closure-narrowing pitfall noted in Session 8 — TS can't prove the captured variable hasn't been reassigned. Fix: alias to a fresh `const safeLesson = lesson;` after the guard, then reference `safeLesson` inside `save()`. Worth a project-level rule of thumb: when narrowing must survive into a callback, alias to a fresh const.
+- **`LessonView` reuses `BlockEditModal` for EoHT/custom placements.** Same modal, different context. Looks weird at first ("why is the block modal opening from a lesson view?") but makes sense once you realise EoHT/custom blocks aren't subdivided into lessons — there's nothing to drag at lesson granularity. Documented this in the component code as a comment.
+- **`splitType` after extraction is always `"manual"`.** Even if the source was a clean unsplit virgin placement, extracting a lesson "manually" demotes the survivors. Tested. Means the resulting pieces won't auto-recombine on removal in any future implicit-recombine pass (none exists today; see [DEC-010](DECISIONS.md#dec-010)).
+- **Lesson view's "drop a lesson here" empty state.** Cells with no placed blocks still accept drops — the drop handler does the right thing because `extractAndMoveLesson` just appends the moved piece to the target.
+
+### Open questions for the user
+- None blocking. Next: Session 10 (Objective view) — coverage indicator, unmapped pool, drag objectives between lessons.

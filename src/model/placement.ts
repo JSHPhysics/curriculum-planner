@@ -254,6 +254,90 @@ export function moveBlock(
   return appendToTerm(removed, toTermId, found.block);
 }
 
+/**
+ * Pluck a single lesson out of a placed block and move it to a different
+ * half-term. The source block is shrunk or split as needed:
+ *   - lesson at the start → source becomes [start+1, end)
+ *   - lesson at the end   → source becomes [start, end-1)
+ *   - lesson in the middle → source splits into [start, lessonPos) + [lessonPos+1, end)
+ *   - lesson was the only one → source is removed entirely
+ * The pulled-out lesson becomes a new PlacedBlock with `splitType: "manual"`
+ * and the same splitFrom group as the source (so a later recombine still
+ * picks up every piece).
+ *
+ * `localLessonIdx` is 0-indexed within the source block's lessonRange:
+ *   block.lessonRange = [3, 7)  → localLessonIdx 0 = lesson position 3
+ *                                  localLessonIdx 1 = lesson position 4
+ *                                  …
+ */
+export function extractAndMoveLesson(
+  timeline: Timeline,
+  placedBlockId: string,
+  localLessonIdx: number,
+  toTermId: string,
+  options: PlacementOptions = {}
+): Timeline {
+  const found = findPlacedBlock(timeline, placedBlockId);
+  if (!found) {
+    throw new Error(
+      `extractAndMoveLesson: no placed block with id "${placedBlockId}"`
+    );
+  }
+  const { block } = found;
+  if (localLessonIdx < 0 || localLessonIdx >= block.lessonsClaimed) {
+    throw new Error(
+      `extractAndMoveLesson: localLessonIdx ${localLessonIdx} out of range ` +
+        `[0, ${block.lessonsClaimed})`
+    );
+  }
+  if (!timeline.halfTerms.some((ht) => ht.id === toTermId)) {
+    throw new Error(`extractAndMoveLesson: unknown term "${toTermId}"`);
+  }
+  // No-op: lesson dragged back to its own term and the block has a single
+  // lesson (so the operation would split and immediately rejoin to nothing).
+  if (found.termId === toTermId) return timeline;
+
+  const idGen = options.idGen ?? defaultIdGen;
+  const [start, end] = block.lessonRange;
+  const lessonPos = start + localLessonIdx;
+  const groupKey = block.splitFrom ?? block.id;
+
+  const replacement: PlacedBlock[] = [];
+  if (lessonPos > start) {
+    replacement.push({
+      ...block,
+      id: idGen(),
+      lessonsClaimed: lessonPos - start,
+      lessonRange: [start, lessonPos],
+      splitFrom: groupKey,
+      splitType: "manual",
+    });
+  }
+  if (lessonPos + 1 < end) {
+    replacement.push({
+      ...block,
+      id: idGen(),
+      lessonsClaimed: end - (lessonPos + 1),
+      lessonRange: [lessonPos + 1, end],
+      splitFrom: groupKey,
+      splitType: "manual",
+    });
+  }
+
+  const movedPiece: PlacedBlock = {
+    ...block,
+    id: idGen(),
+    lessonsClaimed: 1,
+    lessonRange: [lessonPos, lessonPos + 1],
+    splitFrom: groupKey,
+    splitType: "manual",
+  };
+
+  let tl = replaceInTerm(timeline, found.termId, placedBlockId, replacement);
+  tl = appendToTerm(tl, toTermId, movedPiece);
+  return tl;
+}
+
 export function editBlockLessons(
   timeline: Timeline,
   placedBlockId: string,

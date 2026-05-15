@@ -2,6 +2,7 @@ import { create } from "zustand";
 
 import {
   editBlockLessons as plEditBlockLessons,
+  extractAndMoveLesson as plExtractAndMoveLesson,
   moveBlock as plMoveBlock,
   placeBlock as plPlaceBlock,
   placeBlockWithSpillover as plPlaceBlockWithSpillover,
@@ -9,8 +10,16 @@ import {
   removeBlock as plRemoveBlock,
   splitBlock as plSplitBlock,
 } from "@/model/placement";
+import {
+  appendLesson as specAppendLesson,
+  setLessonObjectives as specSetLessonObjectives,
+  updateLesson as specUpdateLesson,
+  type LessonEditableFields,
+} from "@/model/specEdits";
 import type {
   CustomBlock,
+  Lesson,
+  Objective,
   PlacedBlock,
   PlacedBlockSource,
   Subject,
@@ -66,6 +75,23 @@ export interface WorkspaceStoreActions {
   readonly removeBlock: (placedBlockId: string) => void;
   readonly moveBlock: (placedBlockId: string, toTermId: string) => void;
   readonly editBlockLessons: (placedBlockId: string, newLessons: number) => void;
+  readonly extractAndMoveLesson: (
+    placedBlockId: string,
+    localLessonIdx: number,
+    toTermId: string
+  ) => void;
+  // Working spec edits
+  readonly editLesson: (
+    subTopicCode: string,
+    lessonId: string,
+    patch: Partial<LessonEditableFields>
+  ) => void;
+  readonly setLessonObjectives: (
+    subTopicCode: string,
+    lessonId: string,
+    objectives: readonly Objective[]
+  ) => void;
+  readonly addLesson: (subTopicCode: string, lesson: Lesson) => void;
   // View
   readonly setCurrentView: (view: ViewType) => void;
   readonly setCurrentTermId: (termId: string | null) => void;
@@ -259,6 +285,67 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set) => ({
       ),
       dirty: true,
     })),
+
+  extractAndMoveLesson: (placedBlockId, localLessonIdx, toTermId) =>
+    set((state) => ({
+      workspace: updateActiveTimeline(state.workspace, (tl) =>
+        plExtractAndMoveLesson(tl, placedBlockId, localLessonIdx, toTermId)
+      ),
+      dirty: true,
+    })),
+
+  editLesson: (subTopicCode, lessonId, patch) =>
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      const updated: Subject = {
+        ...subject,
+        workingSpec: specUpdateLesson(subject.workingSpec, subTopicCode, lessonId, patch),
+      };
+      return {
+        workspace: replaceSubject(state.workspace, id, updated),
+        dirty: true,
+      };
+    }),
+
+  setLessonObjectives: (subTopicCode, lessonId, objectives) =>
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      const updated: Subject = {
+        ...subject,
+        workingSpec: specSetLessonObjectives(
+          subject.workingSpec,
+          subTopicCode,
+          lessonId,
+          objectives
+        ),
+      };
+      return {
+        workspace: replaceSubject(state.workspace, id, updated),
+        dirty: true,
+      };
+    }),
+
+  addLesson: (subTopicCode, lesson) =>
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      const updated: Subject = {
+        ...subject,
+        workingSpec: specAppendLesson(subject.workingSpec, subTopicCode, lesson),
+      };
+      return {
+        workspace: replaceSubject(state.workspace, id, updated),
+        dirty: true,
+      };
+    }),
 
   setCurrentView: (view) => set({ currentView: view }),
   setCurrentTermId: (termId) => set({ currentTermId: termId }),

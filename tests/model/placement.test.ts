@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   editBlockLessons,
+  extractAndMoveLesson,
   findPlacedBlock,
   moveBlock,
   placeBlock,
@@ -282,6 +283,87 @@ describe("editBlockLessons (auto → manual demotion)", () => {
     const id = blocksIn(tl, "Y9-A1")[0]!.id;
     tl = editBlockLessons(tl, id, 4);
     expect(tl).toBe(before);
+  });
+});
+
+describe("extractAndMoveLesson (Lesson view drag)", () => {
+  it("moves a single edge lesson and shrinks the source block (no split)", () => {
+    // Place [0, 4) in Y9-A1. Extract local index 0 → moved [0,1), source [1,4).
+    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 4, { idGen: counterIdGen() });
+    const blockId = blocksIn(tl, "Y9-A1")[0]!.id;
+    tl = extractAndMoveLesson(tl, blockId, 0, "Y9-A2", { idGen: counterIdGen() });
+    const a1 = blocksIn(tl, "Y9-A1").filter((b) => b.source.kind === "sub-topic");
+    const a2 = blocksIn(tl, "Y9-A2").filter((b) => b.source.kind === "sub-topic");
+    expect(a1).toHaveLength(1);
+    expect(a1[0]?.lessonRange).toEqual([1, 4]);
+    expect(a1[0]?.lessonsClaimed).toBe(3);
+    expect(a2).toHaveLength(1);
+    expect(a2[0]?.lessonRange).toEqual([0, 1]);
+    expect(a2[0]?.lessonsClaimed).toBe(1);
+    // Both pieces share the same splitFrom (the original's id)
+    expect(a1[0]?.splitFrom).toBe(blockId);
+    expect(a2[0]?.splitFrom).toBe(blockId);
+  });
+
+  it("splits an interior lesson out of the middle into three placements", () => {
+    // [0, 5) in Y9-A1. Extract local 2 → A1 becomes [0,2) + [3,5); A2 gets [2,3).
+    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 5, { idGen: counterIdGen() });
+    const blockId = blocksIn(tl, "Y9-A1")[0]!.id;
+    tl = extractAndMoveLesson(tl, blockId, 2, "Y9-A2", { idGen: counterIdGen() });
+    const a1 = blocksIn(tl, "Y9-A1")
+      .filter((b) => b.source.kind === "sub-topic")
+      .sort((x, y) => x.lessonRange[0] - y.lessonRange[0]);
+    const a2 = blocksIn(tl, "Y9-A2").filter((b) => b.source.kind === "sub-topic");
+    expect(a1.map((b) => b.lessonRange)).toEqual([[0, 2], [3, 5]]);
+    expect(a2.map((b) => b.lessonRange)).toEqual([[2, 3]]);
+    expect(a1.every((b) => b.splitFrom === blockId && b.splitType === "manual")).toBe(true);
+    expect(a2[0]?.splitFrom).toBe(blockId);
+    expect(a2[0]?.splitType).toBe("manual");
+  });
+
+  it("removes the source block entirely when extracting its only lesson", () => {
+    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 1, { idGen: counterIdGen() });
+    const blockId = blocksIn(tl, "Y9-A1")[0]!.id;
+    tl = extractAndMoveLesson(tl, blockId, 0, "Y9-A2", { idGen: counterIdGen() });
+    expect(blocksIn(tl, "Y9-A1").filter((b) => b.source.kind === "sub-topic")).toHaveLength(0);
+    expect(blocksIn(tl, "Y9-A2").filter((b) => b.source.kind === "sub-topic")).toHaveLength(1);
+  });
+
+  it("preserves the existing splitFrom chain when extracting from an already-split piece", () => {
+    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 4, { idGen: counterIdGen() });
+    const origId = blocksIn(tl, "Y9-A1")[0]!.id;
+    tl = splitBlock(tl, origId, 2, { idGen: counterIdGen() });
+    const piecesAfterSplit = blocksIn(tl, "Y9-A1");
+    const pieceA = piecesAfterSplit[0]!;
+    // pieceA already has splitFrom = origId
+    tl = extractAndMoveLesson(tl, pieceA.id, 0, "Y9-A2", { idGen: counterIdGen() });
+    const allTouchedBlocks = [
+      ...blocksIn(tl, "Y9-A1"),
+      ...blocksIn(tl, "Y9-A2"),
+    ].filter((b) => b.source.kind === "sub-topic");
+    expect(allTouchedBlocks.every((b) => b.splitFrom === origId)).toBe(true);
+  });
+
+  it("is a no-op when toTermId equals the source term", () => {
+    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 1, { idGen: counterIdGen() });
+    const before = tl;
+    const id = blocksIn(tl, "Y9-A1")[0]!.id;
+    tl = extractAndMoveLesson(tl, id, 0, "Y9-A1", { idGen: counterIdGen() });
+    expect(tl).toBe(before);
+  });
+
+  it("throws on out-of-range localLessonIdx", () => {
+    const tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 3, { idGen: counterIdGen() });
+    const id = blocksIn(tl, "Y9-A1")[0]!.id;
+    expect(() => extractAndMoveLesson(tl, id, -1, "Y9-A2")).toThrow();
+    expect(() => extractAndMoveLesson(tl, id, 3, "Y9-A2")).toThrow();
+  });
+
+  it("throws on unknown placed block or target term", () => {
+    const tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 3, { idGen: counterIdGen() });
+    const id = blocksIn(tl, "Y9-A1")[0]!.id;
+    expect(() => extractAndMoveLesson(tl, "ghost", 0, "Y9-A2")).toThrow();
+    expect(() => extractAndMoveLesson(tl, id, 0, "BAD")).toThrow();
   });
 });
 

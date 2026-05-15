@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from "react";
 
 import { Header } from "@/components/Header";
+import { LessonView } from "@/components/LessonView";
 import { StatusBar } from "@/components/StatusBar";
 import { SubTopicView } from "@/components/SubTopicView";
 import { ViewPlaceholder } from "@/components/ViewPlaceholder";
@@ -161,6 +162,8 @@ export function App(): JSX.Element {
       <main className="flex-1 flex overflow-hidden">
         {activeSubject && currentView === "sub-topic" ? (
           <SubTopicView subject={activeSubject} />
+        ) : activeSubject && currentView === "lesson" ? (
+          <LessonView subject={activeSubject} />
         ) : (
           <ViewPlaceholder view={currentView} hasSubject={activeSubject !== null} />
         )}
