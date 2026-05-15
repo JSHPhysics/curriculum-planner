@@ -10,6 +10,7 @@ import {
   splitBlock as plSplitBlock,
 } from "@/model/placement";
 import type {
+  CustomBlock,
   PlacedBlock,
   PlacedBlockSource,
   Subject,
@@ -47,6 +48,8 @@ export interface WorkspaceStoreActions {
   readonly updateActiveSubjectConfig: (
     partial: Partial<Subject["config"]>
   ) => void;
+  readonly addCustomBlock: (block: CustomBlock) => void;
+  readonly removeCustomBlock: (customBlockId: string) => void;
   // Placement (operates on the active subject)
   readonly placeBlock: (
     source: PlacedBlockSource,
@@ -150,6 +153,50 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set) => ({
       const updated: Subject = {
         ...subject,
         config: { ...subject.config, ...partial },
+      };
+      return {
+        workspace: replaceSubject(state.workspace, id, updated),
+        dirty: true,
+      };
+    }),
+
+  addCustomBlock: (block) =>
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      const updated: Subject = {
+        ...subject,
+        customBlocks: [...subject.customBlocks, block],
+      };
+      return {
+        workspace: replaceSubject(state.workspace, id, updated),
+        dirty: true,
+      };
+    }),
+
+  removeCustomBlock: (customBlockId) =>
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      const updated: Subject = {
+        ...subject,
+        customBlocks: subject.customBlocks.filter((c) => c.id !== customBlockId),
+        timeline: {
+          halfTerms: subject.timeline.halfTerms.map((ht) => ({
+            ...ht,
+            placedBlocks: ht.placedBlocks.filter(
+              (p) =>
+                !(
+                  p.source.kind === "custom" &&
+                  p.source.customBlockId === customBlockId
+                )
+            ),
+          })),
+        },
       };
       return {
         workspace: replaceSubject(state.workspace, id, updated),

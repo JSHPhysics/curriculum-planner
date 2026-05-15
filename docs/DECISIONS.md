@@ -544,3 +544,35 @@ Option 1. Every subject tab shows a `⋯` glyph after the name. Clicking it (or 
 - `SPEC.md` §8.4
 - `BUILD_PLAN.md` Session 7 step 3
 - `src/components/SubjectTabs.tsx`
+
+---
+
+## DEC-017 — Term→term drag uses `moveBlock` (no spillover); spillover applies only to pool→term placements
+**Date:** 2026-05-15
+**Session:** 8
+**Status:** Accepted
+
+### Context
+The prototype's `onDrop` handler runs `spilloverPlace` on every drop into a term, including drags from one term to another. In the new model, a `PlacedBlock` has an `id` and a `splitFrom` chain. Re-creating it as fresh auto-split pieces during a term-to-term move would discard those identifiers and replace them with new ones, losing any user-applied edits in `userEdits` and breaking any "recombine" intent.
+
+### Decision
+- **Pool → term**: respect `subject.config.autoSpillover`. If on, use `placeBlockWithSpillover` (may produce multiple auto-split pieces in consecutive half-terms). If off, use `placeBlock` (single placement; over-budget allowed, surfaced in the StatusBar).
+- **Term → term**: always use `moveBlock`. The placement keeps its id and any edits. If the target is too small, the new term goes over-budget (warning red in the cell header and StatusBar).
+- **Term → pool**: use `removeBlock`. The sub-topic returns to the pool by virtue of the unplaced-lessons computation in `getPoolEntries`.
+
+If the user wants to split an existing placement to fit, they use the modal's Split action — explicit, identity-preserving.
+
+### Alternatives considered
+- **Match the prototype: spillover on every term drop.** Loses placement identity on every drag; surprising when a single-piece placement becomes three auto-pieces just for being moved one column. Users can re-spillover by removing and re-dragging from pool.
+- **Only spillover for over-budget targets, regardless of source.** Slightly nicer than "always", but still breaks identity. The Split modal is a cleaner control surface for the same outcome.
+
+### Consequences
+- Documentation/screencasts that show "drag a too-big block from a term to another term and watch it split" will need a different demonstration — drag from pool instead.
+- Identity is preserved for `userEdits.title` overrides etc. through any sequence of moves.
+- Possible v1.1+ improvement: a "spillover" cursor modifier (Shift+drag) that opts in to split-on-move.
+
+### Related
+- `SPEC.md` §3.6
+- `BUILD_PLAN.md` Session 8 step 6
+- `reference/sow_planner_v1.html` (`onDrop`, `spilloverPlace`)
+- `src/components/SubTopicView.tsx` (`handleDragEnd`)

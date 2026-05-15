@@ -2,6 +2,7 @@ import { useCallback, useEffect } from "react";
 
 import { Header } from "@/components/Header";
 import { StatusBar } from "@/components/StatusBar";
+import { SubTopicView } from "@/components/SubTopicView";
 import { ViewPlaceholder } from "@/components/ViewPlaceholder";
 import { exportSubjectToXlsx } from "@/model/export";
 import { importSpec } from "@/model/import";
@@ -158,7 +159,11 @@ export function App(): JSX.Element {
       />
       <StatusBar subject={activeSubject} onToggleConfig={updateActiveSubjectConfig} />
       <main className="flex-1 flex overflow-hidden">
-        <ViewPlaceholder view={currentView} hasSubject={activeSubject !== null} />
+        {activeSubject && currentView === "sub-topic" ? (
+          <SubTopicView subject={activeSubject} />
+        ) : (
+          <ViewPlaceholder view={currentView} hasSubject={activeSubject !== null} />
+        )}
       </main>
     </div>
   );

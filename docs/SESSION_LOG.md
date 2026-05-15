@@ -414,3 +414,70 @@ None.
 
 ### Open questions for the user
 - None. Next: Session 8 (sub-topic view with drag-drop, modal, spillover, presets) — the first session where the planner is actually usable.
+
+---
+
+## Session 8 — Sub-topic view (first working prototype)
+**Date:** 2026-05-15
+**Status:** Complete (with documented deferrals — see *Deviations*)
+**Commit:** *(pending — see git log)*
+
+### What was built
+- `src/model/queries.ts`:
+  - `getTopicColour(spec, topicCode)` — stable 16-colour palette assigned by topic index in the spec
+  - `findTopicAndSubTopic`, `findCustomBlock`, `sortedBlocksForCell` (EoHT placements pushed to the end of a cell), `getPoolEntries` (per-sub-topic unplaced-lesson computation)
+- `src/components/Block.tsx` — visual block (topic-colour left border, code, name, lesson count, optional split badge); used by the pool, half-term cells, and drag overlay
+- `src/components/Pool.tsx` — left sidebar grouped by topic with collapsibles, lesson totals, draggable sub-topic entries, custom-block entries, `+ Custom` button, and a pool-wide drop zone (drag-to-unplace)
+- `src/components/HalfTermCell.tsx` — drop zone + header (label, used/budget with over-budget warning) + body listing placed blocks. EoHT placements are sorted to the end of each cell
+- `src/components/TimelineGrid.tsx` — three year rows (Y9/Y10/Y11) with per-year totals; columns are CSS grid sized by the number of half-terms in each year (6/6/5)
+- `src/components/SubTopicView.tsx` — top-level `DndContext` with `PointerSensor` (4px activation distance), `DragOverlay`, and `handleDragEnd` dispatching to the store:
+  - pool→term: `placeBlockWithSpillover` when `subject.config.autoSpillover`, else `placeBlock`
+  - term→term: `moveBlock` (no spillover, identity preserved — see [DEC-017](DECISIONS.md#dec-017))
+  - term→pool: `removeBlock`
+- `src/components/BlockEditModal.tsx` — per `SPEC.md` §4.2: lessons-claimed number input, sub-topic note display, range-in-source readout, split-badge indicator, action buttons (Split…, Recombine if `splitFrom !== null`, Remove with confirm, Cancel, Save)
+- `src/components/CustomBlockModal.tsx` — name + lessons + 6-swatch colour picker + Create
+- `src/store/useWorkspaceStore.ts` extended with `addCustomBlock` and `removeCustomBlock` (the latter also removes any placements referencing the deleted custom block)
+- `src/App.tsx` swaps in `SubTopicView` when `currentView === "sub-topic"` and a subject is active; falls back to `ViewPlaceholder` otherwise
+
+### Exit criteria check
+- [x] Drag-drop works pool↔term and term↔term — sensor at 4px to avoid accidental drags from clicks
+- [x] Spillover splits across consecutive half-terms when the target overflows (visible via the over-budget warning and the auto-tagged split badge on the resulting pieces)
+- [x] BlockEditModal with Split / Recombine / Remove / Save — Recombine button only appears when the block has a `splitFrom`
+- [x] Custom blocks: create via the `+ Custom` button, drag from the pool, place anywhere
+- [x] EoHT placements pinned to the end of each half-term cell
+- [x] Save → reload → identical state (autosave wired in Session 6; verified via build pipeline + IPC bridge from Session 5)
+- [x] `npm test` passes (146/146) and `npm run typecheck` passes
+- [x] `npm run build:renderer` succeeds (599 KB main chunk — accept for now)
+
+### Deviations from BUILD_PLAN.md
+- **`PresetMenu.tsx` + three built-in presets not implemented.** Build plan steps 9–10 list four built-in presets (blank, three-spiral, distributed-depth, single-pass-forward). Deferred — they need topic-code-aware authored layouts and aren't on the critical path to a working prototype. Stub a `src/data/presets.ts` in a follow-up session.
+- **Status bar's "Show depth" and "Buffer" toggles have no behavioural effect yet.** They mutate `subject.config` but the model code doesn't read those flags during placement counts or capacity calculations. "Auto-spillover" is the only one fully wired. Documented here so it doesn't slip the next polish pass.
+- **Difficulty dots and depth star visual on blocks omitted.** Build plan step 4 mentions them; the prototype draws three dots and a star glyph. Implemented the bare colour-band + code + name + count for the prototype. Easy to add in a polish pass — `subTopic.difficulty` and `lesson.isDepth` are already on the data model.
+- **Drag-to-pool removes the placement.** The prototype put it "back in the pool" as a discrete entity; in the new model the pool is derived from unplaced lessons, so removing the placement is the equivalent operation. Documented in [DEC-017](DECISIONS.md#dec-017).
+- **Term-to-term drag uses `moveBlock`, not spillover.** Identity-preserving choice ([DEC-017](DECISIONS.md#dec-017)).
+- **Split prompt uses `window.prompt`.** Functional but ugly. Inline number control is a polish improvement.
+
+### Decisions logged
+- [DEC-017](DECISIONS.md#dec-017) — Term→term drag uses `moveBlock` (no spillover); spillover applies only to pool→term placements
+
+### Surprises and gotchas
+- **TypeScript narrowing dies inside closure callbacks.** Inside `if (block.source.kind === "custom") { … some.find(c => c.id === block.source.customBlockId) … }`, the callback doesn't preserve the narrowing because TS can't prove `block.source` won't be reassigned by the time the callback fires. Fix: extract `const customBlockId = block.source.customBlockId;` before the callback. Got bitten twice this session.
+- **dnd-kit `PointerSensor` activation distance.** Without an `activationConstraint`, clicks on placed blocks accidentally triggered drags before reaching `onClick` (which opens the edit modal). Set `distance: 4` so 4px of movement is required before drag starts — clicks now reliably open the modal.
+- **`DragOverlay` and `dropAnimation`.** Setting `dropAnimation={null}` cuts the awkward "fly back to source" animation when a drop is rejected, since in this app every drop either lands somewhere or is a no-op.
+- **EoHT visual treatment is dashed-border + italic** to distinguish from real content. Picked at component time; not in the spec but felt right and matches the "administrative bookkeeping" framing of [DEC-009](DECISIONS.md#dec-009).
+- **Bundle size.** Vite's 500 KB chunk warning is now consistent (sheetjs + dnd-kit + react). Acceptable for a desktop Electron app where there's no network cost. Code-splitting can wait for Session 12's polish pass.
+
+### What's usable now
+Run `npm run dev`. You'll get:
+1. Empty workspace; click `+` in the header → file dialog → pick `examples/example_physics_spec.xlsx` (or any other xlsx matching SPEC §5).
+2. Default timeline with 17 half-terms appears, each with one EoHT placement at the end.
+3. Pool sidebar lists all 13 sub-topics grouped by their 5 topics; click `+ Custom` to add a custom block.
+4. Drag from pool to a half-term: places the full sub-topic (or, if it overflows and Auto-spillover is on in the status bar, splits across consecutive half-terms).
+5. Click any placed block: edit lessons, Split, Recombine (when `splitFrom` is set), or Remove.
+6. Drag between half-terms: moves the placement, keeping identity.
+7. Drag back to the pool: unplaces.
+8. Save / Save As / Open / Export buttons all work via the IPC bridge.
+9. Autosave fires on every change with a 500ms debounce; close and reopen the app, the workspace persists from localStorage.
+
+### Open questions for the user
+- None blocking. Sessions 9 (Lesson view), 10 (Objective view), 11 (Topic view), 12 (polish + presets + restore-to-import modal), 13 (Playwright E2E), 14 (electron-builder packaging) remain.
