@@ -222,3 +222,51 @@ None.
 
 ### Open questions for the user
 - None blocking. Session 4 (Excel export) is ready to start.
+
+---
+
+## Session 4 — Data model: export
+**Date:** 2026-05-15
+**Status:** Complete
+**Commit:** *(pending — see git log)*
+
+### What was built
+- `src/model/export.ts`:
+  - `exportSubjectToXlsx(subject, options?): ArrayBuffer` — produces the 5-sheet `.xlsx` per `SPEC.md` §6.1 using SheetJS
+  - `computeCoverageStats(subject): CoverageStats` — exposed separately for the UI status bar (Session 7) to use
+  - Five sheet builders (`buildCoverSheet`, `buildTopicSheet`, `buildSubTopicSheet`, `buildLessonSheet`, `buildObjectiveSheet`) and helpers (`groupByTopic`, `findTopicAndSubTopic`, `sliceLessons`, `uniqueSubTopicCodes`, `uniquePracticals`)
+  - `options.now: Date` for test-deterministic export timestamps
+- `tests/model/export.test.ts` — 19 tests across 7 groups:
+  - Workbook shape (sheet names + order)
+  - Cover sheet (subject name / file / date / summary / per-year block)
+  - `computeCoverageStats` directly (3 tests)
+  - Topic view (header, aggregation, sub-topic listing)
+  - Sub-topic view (header, split-produces-multiple-rows, EoHT exclusion, difficulty/depth/practicals)
+  - Lesson view (header, lessons within range, slice respect)
+  - Objective view (header, one row per objective)
+  - Round-trip (empty timeline → only headers; placement order preserved across half-terms)
+
+### Exit criteria check
+- [x] `exportSubjectToXlsx` works on the imported example file (verified in every test via `loadExample`)
+- [x] Tests cover all 5 sheets (each sheet has its own test group with header + content assertions)
+- [x] Generated workbook opens correctly in Excel / LibreOffice — verified *programmatically* by `XLSX.read` round-tripping the output buffer in every test. Did not perform an external manual open this session; if a regression in formatting ever surfaces, add a fixture-comparison test.
+- [x] `npm test` passes (102/102 across 5 files)
+- [x] `npm run typecheck` passes
+- [x] Coverage on `export.ts`: 99.24% lines / 85.52% branches / 100% funcs. The one uncovered line is the defensive `clampedEnd = Math.max(clampedStart, Math.min(end, …))` branch — fires only on a corrupt `lessonRange` where `end < start`, unreachable from any valid timeline.
+
+### Deviations from BUILD_PLAN.md
+- **Exposed `computeCoverageStats` as a public function.** Build plan only mentions it indirectly via "Cover sheet has correct summary stats". The UI status bar in Session 7 will want the same numbers, and a dedicated function lets it consume them without re-running the full export. Pure addition — no behavioural change.
+- **No inverse helper.** Build plan step 3 mentions an optional "inverse helper that reads the export back, useful for tests". Skipped — the tests inline `XLSX.read` directly, which is more transparent than a thin wrapper.
+
+### Decisions logged
+- [DEC-011](DECISIONS.md#dec-011) — Export excludes EoHT and custom-block placements from the four content sheets and from the Cover sheet's stats
+- [DEC-012](DECISIONS.md#dec-012) — Coverage % is lesson-based, not objective-based (Session 10's Objective view may add a complementary objective-coverage metric)
+
+### Surprises and gotchas
+- **SheetJS's `aoa_to_sheet` accepts `unknown[][]` but the workbook write path strips empty-array rows.** When a half-term has no placed blocks, the row arrays for content sheets are empty arrays (not present at all); `SheetJS` writes them out fine. Verified by the "empty timeline → only headers" round-trip test.
+- **The `lessonRange` slice semantics work for both auto-split and manual-split pieces.** A piece with `lessonRange: [3, 5)` over a 5-lesson sub-topic emits exactly two lesson rows (numbers 4 and 5 per `Lesson.number`). Tested directly.
+- **`computeCoverageStats` is now in scope for Session 7's status bar.** Worth keeping in mind: when wiring the StatusBar, import from `@/model/export` rather than duplicating the math.
+- **Coverage percent rounding choice.** Rounded to one decimal place (`Math.round(x * 1000) / 10`). E.g. 9/25 = 36.0% renders as `36%` (since `(36.0).toString() === "36"`). 100 → `100%`; 99.95 → `100%` (rounds up). Fine for v1; if precision becomes important later, switch to `.toFixed(1)`.
+
+### Open questions for the user
+- None blocking. Session 5 (workspace + persistence) is ready to start.

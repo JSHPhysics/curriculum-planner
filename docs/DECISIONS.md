@@ -351,3 +351,64 @@ There is no separate "restore the original" step.
 - `BUILD_PLAN.md` Session 3 step 3
 - `reference/sow_planner_v1.html` (`tryRecombine`)
 - `src/model/placement.ts`
+
+---
+
+## DEC-011 — Export excludes EoHT and custom-block placements from the 4 content sheets
+**Date:** 2026-05-15
+**Session:** 4
+**Status:** Accepted
+
+### Context
+`SPEC.md` §6.1's sheet column lists all reference spec content (Topic code, Sub-topic code, Lesson No., Objective text) — fields that EoHT and custom placements don't have. The spec is silent on whether to surface them in some other column or skip them entirely.
+
+### Decision
+- The four content sheets (Topic view, Sub-topic view, Lesson view, Objective view) contain only `PlacedBlock`s whose `source.kind === "sub-topic"`. EoHT and custom placements are skipped.
+- The Cover sheet's "Lessons placed" and per-year placement counts also exclude EoHT and custom placements. This matches the spec's framing of coverage as *curriculum* coverage (how much of the spec's content has been scheduled), not *time* utilisation.
+
+### Alternatives considered
+- **Include EoHT with topic code "EoHT" / sub-topic code "EoHT" in sheets 1–2.** Adds rows that don't carry curriculum content, would clutter reports for senior leadership / parents (the documented audience for the Excel export per `SPEC.md` §2.3).
+- **Add a 6th "Other placements" sheet for EoHT and custom blocks.** Adds complexity for a use case nobody has asked for. The user can see EoHT placements in the planner UI; the export is for sharing the *curriculum plan*, not the test calendar.
+
+### Consequences
+- A user exporting a fully-planned timeline including EoHT tests sees a 9-lesson placed count (sub-topic content) rather than 9 + 17 = 26. Matches the "X / 25 spec lessons placed" framing of the Cover sheet.
+- If users start wanting EoHT/test calendars in their exports, add a sixth sheet in v1.1+ rather than mixing types in existing sheets.
+
+### Related
+- `SPEC.md` §6.1, §2.3
+- `BUILD_PLAN.md` Session 4
+- `src/model/export.ts` (`buildTopicSheet`, `buildSubTopicSheet`, …, `computeCoverageStats`)
+
+---
+
+## DEC-012 — Coverage % is lesson-based, not objective-based
+**Date:** 2026-05-15
+**Session:** 4
+**Status:** Accepted
+
+### Context
+`SPEC.md` §4.4 describes a Coverage indicator for the Objective view: *"247 of 250 spec objectives mapped (3 unmapped)"* — implying objective-level coverage. `SPEC.md` §6.1 is less specific: just *"summary stats (lessons placed per year, coverage %)"*.
+
+In the current data model, every spec Objective is always nested under a spec Lesson (no detached objectives), so objective-mapping coverage is always 100%. Until the Objective view (Session 10) introduces a notion of unmapped objectives, an objective-based metric here would just mirror the lesson-based one — but with extra surface area for confusion.
+
+### Decision
+The Cover sheet's "Coverage %" is computed as:
+```
+sum(lessonsClaimed for sub-topic placements) / sum(subTopic.lessons.length for all subTopics)
+```
+rounded to 1 decimal place. Reported as e.g. `36%` or `73.5%`.
+
+Naming on the sheet: "Coverage" — deliberately ambiguous between lesson coverage and broader "how much of the spec is scheduled". The labelled metric "Lessons placed" sits directly above it, so the reader can resolve.
+
+### Alternatives considered
+- **Objective-based: count placed objectives / total objectives.** Equivalent to lesson-based in v1 (since objectives don't detach), so produces the same number with more computation. Worth revisiting in Session 10 if Objective view introduces unmapped objectives.
+- **Per-year coverage too.** Already reported as "Lessons placed / Total budget" in the per-year block — that's a *utilisation* metric, not curriculum coverage. Don't conflate.
+
+### Consequences
+- Session 10's Objective view UI may show "247 / 250 mapped" — a different metric, both legitimate. Cover sheet's number won't match if some objectives become unmapped, which is a feature: lesson coverage ≠ objective coverage in v1.1+.
+- Easy to extend: when objective detachment lands, add an "Objective coverage" line to the Cover sheet.
+
+### Related
+- `SPEC.md` §4.4, §6.1
+- `BUILD_PLAN.md` Session 4 step 2
+- `src/model/export.ts` (`computeCoverageStats`)
