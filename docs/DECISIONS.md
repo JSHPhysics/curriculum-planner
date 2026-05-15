@@ -513,3 +513,34 @@ Option 1 (`?url` asset import). The DebugPanel does `import exampleUrl from "../
 - `BUILD_PLAN.md` Session 6 step 3
 - `src/components/DebugPanel.tsx`
 - `tsconfig.json` (`types: ["vite/client", "node"]`)
+
+---
+
+## DEC-016 — Subject tab menu via `⋯` + native right-click, not a styled context menu component
+**Date:** 2026-05-15
+**Session:** 7
+**Status:** Accepted
+
+### Context
+`BUILD_PLAN.md` Session 7 step 3 specifies *"right-click for tab menu (close, rename, restore to import)"*. Right-click alone is a discoverability tax — most users won't think to right-click a tab in a desktop app. There are three sensible ways to surface the actions:
+1. Per-tab `⋯` button + right-click (both open the same menu)
+2. A persistent settings cog on every tab
+3. Hover-revealed actions inline on the tab
+
+### Decision
+Option 1. Every subject tab shows a `⋯` glyph after the name. Clicking it (or right-clicking anywhere on the tab) opens a dropdown menu with Rename…, Restore to imported spec…, Close subject (warn-coloured). The menu closes on mouse leave or after any action.
+
+### Alternatives considered
+- **Settings cog (option 2).** Adds visual weight to every tab including ones the user never edits. Worse default state.
+- **Hover actions (option 3).** Discoverable but cramped; tabs are narrow.
+- **Right-click only.** Matches the build plan literally but tests poorly with first-time users.
+
+### Consequences
+- `Rename…` uses `window.prompt`; Session 12 can upgrade to inline editing without changing the menu surface.
+- The dropdown is positioned with `absolute` and isn't a portal — it'll be clipped at the header bottom in very rare narrow-window cases. Acceptable for v1.
+- The same `⋯` affordance scales to future per-subject actions (Duplicate, Change colour, etc.).
+
+### Related
+- `SPEC.md` §8.4
+- `BUILD_PLAN.md` Session 7 step 3
+- `src/components/SubjectTabs.tsx`

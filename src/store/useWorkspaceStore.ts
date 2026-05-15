@@ -44,6 +44,9 @@ export interface WorkspaceStoreActions {
   readonly setActiveSubject: (subjectId: string | null) => void;
   readonly restoreSubjectToImport: (subjectId: string) => readonly PlacedBlock[];
   readonly renameSubject: (subjectId: string, newName: string) => void;
+  readonly updateActiveSubjectConfig: (
+    partial: Partial<Subject["config"]>
+  ) => void;
   // Placement (operates on the active subject)
   readonly placeBlock: (
     source: PlacedBlockSource,
@@ -134,6 +137,22 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set) => ({
       };
       return {
         workspace: replaceSubject(state.workspace, subjectId, updated),
+        dirty: true,
+      };
+    }),
+
+  updateActiveSubjectConfig: (partial) =>
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      const updated: Subject = {
+        ...subject,
+        config: { ...subject.config, ...partial },
+      };
+      return {
+        workspace: replaceSubject(state.workspace, id, updated),
         dirty: true,
       };
     }),

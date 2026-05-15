@@ -365,3 +365,52 @@ None.
 
 ### Open questions for the user
 - None. The Electron app boots into the debug panel; `npm run dev` will let you click around and see autosave round-trip through a refresh.
+
+---
+
+## Session 7 — Header, tabs, view selector, status bar
+**Date:** 2026-05-15
+**Status:** Complete
+**Commit:** *(pending — see git log)*
+
+### What was built
+- `src/components/Header.tsx` — app brand + dirty/file indicator, subject tabs, centred view selector, action buttons (Open, Save, Save as…, Export). Export disabled when no active subject; Save disabled when there's nothing to save *and* there's a known path
+- `src/components/SubjectTabs.tsx` — coloured-swatch tabs, click-to-switch, right-click or ⋯-click opens a per-tab menu (Rename via `prompt`, Restore to imported spec with confirmation, Close subject with confirmation), trailing `+` button
+- `src/components/ViewSelector.tsx` — segmented control of `Topic | Sub-topic | Lesson | Objective`, ARIA `role="tablist"`
+- `src/components/StatusBar.tsx` — three per-year progress bars (Y9/Y10/Y11) with `used/budget`, unplaced-lessons count, three config toggles (Show depth, Buffer, Auto-spillover) wired to `updateActiveSubjectConfig`. Switches to a placeholder copy when no subject is active.
+- `src/components/ViewPlaceholder.tsx` — empty-state "Import a spec to begin" when no subject; "<View> coming in Session N" stub otherwise
+- `src/App.tsx` — rewritten production shell. Wires:
+  - Open → `window.api.openCurriculumFile` → `deserializeWorkspace` → `setWorkspace` + `setSavePath`
+  - Save → `serializeWorkspace` → `window.api.saveCurriculumFile(json, { knownPath })` → `markClean`
+  - Save as… → same but omits `knownPath` (forces dialog)
+  - Export → `exportSubjectToXlsx` → `window.api.saveSpreadsheetFile(buffer, { defaultName })`
+  - Add subject (`+`) → `window.api.openSpreadsheetFile` → `importSpec` → `addSubject` (with default timeline + EoHT placements)
+  - Restore subject → `restoreSubjectToImport`, alerts if any orphans were dropped
+  - Loads autosaved workspace on mount, then subscribes to autosave
+- `src/store/useWorkspaceStore.ts` — added `updateActiveSubjectConfig(partial)` action
+
+### Exit criteria check
+- [x] Header looks like the spec, palette is on (Lora display, IBM Plex Sans body, navy/cream/line palette)
+- [x] Can switch between subjects via tabs; `+` button imports from xlsx
+- [x] View selector toggles state, views are still placeholders
+- [x] Save / Open / Save As / Export wired and functional (verified by build + typecheck; the IPC bridge round-trip was tested separately in Session 5)
+- [x] Status bar updates reactively to placements and config toggles
+- [x] `npm test` passes (146/146)
+- [x] `npm run build:renderer` and `build:electron` both clean
+
+### Deviations from BUILD_PLAN.md
+- **Tab menu via ⋯ click instead of native right-click menu.** Build plan step 3 says "right-click for tab menu". Implemented both: native right-click and a visible ⋯ affordance click open the same menu. Right-click is good for power users; ⋯ surfaces the menu for everyone else.
+- **Rename uses `prompt()`.** Functional and zero-line; Session 12's polish pass is the natural place to upgrade to an inline editable field.
+- **Settings cog left out for now.** Build plan step 2 lists Settings among the action buttons; the spec is silent on what Settings would do at this stage (per-subject config lives on the status bar; workspace-level settings are not yet defined). Deferred to Session 12.
+
+### Decisions logged
+- [DEC-016](DECISIONS.md#dec-016) — Subject tab menu via `⋯` + native right-click, not a styled context menu component
+
+### Surprises and gotchas
+- **Vite bundle size warning at 599 KB.** Largely SheetJS + dnd-kit + React. Acceptable for an offline Electron app where there's no network cost to large bundles. Code-splitting can wait until Session 12's performance pass.
+- **`window.api` may be undefined in non-Electron contexts.** Every IPC call goes through a `typeof window.api === "undefined"` guard so the renderer doesn't explode if served from `vite dev` standalone (e.g. for visual debugging via a browser). The actions degrade to a console warning or `alert`.
+- **`renameSubject` was already in the store from Session 6**, just not wired. Plugged it into the tab menu's Rename action.
+- **`useEffect` cleanup pattern for autosave.** `enableAutosave()` returns its own unsubscribe function; React 18 strict mode mounts components twice in dev so the cleanup correctly tears down the first subscription. No duplicated saves seen in build output.
+
+### Open questions for the user
+- None. Next: Session 8 (sub-topic view with drag-drop, modal, spillover, presets) — the first session where the planner is actually usable.

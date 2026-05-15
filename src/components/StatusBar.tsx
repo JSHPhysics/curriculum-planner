@@ -1,0 +1,95 @@
+import { computeCoverageStats } from "@/model/export";
+import type { Subject, SubjectConfig, YearId } from "@/model/types";
+
+export interface StatusBarProps {
+  readonly subject: Subject | null;
+  readonly onToggleConfig: (partial: Partial<SubjectConfig>) => void;
+}
+
+const YEARS: readonly YearId[] = ["Y9", "Y10", "Y11"];
+
+export function StatusBar({ subject, onToggleConfig }: StatusBarProps): JSX.Element {
+  if (!subject) {
+    return (
+      <div className="px-6 py-2 text-xs text-ink-fade border-b border-line bg-surface-2">
+        No subject loaded. Click + in the header to import a spec.
+      </div>
+    );
+  }
+
+  const stats = computeCoverageStats(subject);
+  const unplaced = stats.totalSpecLessons - stats.placedLessons;
+  const cfg = subject.config;
+
+  return (
+    <div className="px-6 py-2 flex items-center gap-6 border-b border-line bg-surface-2 text-xs">
+      <div className="flex items-center gap-4">
+        {YEARS.map((year) => {
+          const slot = stats.perYear.get(year) ?? { placed: 0, budget: 0 };
+          const pct = slot.budget === 0 ? 0 : Math.min(100, (slot.placed / slot.budget) * 100);
+          const over = slot.placed > slot.budget;
+          return (
+            <div key={year} className="flex items-center gap-2">
+              <span className="font-mono text-ink-dim w-7">{year}</span>
+              <div className="relative w-32 h-2 bg-line rounded overflow-hidden">
+                <div
+                  className={"absolute inset-y-0 left-0 " + (over ? "bg-warn" : "bg-navy")}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <span className={"font-mono " + (over ? "text-warn font-semibold" : "text-ink-dim")}>
+                {slot.placed} / {slot.budget}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="text-ink-dim">
+        <span className="font-mono">{unplaced}</span> unplaced lesson{unplaced === 1 ? "" : "s"}
+      </div>
+
+      <div className="ml-auto flex items-center gap-3">
+        <ConfigToggle
+          label="Show depth"
+          title="Include the ★ depth-extension lessons in placement counts"
+          checked={cfg.includeDepth}
+          onChange={(v) => onToggleConfig({ includeDepth: v })}
+        />
+        <ConfigToggle
+          label="Buffer"
+          title="Apply a 10% lost-lesson buffer to half-term capacities"
+          checked={cfg.lostLessonBuffer}
+          onChange={(v) => onToggleConfig({ lostLessonBuffer: v })}
+        />
+        <ConfigToggle
+          label="Auto-spillover"
+          title="When dropping a block into a full half-term, distribute it across the next ones"
+          checked={cfg.autoSpillover}
+          onChange={(v) => onToggleConfig({ autoSpillover: v })}
+        />
+      </div>
+    </div>
+  );
+}
+
+interface ConfigToggleProps {
+  readonly label: string;
+  readonly title: string;
+  readonly checked: boolean;
+  readonly onChange: (next: boolean) => void;
+}
+
+function ConfigToggle({ label, title, checked, onChange }: ConfigToggleProps): JSX.Element {
+  return (
+    <label className="flex items-center gap-1.5 cursor-pointer" title={title}>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="accent-navy"
+      />
+      <span className="text-ink-dim">{label}</span>
+    </label>
+  );
+}
