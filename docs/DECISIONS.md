@@ -576,3 +576,68 @@ If the user wants to split an existing placement to fit, they use the modal's Sp
 - `BUILD_PLAN.md` Session 8 step 6
 - `reference/sow_planner_v1.html` (`onDrop`, `spilloverPlace`)
 - `src/components/SubTopicView.tsx` (`handleDragEnd`)
+
+---
+
+## DEC-018 — Example xlsx lives in `public/` and is loaded via `fetch` from the empty-state UI
+**Date:** 2026-05-15
+**Session:** Post-8 (CI/Pages setup)
+**Status:** Accepted
+
+### Context
+The Session 6 DebugPanel imported the example via Vite's `?url` (`import url from "…/example.xlsx?url"`). When Session 7 replaced the DebugPanel as the default route, the import became unreachable from the entry tree, Vite's tree-shaking dropped it, and the xlsx stopped being bundled. The bug surfaced when preparing the GitHub Pages deploy: the renderer hosted in a browser had no way to load the example because there was no IPC bridge and no bundled asset to fetch.
+
+### Decision
+- Place the example file at `public/example_physics_spec.xlsx`. Vite's `publicDir` copies it verbatim to `dist/example_physics_spec.xlsx` on every build, regardless of import-graph reachability.
+- The empty-state view (`ViewPlaceholder` / `EmptyWorkspace`) renders a "Load example file" button that does `fetch(new URL("./example_physics_spec.xlsx", document.baseURI))` → `importSpec` → `addSubject`. Works under both `file://` (Electron) and `https://…/curriculum-planner/` (Pages).
+- The empty-state also detects `typeof window.api === "undefined"` and shows a short note that file dialogs are Electron-only — so the Pages deploy is honest about its constraints.
+- `examples/example_physics_spec.xlsx` stays as the canonical fixture for tests. The `public/` copy is a static-serving duplicate; if the example schema changes, regenerate both via `examples/build_example.py`.
+
+### Alternatives considered
+- **Re-introduce the `?url` import somewhere always-rendered.** Works, but the bundled URL has a content hash and isn't a stable URL — bad for screenshots and external links.
+- **Lazy-import the DebugPanel and keep the `?url` import.** Adds plumbing for a debug-only artefact.
+- **Always serve from a CDN.** No: the spec is offline-only (`SPEC.md` §1.1).
+
+### Consequences
+- The same renderer build artefact works as both the Electron renderer and the public Pages prototype.
+- The example is now a duplicated file (one in `examples/`, one in `public/`). Drift risk: low — both come from `build_example.py` and the test suite would catch a behavioural difference.
+- Future "Load template" or "Load fully-placed example" buttons follow the same pattern.
+
+### Related
+- `BUILD_PLAN.md` Session 6 step 3
+- `vite.config.ts` (`base: "./"`)
+- `public/example_physics_spec.xlsx`
+- `src/components/ViewPlaceholder.tsx` (`EmptyWorkspace`)
+- `.github/workflows/pages.yml`
+
+---
+
+## DEC-019 — CI + Pages workflows; no installer build in CI yet
+**Date:** 2026-05-15
+**Session:** Post-8 (CI/Pages setup)
+**Status:** Accepted
+
+### Context
+The user wanted GitHub Actions configured to deploy a browser-viewable prototype. Three workflow categories were available: continuous integration (typecheck + tests), GitHub Pages renderer deploy, and Electron installer build on tag push. The repo's Pages source was already set to "GitHub Actions".
+
+### Decision
+Two workflows:
+1. **`.github/workflows/ci.yml`** — runs on every push to `main` and every pull request. `npm ci`, then typecheck, unit tests, and renderer build. `ELECTRON_SKIP_BINARY_DOWNLOAD=1` to skip the ~80 MB Electron download (we never run Electron in CI).
+2. **`.github/workflows/pages.yml`** — runs on push to `main` and `workflow_dispatch`. Builds the renderer and deploys `dist/` to Pages via `actions/upload-pages-artifact@v3` + `actions/deploy-pages@v4`. `concurrency: { group: pages, cancel-in-progress: false }` so rapid pushes don't kill a deploy mid-flight.
+
+No installer build workflow yet — `electron-builder` lives in Session 14 and is the natural home for Windows/macOS installer artefacts attached to GitHub Releases.
+
+### Alternatives considered
+- **Single workflow with multiple jobs.** Two files is clearer; CI gates merges to `main`, Pages is the deploy artefact. Different lifecycles, different triggers.
+- **Build installers on tag push now.** Premature — `electron-builder` config isn't done (Session 14), and macOS code signing needs setup we don't have.
+- **Cancel in-progress Pages deploys.** Rejected: cancelling a mid-flight deploy can leave the site half-broken if `actions/deploy-pages@v4` is part-way through atomic upload. Better to queue.
+
+### Consequences
+- Every push to `main` runs both workflows. CI must pass for the build to be useful, but Pages will still attempt to deploy even if CI fails (separate workflows, no dependency). Acceptable for now — Pages failures are loud in the Actions UI.
+- A future improvement: gate the Pages workflow on CI passing via a `workflow_run` trigger. Skipped for v1 simplicity.
+
+### Related
+- `BUILD_PLAN.md` Session 14 (where installer CI belongs)
+- `.github/workflows/ci.yml`
+- `.github/workflows/pages.yml`
+- [DEC-018](#dec-018)
