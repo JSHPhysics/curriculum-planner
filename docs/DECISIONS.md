@@ -254,3 +254,100 @@ At import time:
 - `SPEC.md` §1.1, §3.1
 - `BUILD_PLAN.md` Session 2, Session 3, Session 6
 - `src/model/import.ts`
+
+---
+
+## DEC-008 — Placement function signatures take `PlacedBlockSource` + `lessonsClaimed` rather than a pool `blockId`
+**Date:** 2026-05-15
+**Session:** 3
+**Status:** Accepted
+
+### Context
+`BUILD_PLAN.md` Session 3 step 2 lists `placeBlock(timeline, blockId, termId)` and `placeWithSpillover(timeline, subTopic, lessonsClaimed, termId)`. The prototype maintains a separate `state.blocks` map keyed by id (a pool of unplaced blocks). The new data model (per [DEC-007](#dec-007) and `SPEC.md` §3) has no pool storage — `PlacedBlock`s live inside `HalfTerm.placedBlocks`. The "pool" is a derived UI concept: sub-topics whose lessons aren't fully covered by `PlacedBlock`s.
+
+### Decision
+Placement functions accept the *source descriptor* directly, not a pre-existing block id:
+- `placeBlock(timeline, source: PlacedBlockSource, termId, lessonsClaimed, options?): Timeline` — creates a fresh `PlacedBlock` and appends it to the term
+- `placeBlockWithSpillover(timeline, source: PlacedBlockSource, lessonsClaimed, termId, options?): Timeline` — same but auto-splits across consecutive half-terms when the target overflows
+- `moveBlock(timeline, placedBlockId, toTermId): Timeline` covers "I have an existing placed block, move it" (no spillover — the user moved a block manually, they wanted *that term*)
+- `splitBlock`, `recombineBlock`, `removeBlock`, `editBlockLessons` all take a `placedBlockId` since they operate on existing placements
+
+### Alternatives considered
+- **Add a pool collection to `Timeline`.** Closer to the prototype's mental model but contradicts `SPEC.md` §3.1's data shape. Would require a third storage location for blocks (term-placed, pool, custom).
+- **Mint a `PlacedBlock` upstream and pass to a `placeBlock(timeline, block, termId)`.** Removes the source/lessonsClaimed pair but pushes id-generation and split-state defaults onto every caller. Less ergonomic, more error-prone.
+
+### Consequences
+- The UI layer (Session 7+) will compute "pool" as `spec.topics.subTopics` minus `timeline.halfTerms[].placedBlocks` grouped by `source.subTopicCode`. Each placement operation is a single function call rather than a "remove from pool, add to term" sequence.
+- Tests can construct timelines purely by chaining placement calls without any pool-bootstrapping step.
+
+### Related
+- `SPEC.md` §3.1, §3.6
+- `BUILD_PLAN.md` Session 3 step 2
+- `src/model/placement.ts`
+
+---
+
+## DEC-009 — `PlacedBlockSource.kind = "eoht"` is its own kind, not a `CustomBlock`
+**Date:** 2026-05-15
+**Session:** 3
+**Status:** Accepted
+
+### Context
+The prototype models end-of-half-term tests as `CustomBlock`s with an `isEoHT: true` flag, one per half-term. `BUILD_PLAN.md` Session 3 step 1.2 specifies `createEoHTBlocks(timeline): CustomBlock[]` returning the custom-block list. But the data model from [Session 1](#dec-004) already has `PlacedBlockSource = "sub-topic" | "custom" | "eoht"` — EoHT was given its own kind.
+
+### Decision
+- `createEoHTBlocks(timeline, options?): Timeline` — returns the new timeline with an EoHT `PlacedBlock` (`source: { kind: "eoht" }`) appended to every half-term. Function signature deviates from the build plan's `CustomBlock[]` return type, but matches the existing type model.
+- EoHT placements carry no backing `CustomBlock`. Display text ("Y9 Aut 1 test") is derived at render time from the parent `HalfTerm.year + label`.
+- The `options.lessonsPerEoHT` parameter (default 1) supports `SPEC.md` §1.1's "Configurable end-of-half-term test defaults" without re-running the function.
+
+### Alternatives considered
+- **Match the build plan literally — return `CustomBlock[]` with `isEoHT: true`.** Would require separate placement logic, contradict the existing `PlacedBlockSource.kind = "eoht"` from Session 1, and store the EoHT display name on every block (duplication).
+- **Drop the `"eoht"` kind from `PlacedBlockSource` and use only `"custom"`.** Possible but reverses a Session 1 decision; the discriminator is cheap.
+
+### Consequences
+- The UI knows it's looking at an EoHT block via `source.kind === "eoht"` (no flag lookup on a separate CustomBlock).
+- EoHT name changes (e.g. "Y10 mid-term") would require either a per-half-term override (via `userEdits.title`) or a different model. Acceptable for v1: prototype only supports the default name pattern.
+
+### Related
+- `SPEC.md` §1.1
+- `BUILD_PLAN.md` Session 3 step 1.2
+- [DEC-004](#dec-004) (types established in Session 1)
+- `src/model/types.ts`, `src/model/timeline.ts`
+
+---
+
+## DEC-010 — Auto-recombine is implicit, not an explicit pass
+**Date:** 2026-05-15
+**Session:** 3
+**Status:** Accepted
+
+### Context
+The prototype's `tryRecombine()` ran after every drop event. It iterated every `splitOrigin` group, and if all pieces of an auto-split block had returned to the pool AND none had been edited (none demoted to `splitType: 'manual'`), it restored the original block in the pool. This was needed because the prototype tracked blocks as live entities in `state.blocks` independently of placement.
+
+In the new model, a `PlacedBlock` *is* a placement — removing it from a `HalfTerm` removes it entirely. The "pool" is computed from the spec minus current placements. So:
+- Auto-split into 3 pieces + remove all 3 = the sub-topic is automatically unplaced (no pieces in timeline)
+- Auto-split into 3 + remove 2 of 3 = the third piece stays as a placed block with the original's `subTopicCode` and a partial `lessonRange`
+
+There is no separate "restore the original" step.
+
+### Decision
+- No `tryRecombine` function or implicit pass. State of the timeline is what it is at any moment.
+- Explicit recombine remains: `recombineBlock(timeline, placedBlockId)` finds every `PlacedBlock` whose `splitFrom` equals this one's group key, removes them all. Triggered by the user via the modal (Session 8).
+- The prototype's "edited auto → demoted" behaviour is preserved in `editBlockLessons`: if the edited block has `splitType: "auto"`, the edit demotes it to `"manual"`. This serves the same purpose (it's a record of user intent) even though no auto-recombine pass consumes it. Future code (e.g. a "smart recombine" feature) can still distinguish edited pieces.
+
+### Alternatives considered
+- **Add a `tryAutoRecombine(timeline): Timeline` function that callers invoke after operations.** Reintroduces the cognitive overhead of "did I forget to call it?" with no functional benefit in the new model.
+- **Drop the `splitType` field entirely.** Loses information that future features (smart recombine, history) might want. Keep it as user-intent metadata.
+
+### Consequences
+- Tests for the three prototype scenarios are simpler:
+  - "auto-split → all to pool → recombine" reduces to "remove every piece → assert no piece remains"
+  - "manual split → persist" verifies pieces still have `splitType: "manual"` after partial removal
+  - "edited auto → demoted" pins the demotion behaviour in `editBlockLessons`
+- The UI's "pool" view is the authority on whether a sub-topic is unplaced.
+
+### Related
+- `SPEC.md` §3.6
+- `BUILD_PLAN.md` Session 3 step 3
+- `reference/sow_planner_v1.html` (`tryRecombine`)
+- `src/model/placement.ts`

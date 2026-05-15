@@ -170,3 +170,55 @@ None.
 
 ### Open questions for the user
 - None blocking. Session 3 (timeline + placement) is ready to start.
+
+---
+
+## Session 3 — Data model: timeline and placement
+**Date:** 2026-05-15
+**Status:** Complete
+**Commit:** *(pending — see git log)*
+
+### What was built
+- `src/model/timeline.ts`:
+  - `createDefaultTimeline()` — 17 half-terms with prototype-derived ids, labels, dates, and budgets (Y9: 6 half-terms, Y10: 6, Y11: 5 — Y11 has no Sum 2)
+  - `createEoHTBlocks(timeline, options?)` — adds an EoHT `PlacedBlock` (`source.kind === "eoht"`) to every half-term. Configurable `lessonsPerEoHT` (default 1) per `SPEC.md` §1.1's "Configurable end-of-half-term test defaults". Returns the new timeline (see [DEC-009](DECISIONS.md#dec-009))
+  - `halfTermUsed`, `halfTermRoom` query helpers
+- `src/model/placement.ts`:
+  - `placeBlock(timeline, source, termId, lessonsClaimed, options?)` — creates and places a fresh `PlacedBlock`
+  - `placeBlockWithSpillover(timeline, source, lessonsClaimed, termId, options?)` — auto-distributes across consecutive half-terms when the target overflows; mirrors the prototype's `spilloverPlace` algorithm (skip zero-room terms, overflow to last placement). Pieces marked `splitType: "auto"` with shared `splitFrom`
+  - `splitBlock(timeline, placedBlockId, atLessonIdx, options?)` — manual split at a lesson position; both pieces `splitType: "manual"`, sharing `splitFrom` chain (own id if first split, parent's `splitFrom` otherwise)
+  - `recombineBlock(timeline, placedBlockId)` — removes every PlacedBlock sharing the same `splitFrom` group key
+  - `removeBlock(timeline, placedBlockId)` — removes a single placement; no-op on unknown id
+  - `moveBlock(timeline, placedBlockId, toTermId)` — relocates a placement without spillover
+  - `editBlockLessons(timeline, placedBlockId, newLessons)` — updates `lessonsClaimed` and `lessonRange`; demotes `splitType: "auto"` → `"manual"` per prototype semantics (see [DEC-010](DECISIONS.md#dec-010))
+  - `findPlacedBlock(timeline, placedBlockId)` — search helper
+- `tests/model/timeline.test.ts` — 11 tests covering structure, EoHT placement, and the room/used helpers
+- `tests/model/placement.test.ts` — 31 tests grouped by function plus 4 prototype-scenario tests (auto-split/remove, manual-split persistence, auto→manual demotion, round-trip place/spillover/recombine)
+
+### Exit criteria check
+- [x] All placement operations are pure functions: `(Timeline, args) => Timeline` (no mutation; verified by an explicit input-not-mutated test in `placeBlock`)
+- [x] Every prototype scenario has a corresponding test (auto-split→all-to-pool: `prototype scenarios > auto-split → remove every piece → sub-topic fully unplaced`; manual-split→persist: `manual split → pieces persist (no implicit recombine)`; edited-auto→demoted: `edited auto → demoted (post-edit, recombine still works via splitFrom)`)
+- [x] Round-trip: `place → spillover → recombine` returns each half-term's used count to baseline (`round-trip: place + spillover + recombine leaves the timeline back to baseline`)
+- [x] `npm test` passes (83/83 across 4 files)
+- [x] `npm run typecheck` passes
+- [x] Coverage: timeline.ts 95.77% lines / 90% branches; placement.ts 93.03% / 88.50%. Gaps are defensive throws (unreachable error paths).
+
+### Deviations from BUILD_PLAN.md
+- **`createEoHTBlocks` return type.** Build plan says `CustomBlock[]`; this implementation returns `Timeline`. Logged as [DEC-009](DECISIONS.md#dec-009) — the existing data model has `PlacedBlockSource.kind = "eoht"` as its own kind (decided in Session 1), so EoHT placements don't need backing `CustomBlock` objects.
+- **`placeBlock` signature.** Build plan says `placeBlock(timeline, blockId, termId)`; this implementation takes `(timeline, source, termId, lessonsClaimed, options?)`. Logged as [DEC-008](DECISIONS.md#dec-008) — the new data model has no pool storage, so there's no pre-existing `blockId` to reference. Placement minted fresh from a source descriptor instead.
+- **No `tryAutoRecombine` function.** Build plan implicitly tracks the prototype's auto-recombine pass; this implementation doesn't need one. Logged as [DEC-010](DECISIONS.md#dec-010) — in the new model, "all pieces returned to pool" is equivalent to "all pieces removed from the timeline", which is already the trivial post-condition of removing them.
+- **Added `editBlockLessons` not on the build plan list.** Needed to mechanically support the "edited auto → demoted" prototype scenario; the function also serves Session 8's modal save flow.
+
+### Decisions logged
+- [DEC-008](DECISIONS.md#dec-008) — Placement function signatures take `PlacedBlockSource` + `lessonsClaimed` rather than a pool `blockId`
+- [DEC-009](DECISIONS.md#dec-009) — `PlacedBlockSource.kind = "eoht"` is its own kind, not a `CustomBlock`
+- [DEC-010](DECISIONS.md#dec-010) — Auto-recombine is implicit, not an explicit pass
+
+### Surprises and gotchas
+- **Prototype's `state.blocks` had no analogue in the new model.** Spent time mapping the prototype's `splitOrigin`/`splitType`/`originalLessons` triple onto my model's `splitFrom`/`splitType` pair. Net result: don't need `originalLessons` because the source's full lesson count is recoverable from the spec, and "restore" isn't needed because "unplaced" is automatic.
+- **`lessonRange` vs. `lessonsClaimed` coupling on edit.** `lessonRange` was designed for Lesson view (Session 9) to know which specific spec lessons a placement covers. When `editBlockLessons` changes the count, it re-anchors `lessonRange` to `[start, start + newLessons]` — preserves the slice's starting position. Not a perfect semantic for split pieces (a shrunk piece doesn't reclaim its "missing" lessons from a sibling), but it's coherent for v1 and matches the prototype's "you decided 4 lessons, now you say 3, OK".
+- **EoHT name display deferred.** EoHT `PlacedBlock`s have no `name` field. Display name (`"Y9 Aut 1 test"`) is recomputed at render time from the parent `HalfTerm`'s `year + label`. If the user wants a custom name they'd use `userEdits.title` (Session 8).
+- **Round-trip test caveat.** Round-trip is *by used-count per half-term*, not bit-identical state. The recombined block doesn't return as a `PlacedBlock` anywhere (it's "in the pool"), which matches the prototype. If a future test wants stricter equality, it should normalise the baseline by removing the placement too.
+
+### Open questions for the user
+- None blocking. Session 4 (Excel export) is ready to start.
