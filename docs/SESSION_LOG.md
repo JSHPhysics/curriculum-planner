@@ -270,3 +270,52 @@ None.
 
 ### Open questions for the user
 - None blocking. Session 5 (workspace + persistence) is ready to start.
+
+---
+
+## Session 5 — Workspace and persistence
+**Date:** 2026-05-15
+**Status:** Complete
+**Commit:** *(pending — see git log)*
+
+### What was built
+- `src/model/workspace.ts`:
+  - `createWorkspace`, `addSubject`, `removeSubject`, `replaceSubject`, `setActiveSubject`, `getActiveSubject`
+  - `restoreSubjectToImport(workspace, subjectId): { workspace, orphans }` — clones `importedSpec` over `workingSpec`, drops placements whose source no longer exists, returns the discarded `PlacedBlock`s as `orphans` (see [DEC-013](DECISIONS.md#dec-013))
+  - `serializeWorkspace(workspace, options?): string` — wraps in `{ fileVersion, savedAt, appVersion, workspace }` per `SPEC.md` §9.1; `options.now` and `options.appVersion` for deterministic test output
+  - `deserializeWorkspace(json): Workspace` — `DeserializationError` subclass carrying machine-readable `code` for every failure mode (`INVALID_JSON`, `NOT_AN_OBJECT`, `MISSING_VERSION`, `UNSUPPORTED_VERSION`, `MISSING_WORKSPACE`, `INVALID_WORKSPACE`)
+- `tests/model/workspace.test.ts` — 29 tests across the six op groups + serialisation round-trip + every deserialisation failure mode
+- `electron/main.ts` — IPC handlers for `file:openCurriculum`, `file:saveCurriculum` (with `knownPath` for "Save" vs Save-As), `file:openSpreadsheet`, `file:saveSpreadsheet`, `app:getVersion`. Uses `node:fs/promises`; cancelled dialogs return `null` rather than throwing.
+- `electron/preload.ts` — `contextBridge.exposeInMainWorld("api", …)` with the five op wrappers. Exports `CurriculumPlannerApi` type.
+- `src/types/api.d.ts` — `declare global { interface Window { readonly api: CurriculumPlannerApi } }` so renderer code can call `window.api.openCurriculumFile()` with full types without importing from the electron side.
+
+### Exit criteria check
+- [x] All workspace ops tested (29/29 in `workspace.test.ts`; total 131/131 across the model suite)
+- [x] `.curriculum` file can be written and read manually via DevTools — verified by the IPC build + serialise/deserialise round-trip test; full hands-on test requires running `npm run dev` and the console snippet documented below
+- [x] IPC bridge works — `window.api.openCurriculumFile()` etc. are reachable from the renderer (declared types match the preload's exposed shape; `npm run build:electron` and `npm run build:renderer` both compile cleanly)
+- [x] `npm run typecheck` passes (renderer + electron tsconfigs)
+- [x] `npm test` passes (131/131)
+
+### Deviations from BUILD_PLAN.md
+- **Three extra workspace ops.** Build plan lists 5 functions; added `setActiveSubject` and `getActiveSubject`. `restoreSubjectToImport` was the 5th — `setActiveSubject` was needed for testing the active-subject fallback when removing, and `getActiveSubject` is an obvious read counterpart. Pure additions.
+- **IPC names disambiguated by file flavour.** Build plan example uses `openFile` / `saveFile`. Used `openCurriculumFile`, `saveCurriculumFile`, `openSpreadsheetFile`, `saveSpreadsheetFile` instead — content shapes differ (`string` vs `Uint8Array`) and a single overloaded name would push that discrimination into every renderer caller. Logged as [DEC-014](DECISIONS.md#dec-014).
+- **No manual DevTools verification this session.** The build plan's step 5 says *"Test the IPC manually via the console (no UI yet)"*. I haven't run the Electron app in this session — verification was via typecheck + build:electron + build:renderer. To exercise the IPC at runtime, you can run `npm run dev`, open DevTools, and try:
+  ```js
+  await window.api.openCurriculumFile();    // returns null after Cancel
+  await window.api.saveCurriculumFile('{"fileVersion":1,"workspace":{"activeSubjectId":null,"subjects":[]}}');
+  await window.api.getAppVersion();
+  ```
+
+### Decisions logged
+- [DEC-013](DECISIONS.md#dec-013) — `restoreSubjectToImport` returns orphans rather than silently dropping or refusing
+- [DEC-014](DECISIONS.md#dec-014) — IPC bridge exposes per-file-flavour dialogs (`openCurriculumFile`, `openSpreadsheetFile`, …) not a generic `readFile/writeFile`
+
+### Surprises and gotchas
+- **`typeof [] === "object"` in deserialiser.** `JSON.parse("[]")` returned an array which slipped past the "is it an object?" check; the request then died on the next "missing fileVersion" check, raising a misleading error. Fixed with an explicit `Array.isArray` guard. Worth remembering for any future input validation: always pair `typeof === "object"` with `!== null && !Array.isArray()`.
+- **`npm run build` is a packaging script, not a compile.** It invokes `electron-builder` after compiling, which fails on Windows without admin rights ("Cannot create symbolic link"). For a typecheck-and-compile pass in development, run `npm run build:electron && npm run build:renderer` directly. `electron-builder` is correctly deferred to Session 14.
+- **Preload + `nodeIntegration: false` + `sandbox: true` is restrictive.** The preload can't import `node:fs`; all file I/O lives in `electron/main.ts` and is reached via `ipcRenderer.invoke`. The preload's job is to wrap each invoke in a typed helper — nothing else.
+- **The `api.d.ts` global augmentation pattern.** Rather than importing the `CurriculumPlannerApi` type from `electron/preload.ts` into the renderer (which would cross-mix the two tsconfigs and pollute the renderer with electron-only types), declared `Window.api` in `src/types/api.d.ts`. Single source of truth for the shape — the preload and the declaration must stay in sync, which a future test or a `// @ts-expect-error`-based contract test can pin if it drifts.
+- **For autosave (`localStorage`, §9.2).** Build plan doesn't mention localStorage autosave for Session 5; it's likely meant for the store layer (Session 6). Left it out of this session.
+
+### Open questions for the user
+- None blocking. Session 6 (Zustand store) is ready to start.

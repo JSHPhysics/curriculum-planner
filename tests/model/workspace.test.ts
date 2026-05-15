@@ -1,0 +1,321 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+import { importSpec } from "@/model/import";
+import { placeBlock, placeBlockWithSpillover } from "@/model/placement";
+import { createDefaultTimeline } from "@/model/timeline";
+import type { Subject } from "@/model/types";
+import {
+  APP_VERSION,
+  DeserializationError,
+  FILE_VERSION,
+  addSubject,
+  createWorkspace,
+  deserializeWorkspace,
+  getActiveSubject,
+  removeSubject,
+  replaceSubject,
+  restoreSubjectToImport,
+  serializeWorkspace,
+  setActiveSubject,
+} from "@/model/workspace";
+
+function counterIdGen(): () => string {
+  let n = 0;
+  return () => `id-${++n}`;
+}
+
+function loadExampleSubject(id: string): Subject {
+  const path = resolve(__dirname, "../../examples/example_physics_spec.xlsx");
+  const buf = readFileSync(path);
+  const ab = new Uint8Array(buf).buffer;
+  const r = importSpec(ab, {
+    sourceFilename: "example_physics_spec.xlsx",
+    subjectName: "Physics",
+    idGen: counterIdGen(),
+  });
+  if (!r.ok) throw new Error("import failed");
+  return {
+    ...r.subject,
+    id,
+    timeline: createDefaultTimeline(),
+  };
+}
+
+describe("createWorkspace", () => {
+  it("returns an empty workspace", () => {
+    const ws = createWorkspace();
+    expect(ws.subjects).toEqual([]);
+    expect(ws.activeSubjectId).toBeNull();
+  });
+});
+
+describe("addSubject", () => {
+  it("appends the subject and sets it active when the workspace was empty", () => {
+    let ws = createWorkspace();
+    const s = loadExampleSubject("subj-1");
+    ws = addSubject(ws, s);
+    expect(ws.subjects).toHaveLength(1);
+    expect(ws.activeSubjectId).toBe("subj-1");
+  });
+
+  it("leaves activeSubjectId untouched when adding a second subject", () => {
+    let ws = createWorkspace();
+    ws = addSubject(ws, loadExampleSubject("subj-1"));
+    ws = addSubject(ws, { ...loadExampleSubject("subj-2"), id: "subj-2" });
+    expect(ws.activeSubjectId).toBe("subj-1");
+    expect(ws.subjects).toHaveLength(2);
+  });
+
+  it("throws on duplicate id", () => {
+    let ws = createWorkspace();
+    ws = addSubject(ws, loadExampleSubject("subj-1"));
+    expect(() => addSubject(ws, loadExampleSubject("subj-1"))).toThrow();
+  });
+});
+
+describe("removeSubject", () => {
+  it("removes the subject and clears activeSubjectId when removing the active one", () => {
+    let ws = createWorkspace();
+    ws = addSubject(ws, loadExampleSubject("subj-1"));
+    ws = removeSubject(ws, "subj-1");
+    expect(ws.subjects).toHaveLength(0);
+    expect(ws.activeSubjectId).toBeNull();
+  });
+
+  it("falls back to the first remaining subject when the active one is removed", () => {
+    let ws = createWorkspace();
+    ws = addSubject(ws, loadExampleSubject("subj-1"));
+    ws = addSubject(ws, { ...loadExampleSubject("subj-2"), id: "subj-2" });
+    ws = setActiveSubject(ws, "subj-2");
+    ws = removeSubject(ws, "subj-2");
+    expect(ws.activeSubjectId).toBe("subj-1");
+  });
+
+  it("is a no-op when the id is not present", () => {
+    let ws = createWorkspace();
+    ws = addSubject(ws, loadExampleSubject("subj-1"));
+    const before = ws;
+    ws = removeSubject(ws, "ghost");
+    expect(ws).toBe(before);
+  });
+});
+
+describe("replaceSubject", () => {
+  it("replaces the subject in place", () => {
+    let ws = createWorkspace();
+    const s1 = loadExampleSubject("subj-1");
+    ws = addSubject(ws, s1);
+    const renamed: Subject = { ...s1, meta: { ...s1.meta, name: "Renamed" } };
+    ws = replaceSubject(ws, "subj-1", renamed);
+    expect(ws.subjects[0]?.meta.name).toBe("Renamed");
+  });
+
+  it("throws on unknown id", () => {
+    let ws = createWorkspace();
+    ws = addSubject(ws, loadExampleSubject("subj-1"));
+    expect(() =>
+      replaceSubject(ws, "ghost", loadExampleSubject("subj-1"))
+    ).toThrow();
+  });
+
+  it("throws when the new subject's id does not match", () => {
+    let ws = createWorkspace();
+    ws = addSubject(ws, loadExampleSubject("subj-1"));
+    const wrongId = { ...loadExampleSubject("subj-1"), id: "subj-2" };
+    expect(() => replaceSubject(ws, "subj-1", wrongId)).toThrow();
+  });
+});
+
+describe("setActiveSubject and getActiveSubject", () => {
+  it("switches the active subject and reads it back", () => {
+    let ws = createWorkspace();
+    ws = addSubject(ws, loadExampleSubject("subj-1"));
+    ws = addSubject(ws, { ...loadExampleSubject("subj-2"), id: "subj-2" });
+    ws = setActiveSubject(ws, "subj-2");
+    expect(getActiveSubject(ws)?.id).toBe("subj-2");
+  });
+
+  it("can clear the active subject with null", () => {
+    let ws = createWorkspace();
+    ws = addSubject(ws, loadExampleSubject("subj-1"));
+    ws = setActiveSubject(ws, null);
+    expect(getActiveSubject(ws)).toBeNull();
+  });
+
+  it("throws on unknown subject id", () => {
+    let ws = createWorkspace();
+    ws = addSubject(ws, loadExampleSubject("subj-1"));
+    expect(() => setActiveSubject(ws, "ghost")).toThrow();
+  });
+});
+
+describe("restoreSubjectToImport", () => {
+  it("resets workingSpec to a clone of importedSpec (independent object)", () => {
+    let ws = createWorkspace();
+    const s = loadExampleSubject("subj-1");
+    ws = addSubject(ws, s);
+    const result = restoreSubjectToImport(ws, "subj-1");
+    const after = result.workspace.subjects[0]!;
+    expect(after.workingSpec).toEqual(after.importedSpec);
+    expect(after.workingSpec).not.toBe(after.importedSpec);
+  });
+
+  it("preserves placements whose sub-topic still exists", () => {
+    let ws = createWorkspace();
+    let s = loadExampleSubject("subj-1");
+    let tl = s.timeline;
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 2, { idGen: counterIdGen() });
+    s = { ...s, timeline: tl };
+    ws = addSubject(ws, s);
+    const result = restoreSubjectToImport(ws, "subj-1");
+    const placed = result.workspace.subjects[0]?.timeline.halfTerms.find((h) => h.id === "Y9-A1")?.placedBlocks ?? [];
+    expect(placed).toHaveLength(1);
+    expect(result.orphans).toHaveLength(0);
+  });
+
+  it("removes placements whose sub-topic no longer exists in importedSpec and reports them as orphans", () => {
+    let ws = createWorkspace();
+    let s = loadExampleSubject("subj-1");
+    let tl = s.timeline;
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T99z" }, "Y9-A1", 3, { idGen: counterIdGen() });
+    s = { ...s, timeline: tl };
+    ws = addSubject(ws, s);
+    const result = restoreSubjectToImport(ws, "subj-1");
+    expect(result.orphans).toHaveLength(1);
+    expect(result.orphans[0]?.source).toEqual({ kind: "sub-topic", subTopicCode: "T99z" });
+    const placed = result.workspace.subjects[0]?.timeline.halfTerms.find((h) => h.id === "Y9-A1")?.placedBlocks ?? [];
+    expect(placed).toHaveLength(0);
+  });
+
+  it("preserves EoHT placements as always valid", () => {
+    let ws = createWorkspace();
+    let s = loadExampleSubject("subj-1");
+    let tl = s.timeline;
+    tl = placeBlock(tl, { kind: "eoht" }, "Y9-A1", 1, { idGen: counterIdGen() });
+    s = { ...s, timeline: tl };
+    ws = addSubject(ws, s);
+    const result = restoreSubjectToImport(ws, "subj-1");
+    const eohtPlacements = result.workspace.subjects[0]?.timeline.halfTerms
+      .flatMap((h) => h.placedBlocks)
+      .filter((p) => p.source.kind === "eoht");
+    expect(eohtPlacements).toHaveLength(1);
+    expect(result.orphans).toHaveLength(0);
+  });
+
+  it("orphans custom-block placements whose customBlockId is missing", () => {
+    let ws = createWorkspace();
+    let s = loadExampleSubject("subj-1");
+    let tl = s.timeline;
+    tl = placeBlock(tl, { kind: "custom", customBlockId: "missing-cb" }, "Y9-A1", 1, { idGen: counterIdGen() });
+    s = { ...s, timeline: tl };
+    ws = addSubject(ws, s);
+    const result = restoreSubjectToImport(ws, "subj-1");
+    expect(result.orphans).toHaveLength(1);
+    expect(result.orphans[0]?.source).toEqual({ kind: "custom", customBlockId: "missing-cb" });
+  });
+
+  it("preserves placements with split pieces when their sub-topic still exists", () => {
+    let ws = createWorkspace();
+    let s = loadExampleSubject("subj-1");
+    let tl = s.timeline;
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T2a" }, "Y9-A1", 10, { idGen: counterIdGen() });
+    tl = placeBlockWithSpillover(tl, { kind: "sub-topic", subTopicCode: "T2b" }, 5, "Y9-A1", { idGen: counterIdGen() });
+    s = { ...s, timeline: tl };
+    ws = addSubject(ws, s);
+    const result = restoreSubjectToImport(ws, "subj-1");
+    const t2bPieces = result.workspace.subjects[0]?.timeline.halfTerms
+      .flatMap((h) => h.placedBlocks)
+      .filter((p) => p.source.kind === "sub-topic" && p.source.subTopicCode === "T2b");
+    expect(t2bPieces).toHaveLength(2);
+    expect(result.orphans).toHaveLength(0);
+  });
+
+  it("throws on unknown subject id", () => {
+    let ws = createWorkspace();
+    ws = addSubject(ws, loadExampleSubject("subj-1"));
+    expect(() => restoreSubjectToImport(ws, "ghost")).toThrow();
+  });
+});
+
+describe("serializeWorkspace / deserializeWorkspace", () => {
+  it("round-trips a workspace with a populated subject", () => {
+    let ws = createWorkspace();
+    let s = loadExampleSubject("subj-1");
+    let tl = s.timeline;
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 2, { idGen: counterIdGen() });
+    s = { ...s, timeline: tl };
+    ws = addSubject(ws, s);
+    const json = serializeWorkspace(ws, {
+      now: new Date("2026-05-15T10:00:00Z"),
+      appVersion: "1.0.0",
+    });
+    const parsed = JSON.parse(json);
+    expect(parsed.fileVersion).toBe(FILE_VERSION);
+    expect(parsed.savedAt).toBe("2026-05-15T10:00:00.000Z");
+    expect(parsed.appVersion).toBe("1.0.0");
+    const restored = deserializeWorkspace(json);
+    expect(restored).toEqual(ws);
+  });
+
+  it("uses the current date and APP_VERSION by default", () => {
+    const ws = createWorkspace();
+    const before = Date.now();
+    const json = serializeWorkspace(ws);
+    const parsed = JSON.parse(json);
+    const savedTime = Date.parse(parsed.savedAt);
+    expect(savedTime).toBeGreaterThanOrEqual(before);
+    expect(savedTime).toBeLessThanOrEqual(Date.now());
+    expect(parsed.appVersion).toBe(APP_VERSION);
+  });
+
+  it("rejects invalid JSON", () => {
+    expect(() => deserializeWorkspace("not json")).toThrow(DeserializationError);
+  });
+
+  it("rejects non-object roots", () => {
+    expect(() => deserializeWorkspace("[]")).toThrow(/not a JSON object/);
+    expect(() => deserializeWorkspace("42")).toThrow();
+  });
+
+  it("rejects files missing fileVersion", () => {
+    const json = JSON.stringify({ savedAt: "x", workspace: { activeSubjectId: null, subjects: [] } });
+    expect(() => deserializeWorkspace(json)).toThrow(/MISSING_VERSION|fileVersion/);
+  });
+
+  it("rejects newer file versions clearly", () => {
+    const json = JSON.stringify({
+      fileVersion: FILE_VERSION + 1,
+      savedAt: "x",
+      appVersion: "x",
+      workspace: { activeSubjectId: null, subjects: [] },
+    });
+    expect(() => deserializeWorkspace(json)).toThrow(/newer than this app supports/);
+  });
+
+  it("rejects older file versions with a migration message", () => {
+    const json = JSON.stringify({
+      fileVersion: 0,
+      workspace: { activeSubjectId: null, subjects: [] },
+    });
+    expect(() => deserializeWorkspace(json)).toThrow(/older than this app supports/);
+  });
+
+  it("rejects files missing workspace.subjects array", () => {
+    const json = JSON.stringify({
+      fileVersion: FILE_VERSION,
+      workspace: { activeSubjectId: null },
+    });
+    expect(() => deserializeWorkspace(json)).toThrow(/INVALID_WORKSPACE|subjects/);
+  });
+
+  it("rejects invalid activeSubjectId types", () => {
+    const json = JSON.stringify({
+      fileVersion: FILE_VERSION,
+      workspace: { activeSubjectId: 42, subjects: [] },
+    });
+    expect(() => deserializeWorkspace(json)).toThrow();
+  });
+});

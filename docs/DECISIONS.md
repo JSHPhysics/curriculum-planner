@@ -412,3 +412,74 @@ Naming on the sheet: "Coverage" — deliberately ambiguous between lesson covera
 - `SPEC.md` §4.4, §6.1
 - `BUILD_PLAN.md` Session 4 step 2
 - `src/model/export.ts` (`computeCoverageStats`)
+
+---
+
+## DEC-013 — `restoreSubjectToImport` returns orphans rather than silently dropping or refusing
+**Date:** 2026-05-15
+**Session:** 5
+**Status:** Accepted
+
+### Context
+`BUILD_PLAN.md` Session 5 step 1.5 specifies the signature `restoreSubjectToImport(workspace, subjectId): { workspace, orphans: PlacedBlock[] }`. "Restore" resets the `workingSpec` to a clone of the immutable `importedSpec`. The question this raises: if the user has placements that reference sub-topics that exist only in `workingSpec` (because the user edited the spec or because a re-import dropped some sub-topics), what happens to them?
+
+### Decision
+The function:
+1. Clones `importedSpec` into a fresh `workingSpec`.
+2. Walks every `PlacedBlock` in `subject.timeline`. For `kind: "sub-topic"`, the placement survives iff its `subTopicCode` exists in the restored `importedSpec`. For `kind: "custom"`, it survives iff the `customBlockId` is still in `subject.customBlocks`. EoHT placements always survive (no source reference).
+3. Returns a list of dropped placements as `orphans` alongside the updated workspace.
+
+The caller (Session 8's UI confirmation modal) shows the user which placements were dropped before committing the restore. Dropped placements aren't put anywhere — they're discarded along with the working spec.
+
+### Alternatives considered
+- **Refuse the restore if any placement would be orphaned.** Forces the user to manually delete affected placements first. Pessimistic; the placements may be irrelevant if the user is restoring specifically to throw away stale state.
+- **Keep orphan placements in the timeline.** Renders as broken cards in the UI ("missing sub-topic"). Adds runtime-validity concerns to every render path.
+- **Drop orphans silently.** Loses information the user might want — "wait, where did my placements go?".
+
+### Consequences
+- Tests pin orphan behaviour for sub-topic, custom-block, and EoHT placements separately.
+- Session 8's "Re-import spec" / "Restore from import" UI must show the orphan list before confirming.
+- v1.1+ might add an "Unplaced bucket" container so orphans become un-placed rather than discarded — easy extension without changing the return shape.
+
+### Related
+- `SPEC.md` §3.3
+- `BUILD_PLAN.md` Session 5 step 1.5
+- `src/model/workspace.ts` (`restoreSubjectToImport`)
+
+---
+
+## DEC-014 — IPC bridge exposes file dialogs, not a generic readFile/writeFile
+**Date:** 2026-05-15
+**Session:** 5
+**Status:** Accepted
+
+### Context
+`BUILD_PLAN.md` Session 5 step 4 says *"Wire `electron/preload.ts` with `contextBridge.exposeInMainWorld('api', { openFile, saveFile, ... })`"*. Several API shapes would meet this brief:
+- **Low-level**: `showOpenDialog`, `showSaveDialog`, `readFile`, `writeFile` — four ops, renderer composes them.
+- **Mid-level**: `openCurriculumFile`, `saveCurriculumFile`, `openSpreadsheetFile`, `saveSpreadsheetFile` — each does dialog + read/write atomically.
+- **High-level**: `openWorkspace` (returns a `Workspace`), `saveWorkspace(ws)` (serializes inside the bridge) — pushes the model into the preload.
+
+### Decision
+Mid-level. The bridge exposes four file-flavour ops + `getAppVersion`:
+- `openCurriculumFile(): Promise<{ path; json } | null>`
+- `saveCurriculumFile(json, options?): Promise<{ path } | null>` — accepts `knownPath` for "Save", omits it for "Save As"
+- `openSpreadsheetFile(): Promise<{ path; buffer: Uint8Array } | null>`
+- `saveSpreadsheetFile(buffer, options?): Promise<{ path } | null>`
+- `getAppVersion(): Promise<string>`
+
+Each performs the dialog + I/O on the main process side. Cancelling the dialog returns `null` (not a rejection). File-content shapes differ by flavour: curriculum files are strings (JSON), spreadsheets are byte buffers.
+
+### Alternatives considered
+- **Low-level dialog + readFile/writeFile.** Renderer would have to coordinate three calls per save, opening attack surface (the renderer holds an arbitrary path). Wrong direction for `nodeIntegration: false` / `sandbox: true`.
+- **High-level Workspace-shaped API.** Couples the IPC layer to the model. The Workspace type would then be imported by the preload — adds a circular cross-process dependency for marginal renderer convenience.
+- **Single `openFile(filters)` / `saveFile(data, filters)`.** Pushes type discrimination onto the renderer (`buffer | string`) instead of carrying it in the function name.
+
+### Consequences
+- Renderer code reads as `const result = await window.api.openCurriculumFile()` — clear intent, no path manipulation client-side.
+- Filename-default policy lives in the main process (currently `workspace.curriculum`, `curriculum-plan.xlsx`). Centralised.
+- Future additions (e.g. recently-opened files, multi-file open) bolt on as new ops without breaking the existing four.
+
+### Related
+- `SPEC.md` §11.1, §11.3
+- `BUILD_PLAN.md` Session 5 step 4
+- `electron/main.ts`, `electron/preload.ts`, `src/types/api.d.ts`
