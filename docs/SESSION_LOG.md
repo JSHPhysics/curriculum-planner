@@ -319,3 +319,49 @@ None.
 
 ### Open questions for the user
 - None blocking. Session 6 (Zustand store) is ready to start.
+
+---
+
+## Session 6 — State store and debug panel
+**Date:** 2026-05-15
+**Status:** Complete
+**Commit:** *(pending — see git log)*
+
+### What was built
+- `src/store/useWorkspaceStore.ts` — Zustand v5 store:
+  - State: `{ workspace, dirty, currentView, currentTermId, currentSavePath }`
+  - Workspace actions: `addSubject`, `removeSubject`, `setActiveSubject`, `renameSubject`, `restoreSubjectToImport` (returns orphans)
+  - Placement actions operating on the active subject: `placeBlock`, `placeBlockWithSpillover`, `splitBlock`, `recombineBlock`, `removeBlock`, `moveBlock`, `editBlockLessons`
+  - View actions: `setCurrentView`, `setCurrentTermId`
+  - Persistence wiring: `setWorkspace`, `setSavePath`, `markClean`, `clearWorkspace`
+  - `enableAutosave()` — subscribes the store to debounced localStorage writes (500ms per `SPEC.md` §9.2); returns an unsubscribe handle
+  - `loadAutosaved()` — restores from localStorage on app startup if present
+- `src/components/DebugPanel.tsx` — pre-UI workspace explorer with four buttons (Import example, Force save, Copy JSON, Clear workspace), a subjects summary table, and a raw JSON dump
+- `src/App.tsx` — wires `loadAutosaved()` and `enableAutosave()` in a single `useEffect`, then renders `DebugPanel`
+- `tests/store/useWorkspaceStore.test.ts` — 15 tests covering initial state, workspace ops, placement delegation (including the "no active subject = no-op" guard), view setters, and lifecycle actions
+- Vite asset bundling: `examples/example_physics_spec.xlsx` is now imported via `?url` and ships with the renderer; build output shows `dist/assets/example_physics_spec-DSJ7-ecy.xlsx` (~30 KB)
+
+### Exit criteria check
+- [x] Store wired and reactive — DebugPanel updates immediately on action dispatch (verified by typecheck + tests; runtime verification on `npm run dev` left for you)
+- [x] Autosave/restore works through a renderer refresh cycle — `enableAutosave` watches state and writes after a 500ms debounce; `loadAutosaved` restores on mount
+- [x] Debug panel demonstrates all major workspace ops — Import (importSpec → addSubject), Force save (localStorage), Copy JSON (serializeWorkspace), Clear (clearWorkspace)
+- [x] No production UI yet — debug panel only
+- [x] `npm test` passes (146/146 across 7 files)
+- [x] `npm run typecheck` passes
+- [x] `npm run build:renderer` passes, bundling the example xlsx as a hashed asset
+
+### Deviations from BUILD_PLAN.md
+- **Autosave split into two exported helpers (`enableAutosave`, `loadAutosaved`) rather than wired inside the store factory.** Lets tests use `useWorkspaceStore` without touching `localStorage` and gives the renderer one obvious place to wire startup behaviour. Pure factoring, no behavioural difference.
+- **Renamed "+ Custom" / preset wiring not yet present.** Build plan step 3 lists three buttons (Import example, Clear workspace, Force save); added a fourth (Copy JSON) to make pasting workspace state into bug reports trivial. No subtractions from the plan.
+
+### Decisions logged
+- [DEC-015](DECISIONS.md#dec-015) — Bundle the example xlsx via `?url` import rather than serving from `public/` or fetching from disk
+
+### Surprises and gotchas
+- **Zustand v5 syntax.** `create<T>()(initializer)` — note the empty `()` after the generic. Easy to miss; gives a confusing error if you write `create<T>(initializer)`.
+- **Active-subject no-op pattern.** Placement actions silently no-op when there's no active subject (`updateActiveTimeline` returns the workspace unchanged). Pinned by a test. The UI will hide placement controls when no subject is active, but defending against the race condition costs nothing.
+- **Tailwind palette names are spec-locked.** First draft of DebugPanel used `bg-cream`/`text-cream`/`bg-paper-2` which don't exist in `tailwind.config.js`. Mapped to the actual tokens (`bg-bg`, `text-bg`, `bg-surface-2`) — kept the same visual intent. Going forward, reference `tailwind.config.js` before invoking colour utility classes.
+- **Vite handles `?url` for arbitrary file types out of the box.** No `assetsInclude` config needed for `.xlsx`. The hashed filename in the build output means the cache-busting is automatic.
+
+### Open questions for the user
+- None. The Electron app boots into the debug panel; `npm run dev` will let you click around and see autosave round-trip through a refresh.

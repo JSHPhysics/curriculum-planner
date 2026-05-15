@@ -483,3 +483,33 @@ Each performs the dialog + I/O on the main process side. Cancelling the dialog r
 - `SPEC.md` §11.1, §11.3
 - `BUILD_PLAN.md` Session 5 step 4
 - `electron/main.ts`, `electron/preload.ts`, `src/types/api.d.ts`
+
+---
+
+## DEC-015 — Bundle the example xlsx as a hashed asset via `?url` import
+**Date:** 2026-05-15
+**Session:** 6
+**Status:** Accepted
+
+### Context
+The Session 6 debug panel needs to "Import the bundled example file" with one click. Three options to ship the file with the app:
+1. `import url from "…/example.xlsx?url"` — Vite copies the file into `dist/assets/` with a content hash and resolves the import to a hashed URL.
+2. Copy to `public/example_physics_spec.xlsx` and `fetch("/example_physics_spec.xlsx")` — file lives at a stable, predictable URL.
+3. Read from disk at runtime via the IPC bridge — bypasses Vite entirely.
+
+### Decision
+Option 1 (`?url` asset import). The DebugPanel does `import exampleUrl from "../../examples/example_physics_spec.xlsx?url"; fetch(exampleUrl)`.
+
+### Alternatives considered
+- **`public/` copy.** Avoids a Vite-specific syntax but duplicates the file in two places (`examples/` for tests, `public/` for runtime). One file is the source of truth and accidental drift between them is a paper cut waiting to happen.
+- **Read from disk via IPC.** Couples the renderer to the absolute filesystem path of the example, which depends on whether the app is running unpacked (dev) or installed (packaged). Solvable, but more code for the same outcome.
+
+### Consequences
+- Cache-busting is automatic (filename hashes).
+- TypeScript needs `vite/client` in `tsconfig.json` `types` for the `?url` declaration — already present from Session 0.
+- The example xlsx is part of the renderer bundle (~30 KB). For v1.1+ when more example files might be useful, the same pattern scales.
+
+### Related
+- `BUILD_PLAN.md` Session 6 step 3
+- `src/components/DebugPanel.tsx`
+- `tsconfig.json` (`types: ["vite/client", "node"]`)
