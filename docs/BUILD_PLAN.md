@@ -390,15 +390,19 @@ Distributable installers for Windows and macOS.
 
 ## Working agreements for Claude Code
 
-1. **Commit at end of every session** with a message naming the session (e.g. `feat: session 3 - timeline and placement model`).
-2. **Run the test suite at the end of every session** before committing. Tests must pass.
-3. **Do not skip sessions** or merge their work, even if a session feels small. The sequence is designed for reviewability.
-4. **If a session feels too large**, propose a split before starting — don't silently skip steps.
-5. **Reference the spec, not memory.** When unsure, `SPEC.md` wins.
-6. **Reference the prototype only for UX patterns**, never copy code from it.
-7. **If a requirement in SPEC.md is ambiguous, stop and ask** rather than guess.
-8. **No new dependencies after Session 0** without justification in the commit message.
-9. **No `any` types.** Strict TypeScript everywhere.
-10. **No comments explaining what the code does.** Comment only the *why* — surprising choices, tricky invariants, links to the spec.
+1. **At the start of every session past Session 0**, read `SESSION_LOG.md` and `DECISIONS.md` in full before doing anything else. They are the project's working memory across context windows.
+2. **At the end of every session**, append an entry to `SESSION_LOG.md` using the template at the top of that file, then commit. The session log entry and the code commit go together — never one without the other.
+3. **If a design choice arose mid-session** that wasn't covered by `SPEC.md`, log it in `DECISIONS.md` with a `DEC-NNN` reference and link to it from the session log entry.
+4. **If a decision contradicts SPEC.md**, also update SPEC.md in the same commit, referencing the DEC number.
+5. **Commit at end of every session** with a message naming the session, e.g. `feat: session 3 - timeline and placement model (#DEC-002)`.
+6. **Run the test suite at the end of every session** before committing. Tests must pass.
+7. **Do not skip sessions** or merge their work, even if a session feels small. The sequence is designed for reviewability.
+8. **If a session feels too large**, propose a split before starting — don't silently skip steps.
+9. **Reference the spec, not memory.** When unsure, `SPEC.md` wins. When `SPEC.md` is silent, check `DECISIONS.md` next.
+10. **Reference the prototype only for UX patterns**, never copy code from it.
+11. **If a requirement is ambiguous, stop and ask** rather than guess. If the user resolves it, log the resolution as a DEC entry.
+12. **No new dependencies after Session 0** without justification in the commit message and a DEC entry.
+13. **No `any` types.** Strict TypeScript everywhere.
+14. **No comments explaining what the code does.** Comment only the *why* — surprising choices, tricky invariants, links to the spec or DEC entries.
 
 End of build plan.
