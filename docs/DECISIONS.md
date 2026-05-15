@@ -153,3 +153,104 @@ Both flags stay enabled for the renderer `tsconfig.json` throughout v1.
 ### Related
 - `SPEC.md` §11.2
 - `tsconfig.json` (Session 0 commit `4316ce5`)
+
+---
+
+## DEC-005 — `importSpec` accepts an `options` parameter beyond `buffer`
+**Date:** 2026-05-15
+**Session:** 2
+**Status:** Accepted
+
+### Context
+`BUILD_PLAN.md` Session 2 step 2 specifies `importSpec(buffer: ArrayBuffer): ImportResult`. But several `Subject` fields can't be derived from the xlsx bytes:
+- `meta.sourceFilename` — needs the OS path the user picked
+- `meta.name` — user-facing display name; could default but is best provided
+- `meta.colour` — palette colour for the subject tab
+- A deterministic id generator is useful for tests (per-Subject UUIDs make assertions awkward)
+
+### Decision
+Extend the signature to `importSpec(buffer: ArrayBuffer, options?: ImportOptions): ImportResult` where `ImportOptions` is:
+```ts
+{
+  sourceFilename?: string;
+  subjectName?: string;
+  subjectColour?: string;
+  idGen?: () => string;
+}
+```
+All fields are optional. Defaults: `subjectName = "Imported Subject"`, `subjectColour = "#1F3A5F"` (palette navy), `sourceFilename = null`, `idGen = () => crypto.randomUUID()`.
+
+### Alternatives considered
+- **Stick literally to the BUILD_PLAN signature, force callers to wrap and assign meta after.** Two-step API is uglier and asks every caller to know that `meta.name` defaults aren't meaningful. The UI layer (Session 7+) will pass these at the call site anyway.
+- **Take a second positional arg for filename only.** Doesn't give tests an `idGen` hook and doesn't extend cleanly when we need to thread more context later.
+
+### Consequences
+- Test suite uses a counter `idGen` for deterministic IDs without mocking `crypto`.
+- Session 7 (UI) will call `importSpec(buf, { sourceFilename: path, subjectName: …, subjectColour: … })` after the user picks a file.
+
+### Related
+- `SPEC.md` §3.1 (`SubjectMeta`)
+- `BUILD_PLAN.md` Session 2 step 2
+- `src/model/import.ts`
+
+---
+
+## DEC-006 — Per-cell merge rules for multi-row lessons
+**Date:** 2026-05-15
+**Session:** 2
+**Status:** Accepted
+
+### Context
+`SPEC.md` §5.2 says multi-row lessons merge by *"objectives concatenated, practical/depth/separate flags OR-ed together"*. But `practical` is a free-text string, not a boolean — "OR-ed" needs a concrete interpretation. The spec is also silent on `Paper`, `Notes`, and `Difficulty` merging at the lesson level.
+
+### Decision
+For rows sharing `(Topic, Sub-topic, Lesson No.)`:
+- **Lesson Title** — must match (case-insensitive after trim); mismatch is `DUPLICATE_LESSON_DIFFERENT_TITLES` error per `SPEC.md` §5.3.
+- **Objectives** — splits on newline or semicolon, trims, drops empties, concatenates in row order. Duplicates are preserved (the user authored them; we don't second-guess).
+- **Practical** — collects distinct non-empty values across rows, joins with `"; "`. Most lessons have one; this gracefully handles the rare "two practicals on one lesson" case.
+- **Extra-depth flag** — OR.
+- **Separate science only flag** — OR.
+- **Difficulty** — tracked per-row, max wins at the sub-topic level (per `SPEC.md` §5.1). A `SUBTOPIC_DIFFICULTY_VARIES` warning fires when rows within a sub-topic disagree.
+- **Paper** — taken from the first non-empty row in the topic (topic-level field per `SPEC.md` §3.1).
+- **Notes** — taken from the first non-empty row in the sub-topic.
+
+### Alternatives considered
+- **Concat practicals with `" / "` instead of `"; "`.** Pure aesthetics; `; ` matches the objectives separator convention.
+- **For Notes, concat all non-empty values.** Easy to get noisy; first-non-empty is the safer default. Users can re-export and re-import a cleaner spec if they want all of them.
+
+### Consequences
+- Test `importSpec — merge behaviour for multi-row lessons` pins this behaviour.
+- A user wanting to *replace* a lesson's data via a second row can't — they get a merge. Acceptable: the spec said "merged"; if they wanted replacement they would edit the original row.
+
+### Related
+- `SPEC.md` §5.1, §5.2, §5.3
+- `src/model/import.ts` (`mergeLessonRows`, `validateLessonTitleConsistency`)
+
+---
+
+## DEC-007 — `Subject` non-spec defaults at import time
+**Date:** 2026-05-15
+**Session:** 2
+**Status:** Accepted
+
+### Context
+`importSpec` returns a fully-formed `Subject`. Sessions 3+ populate the timeline, custom blocks, and provide UI for config toggles. Session 2's `Subject` needs sensible non-spec defaults that don't pre-empt Session 3's design.
+
+### Decision
+At import time:
+- `timeline = { halfTerms: [] }` — empty. Session 3's `createDefaultTimeline()` will be called explicitly (likely by the store action that loads a subject) — `importSpec` itself stays pure data-model.
+- `customBlocks = []` — empty. Users add their own; Session 3's `createEoHTBlocks(timeline)` runs after timeline init.
+- `config = { includeDepth: false, lostLessonBuffer: false, autoSpillover: true }` — conservative defaults. `autoSpillover` is the documented v1 default behaviour for placement (see `SPEC.md` §1.1: "Auto-spillover when a block exceeds a half-term's capacity"); the other two toggles default off.
+
+### Alternatives considered
+- **Have `importSpec` call `createDefaultTimeline()` itself.** Couples import to timeline shape; Session 3 hasn't been written yet. Better to keep import responsible only for spec content and let the store assemble the runtime Subject.
+- **Return a partial Subject and have the caller fill the rest.** Breaks the build plan's contract that `importSpec` returns a `Subject`. Defaults are cheap.
+
+### Consequences
+- A `Subject` straight out of `importSpec` is *technically* invalid for placement (no half-terms). The store layer (Session 6) must call timeline init after import.
+- Tests can assert `subject.timeline.halfTerms.length === 0` immediately post-import.
+
+### Related
+- `SPEC.md` §1.1, §3.1
+- `BUILD_PLAN.md` Session 2, Session 3, Session 6
+- `src/model/import.ts`
