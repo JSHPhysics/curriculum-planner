@@ -1,0 +1,2020 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GCSE Physics SoW Planner — Joshua Stafford-Haworth</title>
+<style>
+/* ==================== Tokens ==================== */
+:root {
+  --bg: #FBF7EE;
+  --surface: #FFFFFF;
+  --surface-2: #F5EFE0;
+  --line: #E5DDC9;
+  --line-2: #D4CFC0;
+  --ink: #1A1A1A;
+  --ink-dim: #4A4A4A;
+  --ink-fade: #8A8478;
+  --navy: #1F3A5F;
+  --navy-dim: #324E73;
+  --gold: #B98D2C;
+  --warn: #B85C5C;
+  --good: #6FA068;
+
+  --radius: 4px;
+  --radius-card: 6px;
+  --shadow-1: 0 1px 2px rgba(31, 58, 95, 0.06);
+  --shadow-2: 0 2px 8px rgba(31, 58, 95, 0.10);
+  --shadow-drag: 0 6px 16px rgba(31, 58, 95, 0.18);
+
+  --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --font-display: "Lora", Georgia, serif;
+}
+
+/* Topic colour ramps */
+.t-T1  { --bg-c: #ECE9E0; --b-c: #8A8478; --t-c: #4A4540; }
+.t-T2  { --bg-c: #DEE9F4; --b-c: #4F7BA8; --t-c: #233C5C; }
+.t-T3  { --bg-c: #DDEBDA; --b-c: #6FA068; --t-c: #2E5028; }
+.t-T4  { --bg-c: #F4E4D0; --b-c: #D69359; --t-c: #5E3D1C; }
+.t-T5  { --bg-c: #F5EDD2; --b-c: #C9A93D; --t-c: #5C4A0E; }
+.t-T6  { --bg-c: #F0D9D9; --b-c: #B85C5C; --t-c: #5C2828; }
+.t-T7  { --bg-c: #E4DAEC; --b-c: #7A5A9C; --t-c: #3D2C58; }
+.t-T8  { --bg-c: #DCE9E4; --b-c: #6FA89A; --t-c: #244A40; }
+.t-T9  { --bg-c: #DDE6F0; --b-c: #5B7DA9; --t-c: #1F3A5F; }
+.t-T10 { --bg-c: #F2EAC8; --b-c: #C4A234; --t-c: #574500; }
+.t-T11 { --bg-c: #EFDDC8; --b-c: #C68752; --t-c: #5C3818; }
+.t-T12 { --bg-c: #E5EBD0; --b-c: #94A85F; --t-c: #3C4818; }
+.t-T13 { --bg-c: #DCEBD8; --b-c: #7DA85F; --t-c: #2E4A1C; }
+.t-T14 { --bg-c: #E5DAEB; --b-c: #9C7DB8; --t-c: #432D5C; }
+.t-T15 { --bg-c: #EBD9CC; --b-c: #B07B5C; --t-c: #4A2818; }
+.t-NON { --bg-c: #EFE9DA; --b-c: #8A8478; --t-c: #3A352D; }
+.t-CUSTOM { --bg-c: #E8E8E8; --b-c: #6B6B6B; --t-c: #2A2A2A; }
+
+/* ==================== Reset & base ==================== */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+button { font: inherit; cursor: pointer; }
+
+/* ==================== Header ==================== */
+header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-shrink: 0;
+}
+.brand h1 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 19px;
+  color: var(--navy);
+  letter-spacing: -0.01em;
+}
+.brand .sub {
+  font-size: 11px;
+  color: var(--ink-fade);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-left: auto;
+}
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: var(--ink-dim);
+}
+.toggle input { display: none; }
+.toggle .switch {
+  width: 32px;
+  height: 18px;
+  background: var(--line-2);
+  border-radius: 9px;
+  position: relative;
+  transition: background 0.15s;
+}
+.toggle .switch::after {
+  content: '';
+  width: 14px;
+  height: 14px;
+  background: white;
+  border-radius: 50%;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: left 0.15s;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+.toggle input:checked + .switch { background: var(--navy); }
+.toggle input:checked + .switch::after { left: 16px; }
+
+.btn {
+  background: var(--surface);
+  color: var(--ink-dim);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  transition: all 0.12s;
+}
+.btn:hover { background: var(--surface-2); color: var(--navy); border-color: var(--navy); }
+.btn-primary { background: var(--navy); color: white; border-color: var(--navy); }
+.btn-primary:hover { background: var(--navy-dim); color: white; }
+
+/* ==================== Status bar ==================== */
+.status-bar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  padding: 10px 24px;
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  flex-shrink: 0;
+  font-size: 13px;
+}
+.stat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.stat-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-fade);
+  letter-spacing: 0.05em;
+}
+.stat-value {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--navy);
+}
+.stat-bar {
+  width: 100px;
+  height: 6px;
+  background: var(--line);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+.stat-bar-fill {
+  height: 100%;
+  background: var(--navy);
+  transition: width 0.2s, background 0.2s;
+}
+.stat-bar-fill.over { background: var(--warn); }
+.stat-bar-fill.full { background: var(--good); }
+.budget-note {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--ink-fade);
+  font-style: italic;
+}
+
+/* ==================== Main layout ==================== */
+main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ==================== Pool ==================== */
+.pool {
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+  padding: 16px;
+}
+.pool h2 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--navy);
+  letter-spacing: 0;
+  margin-bottom: 4px;
+}
+.pool-sub {
+  font-size: 11px;
+  color: var(--ink-fade);
+  margin-bottom: 14px;
+}
+.topic-group { margin-bottom: 14px; }
+.topic-group h3 {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink-fade);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--line);
+}
+.topic-group.collapsed .blocks-list { display: none; }
+.topic-group h3 { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; }
+.topic-group h3::before {
+  content: '▾';
+  font-size: 8px;
+  transition: transform 0.15s;
+}
+.topic-group.collapsed h3::before { transform: rotate(-90deg); }
+.blocks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* ==================== Block cards ==================== */
+.block {
+  background: var(--bg-c, var(--surface-2));
+  border: 1px solid var(--b-c, var(--line-2));
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  cursor: grab;
+  transition: all 0.12s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  position: relative;
+}
+.block:hover {
+  box-shadow: var(--shadow-1);
+  transform: translateY(-1px);
+}
+.block:active { cursor: grabbing; }
+.block.dragging { opacity: 0.4; }
+
+.block-code {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 10px;
+  color: var(--t-c);
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+.block-name {
+  flex: 1;
+  color: var(--t-c);
+  font-size: 12px;
+  line-height: 1.25;
+  min-width: 0;
+}
+.block-lessons {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 10px;
+  color: var(--t-c);
+  background: rgba(255,255,255,0.5);
+  padding: 1px 5px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.block-depth {
+  color: var(--gold);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.block-diff {
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.block-diff .dot {
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--t-c);
+  margin-right: 1px;
+  opacity: 0.25;
+}
+.block-diff .dot.active { opacity: 1; }
+
+/* ==================== Timeline ==================== */
+.timeline {
+  overflow-y: auto;
+  padding: 16px 20px 40px;
+}
+.year-row {
+  margin-bottom: 18px;
+}
+.year-header {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin-bottom: 8px;
+  padding: 0 4px;
+}
+.year-label {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 18px;
+  color: var(--navy);
+}
+.year-summary {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-fade);
+  letter-spacing: 0.04em;
+}
+.year-summary .used { color: var(--navy); font-weight: 600; }
+.year-summary .used.over { color: var(--warn); }
+.terms-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+}
+.term {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.12s, background 0.12s;
+}
+.term.drag-over {
+  background: var(--surface-2);
+  border-color: var(--navy);
+  border-style: dashed;
+}
+.term.over-capacity { border-color: var(--warn); }
+.term-header {
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0,0,0,0.015);
+}
+.term-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink-dim);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.term-budget {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-fade);
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+.term-budget:hover { background: var(--line); color: var(--navy); }
+.term-budget.over { color: var(--warn); font-weight: 600; }
+.term-budget input {
+  width: 28px;
+  font: inherit;
+  border: 1px solid var(--navy);
+  border-radius: 2px;
+  padding: 0 2px;
+  text-align: center;
+}
+.term-body {
+  flex: 1;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+}
+.term-body .block { font-size: 11px; padding: 5px 7px; }
+
+/* ==================== Modal ==================== */
+.modal-bg {
+  position: fixed;
+  inset: 0;
+  background: rgba(31, 58, 95, 0.25);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal-bg.open { display: flex; }
+.modal {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 24px;
+  width: 420px;
+  max-width: 90vw;
+  box-shadow: 0 12px 32px rgba(31, 58, 95, 0.25);
+}
+.modal h3 {
+  font-family: var(--font-display);
+  font-size: 16px;
+  color: var(--navy);
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+.modal .modal-sub {
+  font-size: 12px;
+  color: var(--ink-fade);
+  margin-bottom: 16px;
+}
+.modal-field {
+  margin-bottom: 14px;
+}
+.modal-field label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-fade);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.modal-field .row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.modal-field input[type=number] {
+  width: 80px;
+  font-family: var(--font-mono);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  font-size: 13px;
+}
+.modal-field input[type=number]:focus { outline: none; border-color: var(--navy); }
+.modal-notes {
+  font-size: 12px;
+  color: var(--ink-dim);
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  border-left: 3px solid var(--gold);
+}
+.modal-notes .label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--gold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+  display: block;
+}
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 20px;
+  align-items: center;
+}
+.modal-actions .spacer { flex: 1; }
+
+/* ==================== Export panel ==================== */
+.export-text {
+  width: 100%;
+  height: 280px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  padding: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  resize: vertical;
+  background: var(--surface-2);
+}
+
+/* ==================== Preset picker ==================== */
+.preset-picker {
+  position: relative;
+}
+.preset-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.preset-btn::after {
+  content: '▾';
+  font-size: 8px;
+  opacity: 0.6;
+}
+.preset-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 320px;
+  max-width: 380px;
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-2);
+  z-index: 50;
+  display: none;
+  overflow: hidden;
+}
+.preset-menu.open { display: block; }
+.preset-section {
+  border-bottom: 1px solid var(--line);
+}
+.preset-section:last-child { border-bottom: none; }
+.preset-section-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-fade);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 8px 12px 4px;
+}
+.preset-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  transition: background 0.12s;
+}
+.preset-item:hover { background: var(--surface-2); }
+.preset-item-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  color: var(--navy);
+  opacity: 0.7;
+}
+.preset-item-body { flex: 1; min-width: 0; }
+.preset-item-name {
+  font-size: 13px;
+  color: var(--ink);
+  font-weight: 500;
+  margin-bottom: 1px;
+}
+.preset-item-desc {
+  font-size: 11px;
+  color: var(--ink-fade);
+  line-height: 1.35;
+}
+.preset-item-delete {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--ink-fade);
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+}
+.preset-item:hover .preset-item-delete { opacity: 1; }
+.preset-item-delete:hover { color: var(--warn); background: rgba(184, 92, 92, 0.1); }
+.preset-empty {
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--ink-fade);
+  font-style: italic;
+}
+.preset-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  color: var(--navy);
+  font-weight: 500;
+  transition: background 0.12s;
+}
+.preset-action:hover { background: var(--surface-2); }
+.preset-action-icon {
+  width: 16px;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* ==================== Drop hint for pool ==================== */
+.pool.drag-over {
+  background: var(--surface-2);
+  outline: 2px dashed var(--navy);
+  outline-offset: -4px;
+}
+
+/* ==================== Scrollbars ==================== */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-fade); }
+
+/* ==================== Help overlay ==================== */
+.help {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  background: var(--navy);
+  color: white;
+  font-size: 11px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  box-shadow: var(--shadow-2);
+  font-family: var(--font-mono);
+  letter-spacing: 0.03em;
+  opacity: 0.85;
+  pointer-events: none;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <h1>GCSE Physics SoW Planner</h1>
+    <div class="sub">Edexcel 1PH0 · Sep 2026 · Joshua Stafford-Haworth</div>
+  </div>
+  <div class="controls">
+    <label class="toggle">
+      <input type="checkbox" id="toggle-depth">
+      <span class="switch"></span>
+      <span>Include depth ★</span>
+    </label>
+    <label class="toggle">
+      <input type="checkbox" id="toggle-buffer">
+      <span class="switch"></span>
+      <span>10% lost-lesson buffer</span>
+    </label>
+    <label class="toggle">
+      <input type="checkbox" id="toggle-spillover">
+      <span class="switch"></span>
+      <span>Auto-spillover</span>
+    </label>
+    <div class="preset-picker">
+      <button class="btn preset-btn" id="btn-presets">Presets</button>
+      <div class="preset-menu" id="preset-menu"></div>
+    </div>
+    <button class="btn" id="btn-export">Export</button>
+    <button class="btn" id="btn-reset">Reset</button>
+  </div>
+</header>
+
+<div class="status-bar">
+  <div class="stat">
+    <span class="stat-label">Y9</span>
+    <span class="stat-value" id="stat-y9-text">0 / 60</span>
+    <div class="stat-bar"><div class="stat-bar-fill" id="stat-y9-bar"></div></div>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Y10</span>
+    <span class="stat-value" id="stat-y10-text">0 / 105</span>
+    <div class="stat-bar"><div class="stat-bar-fill" id="stat-y10-bar"></div></div>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Y11</span>
+    <span class="stat-value" id="stat-y11-text">0 / 78</span>
+    <div class="stat-bar"><div class="stat-bar-fill" id="stat-y11-bar"></div></div>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Unplaced</span>
+    <span class="stat-value" id="stat-unplaced">0 lessons</span>
+  </div>
+  <div class="budget-note">Drag blocks into half-terms. Click a placed block to edit/split/remove. Click budget number to edit.</div>
+</div>
+
+<main>
+  <aside class="pool" id="pool">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+      <h2 style="margin:0;">Topic Pool</h2>
+      <button class="btn" id="btn-add-custom" style="margin-left:auto;font-size:11px;padding:3px 8px;" title="Add a custom block (testing week, trip, cover lesson, etc.)">+ Custom</button>
+    </div>
+    <div class="pool-sub">Difficulty: <span style="opacity:.25">●●●</span> easy · <span><span style="opacity:1">●●</span><span style="opacity:.25">●</span></span> medium · <span>●●●</span> hard · <span style="color:var(--gold)">★</span> depth optional</div>
+    <div id="pool-content"></div>
+  </aside>
+  <section class="timeline" id="timeline"></section>
+</main>
+
+<div class="modal-bg" id="modal-bg">
+  <div class="modal" id="modal-content"></div>
+</div>
+
+<div class="help" id="help">Drag to plan · Click placed block to edit</div>
+
+<script>
+/* ==================== Data ==================== */
+const TOPICS = [
+  { id: 'T1',  name: 'Key concepts',         paper: '1 & 2' },
+  { id: 'T2',  name: 'Motion and forces',    paper: '1' },
+  { id: 'T3',  name: 'Conservation of energy', paper: '1' },
+  { id: 'T4',  name: 'Waves',                paper: '1' },
+  { id: 'T5',  name: 'Light and EM',         paper: '1' },
+  { id: 'T6',  name: 'Radioactivity',        paper: '1' },
+  { id: 'T7',  name: 'Astronomy',            paper: '1' },
+  { id: 'T8',  name: 'Energy — work, power', paper: '2' },
+  { id: 'T9',  name: 'Forces and effects',   paper: '2' },
+  { id: 'T10', name: 'Electricity & circuits', paper: '2' },
+  { id: 'T11', name: 'Static electricity',   paper: '2' },
+  { id: 'T12', name: 'Magnetism & motor',    paper: '2' },
+  { id: 'T13', name: 'EM induction',         paper: '2' },
+  { id: 'T14', name: 'Particle model',       paper: '2' },
+  { id: 'T15', name: 'Forces and matter',    paper: '2' },
+  { id: 'NON', name: 'Assessment & revision', paper: '—' },
+  { id: 'CUSTOM', name: 'Custom blocks',     paper: '—' },
+];
+
+// Difficulty: 1 = foundational, 2 = standard, 3 = challenging
+const BLOCKS_DEF = [
+  // T1
+  { id:'T1a', topic:'T1', name:'Units, prefixes, SI', lessons:2, depth:0, diff:1, prereqs:[], notes:'Foundation thread. Standard form, SI base, prefixes. Pairs naturally with first calculation work.' },
+  { id:'T1b', topic:'T1', name:'Scalars & vectors',  lessons:2, depth:0, diff:2, prereqs:[], notes:'Conceptual but essential pre-Newton work. Vector addition geometrically.' },
+
+  // T2
+  { id:'T2a', topic:'T2', name:'Kinematics basics (speed, distance-time)', lessons:4, depth:0, diff:1, prereqs:['T1a'], notes:'Distance vs displacement, speed vs velocity, distance-time graphs. Y9-friendly.' },
+  { id:'T2b', topic:'T2', name:'Acceleration & v-t graphs', lessons:4, depth:1, diff:2, prereqs:['T2a'], notes:'Where the maths ratchets up: gradients, area under curves. ★ Terminal velocity modelling as depth.' },
+  { id:'T2c', topic:'T2', name:"Newton's laws & basic forces", lessons:7, depth:0, diff:2, prereqs:['T1b','T2b'], notes:'1st/2nd/3rd laws, weight, friction, resultant forces. Could split: laws (4) + resultants/weight (3).' },
+  { id:'T2d', topic:'T2', name:'Circular motion', lessons:2, depth:0, diff:3, prereqs:['T2c'], notes:'TOUGH: requires comfort with vectors and acceleration as direction-change. Hold until vectors are secure.' },
+  { id:'T2e', topic:'T2', name:'Momentum & conservation', lessons:3, depth:0, diff:3, prereqs:['T2c'], notes:'TOUGH: abstract conservation idea, vector quantity. Prerequisite for T14d gas pressure.' },
+  { id:'T2f', topic:'T2', name:'Stopping distances', lessons:2, depth:0, diff:2, prereqs:['T2b','T2c'], notes:'Multi-step problems, reaction time, real-world application focus.' },
+
+  // T3
+  { id:'T3a', topic:'T3', name:'Energy stores & transfers', lessons:3, depth:0, diff:1, prereqs:[], notes:'Qualitative. Energy stores model, transfer pathways. Y9-friendly intro to energy.' },
+  { id:'T3b', topic:'T3', name:'KE & GPE calculations', lessons:4, depth:1, diff:2, prereqs:['T3a','T1a'], notes:'KE = ½mv² introduces the squared term — be deliberate. ★ Energy in real systems as depth.' },
+  { id:'T3c', topic:'T3', name:'Conservation & efficiency', lessons:2, depth:0, diff:2, prereqs:['T3b'], notes:'Useful vs wasted, efficiency formula, conservation in collisions/falls.' },
+
+  // T4
+  { id:'T4a', topic:'T4', name:'Wave properties & wave equation', lessons:4, depth:0, diff:2, prereqs:['T1a'], notes:'Transverse vs longitudinal, frequency, wavelength, period, v=fλ.' },
+  { id:'T4b', topic:'T4', name:'Wave speed practical & sound', lessons:4, depth:1, diff:2, prereqs:['T4a'], notes:'CP3 Waves investigation. Sound waves, frequency response. ★ Ultrasound applications.' },
+  { id:'T4c', topic:'T4', name:'Reflection, refraction intro, wavefronts', lessons:4, depth:0, diff:2, prereqs:['T4a'], notes:'Bridges to T5. Wavefront diagrams can be a sticking point.' },
+
+  // T5
+  { id:'T5a', topic:'T5', name:'Refraction & Snell\'s law', lessons:3, depth:0, diff:2, prereqs:['T4c'], notes:'Snell\'s law for Higher tier — proper calculation work.' },
+  { id:'T5b', topic:'T5', name:'Lenses & image formation', lessons:5, depth:0, diff:3, prereqs:['T5a'], notes:'TOUGH: ray diagrams + maths layered on refraction. Triple-only content. Magnification.' },
+  { id:'T5c', topic:'T5', name:'EM spectrum & applications', lessons:5, depth:1, diff:2, prereqs:[], notes:'Seven types, uses, dangers. ★ Optical fibres & telescopes as depth.' },
+  { id:'T5d', topic:'T5', name:'Black body radiation', lessons:2, depth:0, diff:3, prereqs:['T5c'], notes:'TOUGH: abstract temperature-wavelength relationship. Holds well to end of T5.' },
+
+  // T6
+  { id:'T6a', topic:'T6', name:'Atomic structure & isotopes', lessons:3, depth:0, diff:1, prereqs:[], notes:'Recap of KS3 atomic model, isotopes. Models history (plum pudding → Rutherford → Bohr).' },
+  { id:'T6b', topic:'T6', name:'Radiation types (α/β/γ)', lessons:4, depth:0, diff:2, prereqs:['T6a'], notes:'Properties, penetrating power, ionising effects.' },
+  { id:'T6c', topic:'T6', name:'Nuclear equations & half-life', lessons:6, depth:0, diff:3, prereqs:['T6b'], notes:'TOUGH: balancing nuclear equations + exponential thinking. Half-life graphical work.' },
+  { id:'T6d', topic:'T6', name:'Applications, safety, fission/fusion', lessons:5, depth:1, diff:2, prereqs:['T6c'], notes:'Activity, dose, safety. Fission/fusion conceptual. ★ Nuclear power & medical applications.' },
+
+  // T7
+  { id:'T7a', topic:'T7', name:'Solar system & orbits', lessons:4, depth:0, diff:2, prereqs:['T2c'], notes:'Gravitational orbits — benefits from Newton\'s laws underneath.' },
+  { id:'T7b', topic:'T7', name:'Stellar life cycles', lessons:4, depth:1, diff:2, prereqs:['T7a'], notes:'Heavy vocab, mostly descriptive. ★ Cosmology / dark matter as depth.' },
+  { id:'T7c', topic:'T7', name:'Red shift & Big Bang', lessons:4, depth:0, diff:3, prereqs:['T7b','T4a'], notes:'TOUGH: Doppler-analogous reasoning, expanding universe. Steady State comparison HT.' },
+
+  // T8
+  { id:'T8a', topic:'T8', name:'Work and power', lessons:4, depth:0, diff:2, prereqs:['T3a'], notes:'W=Fd, P=E/t. Multi-step problems linking work to energy stores.' },
+  { id:'T8b', topic:'T8', name:'Conservation in mechanical systems', lessons:2, depth:0, diff:2, prereqs:['T8a','T3c'], notes:'Synthesis of T3 + T8 + T2 in real-world contexts (cars, lifts, ramps).' },
+
+  // T9
+  { id:'T9a', topic:'T9', name:'Free body diagrams & resultants', lessons:3, depth:0, diff:2, prereqs:['T1b','T2c'], notes:'Often taught with Newton\'s laws (T2c). Vector resolution at HT.' },
+  { id:'T9b', topic:'T9', name:'Moments, levers, gears', lessons:4, depth:0, diff:2, prereqs:['T2c'], notes:'Principle of moments, calculation, simple machines.' },
+  { id:'T9c', topic:'T9', name:'Pressure (intro)', lessons:3, depth:0, diff:2, prereqs:['T9a'], notes:'P=F/A basics. Bridges to T14d gas pressure and T15b fluid pressure.' },
+
+  // T10
+  { id:'T10a', topic:'T10', name:'Current and voltage basics', lessons:4, depth:0, diff:2, prereqs:['T1a'], notes:'Q=It, energy and charge, circuit symbols. Foundation of circuit work.' },
+  { id:'T10b', topic:'T10', name:'Series & parallel circuits',  lessons:5, depth:0, diff:3, prereqs:['T10a'], notes:'TOUGH (parallel): current splits, V across components. Multi-step problem solving.' },
+  { id:'T10c', topic:'T10', name:'Resistance & IV characteristics', lessons:6, depth:0, diff:2, prereqs:['T10a'], notes:'V=IR, ohmic vs non-ohmic, LDR/thermistor. CP5 IV characteristics + CP6 Resistance.' },
+  { id:'T10d', topic:'T10', name:'Power, energy, National Grid', lessons:5, depth:1, diff:2, prereqs:['T10c'], notes:'P=VI, E=Pt. National Grid, mains electricity, safety. ★ NG economics & engineering.' },
+
+  // T11
+  { id:'T11',  topic:'T11', name:'Static electricity', lessons:5, depth:0, diff:2, prereqs:['T10a'], notes:'Charging by friction, fields, sparks, applications. Small self-contained topic.' },
+
+  // T12
+  { id:'T12a', topic:'T12', name:'Magnetic fields & electromagnets', lessons:5, depth:0, diff:2, prereqs:[], notes:'Permanent vs induced magnetism, solenoids. 3D spatial reasoning needed.' },
+  { id:'T12b', topic:'T12', name:'Motor effect & DC motor',        lessons:4, depth:1, diff:2, prereqs:['T12a','T10a'], notes:'F=BIL, left-hand rule, DC motor mechanism. ★ Motor design (your EM suite).' },
+
+  // T13
+  { id:'T13a', topic:'T13', name:'Induced EMF & generators', lessons:4, depth:0, diff:3, prereqs:['T12b'], notes:'TOUGH: abstract reversal of motor effect. Generators, AC vs DC output.' },
+  { id:'T13b', topic:'T13', name:'Transformers & applications', lessons:4, depth:1, diff:3, prereqs:['T13a'], notes:'TOUGH: voltage ratio, power conservation. ★ Full EM induction suite (your resource).' },
+
+  // T14
+  { id:'T14a', topic:'T14', name:'States, density, kinetic theory', lessons:4, depth:0, diff:1, prereqs:['T1a'], notes:'CP7 Density. Particle model — visual, Y9-friendly. Heating curves intro.' },
+  { id:'T14b', topic:'T14', name:'Internal energy & heat capacity', lessons:4, depth:0, diff:2, prereqs:['T14a','T3a'], notes:'CP2 Specific heat capacity. E=mcΔθ multi-step calculations.' },
+  { id:'T14c', topic:'T14', name:'Specific latent heat & heating curves', lessons:3, depth:0, diff:3, prereqs:['T14b'], notes:'TOUGH: multi-stage thinking. Heating curve interpretation.' },
+  { id:'T14d', topic:'T14', name:'Gas pressure & gas laws', lessons:3, depth:0, diff:3, prereqs:['T14a','T2e'], notes:'TOUGH: explicitly requires T2e momentum for KMT explanation. Hold until both are taught.' },
+
+  // T15
+  { id:'T15a', topic:'T15', name:"Hooke's law & elastic deformation", lessons:4, depth:0, diff:2, prereqs:[], notes:'CP8 Force and extension. Elastic vs inelastic. EPE = ½ke² HT.' },
+  { id:'T15b', topic:'T15', name:'Pressure in fluids, upthrust, atmosphere', lessons:4, depth:0, diff:3, prereqs:['T9c'], notes:'TOUGH: algebra-heavy. Atmospheric pressure variation, upthrust (you have an existing resource).' },
+
+  // Non-topic
+  { id:'EXAM-Y9',     topic:'NON', name:'Y9 end-of-year exam',       lessons:3, depth:0, diff:0, prereqs:[], notes:'Sittings + review.' },
+  { id:'EXAM-Y10M',   topic:'NON', name:'Y10 mock (Paper 1 content)', lessons:3, depth:0, diff:0, prereqs:[], notes:'Mock + review + targeted intervention.' },
+  { id:'EXAM-PPE1',   topic:'NON', name:'Y11 Paper 1 PPE',           lessons:3, depth:0, diff:0, prereqs:[], notes:'Mock + diagnostic analysis.' },
+  { id:'EXAM-PPE2',   topic:'NON', name:'Y11 Paper 2 PPE',           lessons:3, depth:0, diff:0, prereqs:[], notes:'Mock + diagnostic analysis.' },
+  { id:'EXAM-FINAL',  topic:'NON', name:'Y11 final mock',            lessons:3, depth:0, diff:0, prereqs:[], notes:'Full mock both papers.' },
+  { id:'REV-P1',      topic:'NON', name:'Revision Cycle 1 (Paper 1)', lessons:12, depth:0, diff:0, prereqs:[], notes:'Spiral retrieval, interleaved practice, targeted by PPE analysis.' },
+  { id:'REV-P2',      topic:'NON', name:'Revision Cycle 2 (Paper 2)', lessons:10, depth:0, diff:0, prereqs:[], notes:'Spiral retrieval, interleaved practice, targeted by PPE analysis.' },
+  { id:'REV-FINAL',   topic:'NON', name:'Final revision push',       lessons:10, depth:0, diff:0, prereqs:[], notes:'Cohort-specific deep dives, exam technique, last-mile work.' },
+  { id:'SYNTH',       topic:'NON', name:'6-mark technique + synthesis', lessons:8, depth:0, diff:0, prereqs:[], notes:'Cross-topic problems, modelled answers, command-word drilling.' },
+];
+
+// Default half-term budgets
+const TERMS_DEF = [
+  // Y9 — from 2026/27 calendar, 4×45min/fortnight = 2 lessons/week
+  { id:'Y9-A1', year:'Y9',  label:'Aut 1', dates:'4 Sep – 16 Oct', budget:12 },
+  { id:'Y9-A2', year:'Y9',  label:'Aut 2', dates:'2 Nov – 11 Dec', budget:12 },
+  { id:'Y9-S1', year:'Y9',  label:'Spr 1', dates:'6 Jan – 12 Feb', budget:11 },
+  { id:'Y9-S2', year:'Y9',  label:'Spr 2', dates:'22 Feb – 24 Mar', budget:9 },
+  { id:'Y9-U1', year:'Y9',  label:'Sum 1', dates:'15 Apr – 28 May', budget:13 },
+  { id:'Y9-U2', year:'Y9',  label:'Sum 2', dates:'7 Jun – 7 Jul', budget:9 },
+  // Y10 — 7×45min/fortnight = 3.5 lessons/week, approx 17 fortnights teaching
+  { id:'Y10-A1', year:'Y10', label:'Aut 1', dates:'(TBD 2027)',  budget:21 },
+  { id:'Y10-A2', year:'Y10', label:'Aut 2', dates:'(TBD 2027)',  budget:21 },
+  { id:'Y10-S1', year:'Y10', label:'Spr 1', dates:'(TBD 2028)',  budget:19 },
+  { id:'Y10-S2', year:'Y10', label:'Spr 2', dates:'(TBD 2028)',  budget:16 },
+  { id:'Y10-U1', year:'Y10', label:'Sum 1', dates:'(TBD 2028)',  budget:18 },
+  { id:'Y10-U2', year:'Y10', label:'Sum 2', dates:'(TBD 2028)',  budget:10 },
+  // Y11 — 6×45min/fortnight = 3 lessons/week, exams begin late May
+  { id:'Y11-A1', year:'Y11', label:'Aut 1', dates:'(TBD 2028)',  budget:18 },
+  { id:'Y11-A2', year:'Y11', label:'Aut 2', dates:'(TBD 2028)',  budget:18 },
+  { id:'Y11-S1', year:'Y11', label:'Spr 1', dates:'(TBD 2029)',  budget:16 },
+  { id:'Y11-S2', year:'Y11', label:'Spr 2', dates:'(TBD 2029)',  budget:14 },
+  { id:'Y11-U1', year:'Y11', label:'Sum 1', dates:'(TBD 2029)',  budget:12 },
+];
+
+// Default end-of-half-term test blocks — one per half-term, 1 lesson each, custom type.
+// Auto-placed at the end of each half-term in fresh state.
+const EOHT_TESTS = TERMS_DEF.map(t => ({
+  id: `EOHT-${t.id}`,
+  topic: 'CUSTOM',
+  name: `${t.year} ${t.label} test`,
+  lessons: 1,
+  depth: 0,
+  diff: 0,
+  prereqs: [],
+  notes: 'End-of-half-term assessment (default 1 lesson).'
+}));
+
+/* ==================== State ==================== */
+const STORAGE_KEY = 'sow-planner-v1';
+let state;
+
+function freshState() {
+  const blocks = {};
+  BLOCKS_DEF.forEach(b => { blocks[b.id] = { ...b }; });
+  EOHT_TESTS.forEach(t => { blocks[t.id] = { ...t }; });
+  const terms = {};
+  TERMS_DEF.forEach(t => {
+    terms[t.id] = { ...t, blockIds: [`EOHT-${t.id}`] };
+  });
+  return {
+    blocks,
+    terms,
+    poolOrder: BLOCKS_DEF.map(b => b.id),
+    customCounter: 0,
+    config: { showDepth: false, applyBuffer: false, autoSpillover: true }
+  };
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.blocks && parsed.terms) {
+        // Migrate older saves
+        if (parsed.customCounter === undefined) parsed.customCounter = 0;
+        if (parsed.config.autoSpillover === undefined) parsed.config.autoSpillover = true;
+        // Migrate EoHT default tests: add any that are missing and place at end of their term
+        EOHT_TESTS.forEach(eoht => {
+          if (!parsed.blocks[eoht.id]) {
+            parsed.blocks[eoht.id] = { ...eoht };
+            const targetTermId = eoht.id.replace('EOHT-', '');
+            const targetTerm = parsed.terms[targetTermId];
+            const inAnyTerm = Object.values(parsed.terms).some(t => t.blockIds.includes(eoht.id));
+            const inPool = parsed.poolOrder.includes(eoht.id);
+            if (targetTerm && !inAnyTerm && !inPool) {
+              targetTerm.blockIds.push(eoht.id);
+            }
+          }
+        });
+        return parsed;
+      }
+    }
+  } catch (e) { /* ignore */ }
+  return freshState();
+}
+
+function saveState() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+  catch (e) { /* ignore */ }
+}
+
+state = loadState();
+
+/* ==================== Helpers ==================== */
+function blockLessons(b) {
+  return b.lessons + (state.config.showDepth ? b.depth : 0);
+}
+function displayCode(id) {
+  if (id.startsWith('EOHT-')) return 'EoHT';
+  return id.replace(/^EXAM-|^REV-|^SYNTH/, '');
+}
+function termBudget(t) {
+  return state.config.applyBuffer ? Math.floor(t.budget * 0.9) : t.budget;
+}
+function termUsed(termId) {
+  return state.terms[termId].blockIds.reduce((sum, id) => sum + blockLessons(state.blocks[id]), 0);
+}
+function yearTerms(year) {
+  return Object.values(state.terms).filter(t => t.year === year);
+}
+function yearUsed(year) {
+  return yearTerms(year).reduce((s, t) => s + termUsed(t.id), 0);
+}
+function yearBudget(year) {
+  return yearTerms(year).reduce((s, t) => s + termBudget(t), 0);
+}
+function unplacedLessons() {
+  return state.poolOrder.reduce((s, id) => s + blockLessons(state.blocks[id]), 0);
+}
+
+/* ==================== Rendering ==================== */
+function renderBlock(block, opts = {}) {
+  const compact = opts.compact || false;
+  const el = document.createElement('div');
+  el.className = `block t-${block.topic}`;
+  el.draggable = true;
+  el.dataset.blockId = block.id;
+  el.dataset.source = opts.source;
+  if (opts.termId) el.dataset.termId = opts.termId;
+
+  // Difficulty dots
+  let diffHtml = '';
+  if (block.diff > 0) {
+    diffHtml = '<span class="block-diff">';
+    for (let i = 1; i <= 3; i++) {
+      diffHtml += `<span class="dot${i <= block.diff ? ' active' : ''}"></span>`;
+    }
+    diffHtml += '</span>';
+  }
+
+  const lessons = blockLessons(block);
+  const depthMark = block.depth > 0 ? `<span class="block-depth" title="${block.depth} depth lesson(s) — toggle 'Include depth' to add">★</span>` : '';
+
+  // Compact code display: strip ID prefixes for readability
+  let codeDisplay = displayCode(block.id);
+
+  el.innerHTML = `
+    <span class="block-code">${codeDisplay}</span>
+    <span class="block-name">${block.name}</span>
+    ${diffHtml}
+    ${depthMark}
+    <span class="block-lessons">${lessons}</span>
+  `;
+  el.addEventListener('dragstart', onDragStart);
+  el.addEventListener('dragend', onDragEnd);
+  el.addEventListener('click', () => openModal(block.id));
+  return el;
+}
+
+function renderPool() {
+  const container = document.getElementById('pool-content');
+  container.innerHTML = '';
+
+  // Group by topic
+  const groups = {};
+  state.poolOrder.forEach(id => {
+    const b = state.blocks[id];
+    if (!groups[b.topic]) groups[b.topic] = [];
+    groups[b.topic].push(b);
+  });
+
+  TOPICS.forEach(topic => {
+    const blocks = groups[topic.id];
+    if (!blocks || blocks.length === 0) return;
+    const group = document.createElement('div');
+    group.className = 'topic-group';
+    const totalLessons = blocks.reduce((s,b) => s + blockLessons(b), 0);
+    group.innerHTML = `<h3>${topic.id} · ${topic.name} <span style="margin-left:auto;color:var(--ink-fade);font-weight:400;">${totalLessons}L</span></h3><div class="blocks-list"></div>`;
+    const list = group.querySelector('.blocks-list');
+    blocks.forEach(b => list.appendChild(renderBlock(b, { source: 'pool' })));
+    // Collapse toggle
+    group.querySelector('h3').addEventListener('click', () => group.classList.toggle('collapsed'));
+    container.appendChild(group);
+  });
+}
+
+function renderTimeline() {
+  const tl = document.getElementById('timeline');
+  tl.innerHTML = '';
+  ['Y9', 'Y10', 'Y11'].forEach(year => {
+    const yearRow = document.createElement('div');
+    yearRow.className = 'year-row';
+    const used = yearUsed(year);
+    const budget = yearBudget(year);
+    const overClass = used > budget ? 'over' : '';
+    yearRow.innerHTML = `
+      <div class="year-header">
+        <span class="year-label">${year}</span>
+        <span class="year-summary"><span class="used ${overClass}">${used}</span> / ${budget} lessons placed</span>
+      </div>
+      <div class="terms-grid"></div>
+    `;
+    const grid = yearRow.querySelector('.terms-grid');
+    const terms = yearTerms(year);
+    // Y11 has 5 half-terms, not 6 — adjust grid
+    if (terms.length === 5) {
+      grid.style.gridTemplateColumns = 'repeat(5, 1fr)';
+    }
+    terms.forEach(t => grid.appendChild(renderTerm(t)));
+    tl.appendChild(yearRow);
+  });
+}
+
+function renderTerm(term) {
+  const el = document.createElement('div');
+  el.className = 'term';
+  el.dataset.termId = term.id;
+  const used = termUsed(term.id);
+  const budget = termBudget(term);
+  const over = used > budget;
+  if (over) el.classList.add('over-capacity');
+  el.innerHTML = `
+    <div class="term-header">
+      <span class="term-label">${term.label}</span>
+      <span class="term-budget ${over ? 'over' : ''}" data-term-id="${term.id}">${used}/${budget}</span>
+    </div>
+    <div class="term-body"></div>
+  `;
+  const body = el.querySelector('.term-body');
+  // EoHT default tests render last (visually "end of half-term")
+  const ordered = [...term.blockIds].sort((a, b) => {
+    const aEoht = a.startsWith('EOHT-') ? 1 : 0;
+    const bEoht = b.startsWith('EOHT-') ? 1 : 0;
+    return aEoht - bEoht;
+  });
+  ordered.forEach(id => body.appendChild(renderBlock(state.blocks[id], { source: 'term', termId: term.id })));
+  // Drop zone
+  el.addEventListener('dragover', onDragOver);
+  el.addEventListener('dragleave', onDragLeave);
+  el.addEventListener('drop', e => onDrop(e, term.id));
+  // Budget editing
+  el.querySelector('.term-budget').addEventListener('click', editBudget);
+  // Display date in header tooltip
+  el.querySelector('.term-label').title = term.dates;
+  return el;
+}
+
+function renderStatus() {
+  ['Y9','Y10','Y11'].forEach(year => {
+    const used = yearUsed(year);
+    const budget = yearBudget(year);
+    document.getElementById(`stat-${year.toLowerCase()}-text`).textContent = `${used} / ${budget}`;
+    const bar = document.getElementById(`stat-${year.toLowerCase()}-bar`);
+    const pct = Math.min(100, (used / budget) * 100);
+    bar.style.width = pct + '%';
+    bar.className = 'stat-bar-fill';
+    if (used > budget) bar.classList.add('over');
+    else if (used === budget && budget > 0) bar.classList.add('full');
+  });
+  document.getElementById('stat-unplaced').textContent = `${unplacedLessons()} lessons`;
+}
+
+function renderAll() {
+  renderPool();
+  renderTimeline();
+  renderStatus();
+  saveState();
+}
+
+/* ==================== Drag & drop ==================== */
+let dragData = null;
+function onDragStart(e) {
+  const el = e.currentTarget;
+  dragData = {
+    blockId: el.dataset.blockId,
+    source: el.dataset.source,
+    termId: el.dataset.termId || null
+  };
+  el.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', el.dataset.blockId); // for FF
+}
+function onDragEnd(e) {
+  e.currentTarget.classList.remove('dragging');
+  document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+  dragData = null;
+}
+function onDragOver(e) {
+  if (!dragData) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.classList.add('drag-over');
+}
+function onDragLeave(e) {
+  if (e.target === e.currentTarget) e.currentTarget.classList.remove('drag-over');
+}
+function onDrop(e, targetTermId) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  if (!dragData) return;
+  const { blockId, source, termId } = dragData;
+  // Remove from source
+  if (source === 'pool') {
+    state.poolOrder = state.poolOrder.filter(id => id !== blockId);
+  } else if (source === 'term' && termId) {
+    state.terms[termId].blockIds = state.terms[termId].blockIds.filter(id => id !== blockId);
+  }
+  // Add to target
+  if (targetTermId === 'pool') {
+    state.poolOrder.push(blockId);
+  } else if (state.config.autoSpillover) {
+    spilloverPlace(blockId, targetTermId);
+  } else {
+    state.terms[targetTermId].blockIds.push(blockId);
+  }
+  tryRecombine();
+  renderAll();
+}
+
+// If every piece of an auto-split block has returned to the pool, restore the original.
+// Manual splits are left alone. If any sibling has been demoted to manual, recombination
+// is blocked for the whole group.
+function tryRecombine() {
+  // Collect every splitOrigin used by any current block
+  const origins = new Set();
+  Object.values(state.blocks).forEach(b => {
+    if (b && b.splitOrigin) origins.add(b.splitOrigin);
+  });
+
+  origins.forEach(originId => {
+    // All blocks with this origin, anywhere
+    const related = Object.keys(state.blocks).filter(id => state.blocks[id].splitOrigin === originId);
+    if (related.length === 0) return;
+    // All must still be auto (none manually edited or split further)
+    const allAuto = related.every(id => state.blocks[id].splitType === 'auto');
+    if (!allAuto) return;
+    // All must be in the pool (none still placed in a term)
+    const allInPool = related.every(id => state.poolOrder.includes(id));
+    if (!allInPool) return;
+
+    // Restore the original
+    const firstPiece = state.blocks[related[0]];
+    const restored = {
+      id: originId,
+      topic: firstPiece.topic,
+      name: firstPiece.originalName,
+      lessons: firstPiece.originalLessons,
+      depth: firstPiece.originalDepth,
+      diff: firstPiece.diff,
+      prereqs: firstPiece.prereqs || [],
+      notes: firstPiece.notes
+    };
+    const firstIdx = Math.min(...related.map(id => state.poolOrder.indexOf(id)));
+    state.poolOrder = state.poolOrder.filter(id => !related.includes(id));
+    state.poolOrder.splice(firstIdx, 0, originId);
+    related.forEach(id => delete state.blocks[id]);
+    state.blocks[originId] = restored;
+  });
+}
+
+// Spillover: split a block across consecutive half-terms based on remaining capacity.
+// Distributes BASE lessons; the original depth (★) stays with the first piece.
+function spilloverPlace(blockId, startTermId) {
+  const block = state.blocks[blockId];
+  const total = blockLessons(block);  // effective lessons in current view
+  const allTermIds = Object.keys(state.terms);
+  const startIdx = allTermIds.indexOf(startTermId);
+  if (startIdx === -1) {
+    state.terms[startTermId].blockIds.push(blockId);
+    return;
+  }
+
+  // Walk forward, taking room until block is consumed
+  const distribution = [];
+  let remaining = total;
+  for (let i = startIdx; i < allTermIds.length && remaining > 0; i++) {
+    const tid = allTermIds[i];
+    const room = Math.max(0, termBudget(state.terms[tid]) - termUsed(tid));
+    if (room === 0) continue;
+    const take = Math.min(room, remaining);
+    distribution.push({ termId: tid, lessons: take });
+    remaining -= take;
+  }
+
+  // Overflow (no room left anywhere) — stuff into last placement or start term
+  if (remaining > 0) {
+    if (distribution.length > 0) {
+      distribution[distribution.length - 1].lessons += remaining;
+    } else {
+      distribution.push({ termId: startTermId, lessons: remaining });
+    }
+  }
+
+  // No splitting needed
+  if (distribution.length === 1) {
+    state.terms[distribution[0].termId].blockIds.push(blockId);
+    return;
+  }
+
+  // Split into pieces. Preserve depth on piece 1; other pieces are pure base.
+  const baseDepth = block.depth;
+  delete state.blocks[blockId];
+  let suffix = 1;
+  while (state.blocks[`${blockId}.p${suffix}`]) suffix++;
+
+  distribution.forEach((part, i) => {
+    const newId = `${blockId}.p${suffix + i}`;
+    const isFirst = i === 0;
+    let pieceLessons, pieceDepth;
+    if (isFirst) {
+      // Effective in this piece = part.lessons. Includes depth if config.showDepth.
+      if (state.config.showDepth) {
+        pieceLessons = Math.max(0, part.lessons - baseDepth);
+        pieceDepth = baseDepth;
+      } else {
+        pieceLessons = part.lessons;
+        pieceDepth = baseDepth;  // preserve for later toggle
+      }
+    } else {
+      pieceLessons = part.lessons;
+      pieceDepth = 0;
+    }
+    state.blocks[newId] = {
+      ...block,
+      id: newId,
+      name: isFirst ? block.name : block.name + ' (cont.)',
+      lessons: pieceLessons,
+      depth: pieceDepth,
+      splitType: 'auto',
+      splitOrigin: blockId,
+      originalLessons: block.lessons,
+      originalDepth: block.depth,
+      originalName: block.name
+    };
+    state.terms[part.termId].blockIds.push(newId);
+  });
+}
+// Pool drop zone
+const pool = document.getElementById('pool');
+pool.addEventListener('dragover', e => {
+  if (!dragData) return;
+  e.preventDefault();
+  pool.classList.add('drag-over');
+});
+pool.addEventListener('dragleave', e => {
+  if (e.target === pool) pool.classList.remove('drag-over');
+});
+pool.addEventListener('drop', e => {
+  e.preventDefault();
+  pool.classList.remove('drag-over');
+  if (!dragData) return;
+  onDrop({ preventDefault:()=>{}, currentTarget:{ classList:{remove:()=>{}} } }, 'pool');
+});
+
+/* ==================== Modal ==================== */
+function openModal(blockId) {
+  const b = state.blocks[blockId];
+  const topic = TOPICS.find(t => t.id === b.topic);
+  const isPlaced = !state.poolOrder.includes(blockId);
+  const content = document.getElementById('modal-content');
+  content.innerHTML = `
+    <h3>${displayCode(b.id)} · ${b.name}</h3>
+    <div class="modal-sub">${topic.id} ${topic.name} · Paper ${topic.paper}</div>
+    <div class="modal-field">
+      <label>Lessons (base)</label>
+      <div class="row">
+        <input type="number" id="edit-lessons" value="${b.lessons}" min="0" max="30">
+        ${b.depth > 0 ? `<span style="font-size:12px;color:var(--gold);">+ ${b.depth} depth ★</span>` : ''}
+      </div>
+    </div>
+    ${b.depth > 0 ? `
+    <div class="modal-field">
+      <label>Depth lessons (optional, ★)</label>
+      <input type="number" id="edit-depth" value="${b.depth}" min="0" max="10">
+    </div>` : ''}
+    <div class="modal-notes">
+      <span class="label">Pedagogical note</span>
+      ${b.notes}
+      ${b.prereqs.length > 0 ? `<div style="margin-top:6px;font-size:11px;color:var(--ink-dim);">Prerequisites: ${b.prereqs.join(', ')}</div>` : ''}
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btn-split">Split block</button>
+      ${b.splitOrigin ? `<button class="btn" id="btn-recombine" title="Combine every piece that shares this block's origin, summing current lessons, and place the recombined block in the pool">Recombine & return</button>` : ''}
+      <button class="btn" id="btn-remove" style="color:var(--warn);border-color:var(--warn);">Remove from plan</button>
+      <div class="spacer"></div>
+      <button class="btn" id="btn-cancel">Cancel</button>
+      <button class="btn btn-primary" id="btn-save">Save</button>
+    </div>
+  `;
+  document.getElementById('modal-bg').classList.add('open');
+  document.getElementById('btn-cancel').onclick = closeModal;
+  document.getElementById('btn-save').onclick = () => {
+    const newLessons = parseInt(document.getElementById('edit-lessons').value) || 0;
+    let newDepth = b.depth;
+    if (b.depth > 0) {
+      const d = document.getElementById('edit-depth');
+      if (d) newDepth = parseInt(d.value) || 0;
+    }
+    // If this was an auto-split piece and the user changed counts, demote so it won't auto-recombine.
+    if (b.splitType === 'auto' && (newLessons !== b.lessons || newDepth !== b.depth)) {
+      b.splitType = 'manual';
+    }
+    b.lessons = newLessons;
+    b.depth = newDepth;
+    closeModal();
+    renderAll();
+  };
+  document.getElementById('btn-split').onclick = () => splitBlock(blockId);
+  if (b.splitOrigin) {
+    document.getElementById('btn-recombine').onclick = () => recombineAndReturn(blockId);
+  }
+  document.getElementById('btn-remove').onclick = () => {
+    if (!confirm('Remove this block entirely? (It will not return to the pool.)')) return;
+    delete state.blocks[blockId];
+    state.poolOrder = state.poolOrder.filter(id => id !== blockId);
+    Object.values(state.terms).forEach(t => t.blockIds = t.blockIds.filter(id => id !== blockId));
+    closeModal();
+    renderAll();
+  };
+}
+function closeModal() {
+  document.getElementById('modal-bg').classList.remove('open');
+}
+document.getElementById('modal-bg').addEventListener('click', e => {
+  if (e.target.id === 'modal-bg') closeModal();
+});
+
+function splitBlock(blockId) {
+  const b = state.blocks[blockId];
+  const splitAt = prompt(`Split ${b.id} (${b.lessons} lessons) — how many lessons in the first half?`, Math.floor(b.lessons / 2));
+  const n1 = parseInt(splitAt);
+  if (!n1 || n1 < 1 || n1 >= b.lessons) return;
+  const n2 = b.lessons - n1;
+  // Create new blocks
+  let suffix = 1;
+  while (state.blocks[`${b.id}.${suffix}`]) suffix++;
+  const id1 = `${b.id}.${suffix}`;
+  const id2 = `${b.id}.${suffix + 1}`;
+
+  // Preserve origin chain — points to deepest ancestor so recombine fully restores.
+  // For an already-split piece, inherit; for a virgin block, this is its first split.
+  const splitOrigin = b.splitOrigin || b.id;
+  const originalLessons = b.originalLessons !== undefined ? b.originalLessons : b.lessons;
+  const originalDepth = b.originalDepth !== undefined ? b.originalDepth : b.depth;
+  const originalName = b.originalName !== undefined ? b.originalName : b.name;
+
+  state.blocks[id1] = {
+    ...b, id: id1, name: b.name + ' (a)', lessons: n1, depth: 0,
+    splitType: 'manual', splitOrigin, originalLessons, originalDepth, originalName
+  };
+  state.blocks[id2] = {
+    ...b, id: id2, name: b.name + ' (b)', lessons: n2, depth: b.depth,
+    splitType: 'manual', splitOrigin, originalLessons, originalDepth, originalName
+  };
+  // Replace in placement
+  const inPool = state.poolOrder.includes(blockId);
+  if (inPool) {
+    const idx = state.poolOrder.indexOf(blockId);
+    state.poolOrder.splice(idx, 1, id1, id2);
+  } else {
+    Object.values(state.terms).forEach(t => {
+      const idx = t.blockIds.indexOf(blockId);
+      if (idx >= 0) t.blockIds.splice(idx, 1, id1, id2);
+    });
+  }
+  delete state.blocks[blockId];
+  closeModal();
+  renderAll();
+}
+
+// Manually recombine: gather all pieces sharing splitOrigin, sum their current lesson/depth
+// totals (preserving any edits the user has made), restore the original block, and put it
+// in the pool. Triggered by the modal button — works for both auto and manual splits.
+function recombineAndReturn(blockId) {
+  const b = state.blocks[blockId];
+  if (!b || !b.splitOrigin) return;
+  const originId = b.splitOrigin;
+  const related = Object.keys(state.blocks).filter(id => state.blocks[id].splitOrigin === originId);
+  if (related.length === 0) return;
+
+  const totalLessons = related.reduce((s, id) => s + (state.blocks[id].lessons || 0), 0);
+  const totalDepth = related.reduce((s, id) => s + (state.blocks[id].depth || 0), 0);
+
+  const firstPiece = state.blocks[related[0]];
+  const restored = {
+    id: originId,
+    topic: firstPiece.topic,
+    name: firstPiece.originalName,
+    lessons: totalLessons,
+    depth: totalDepth,
+    diff: firstPiece.diff || 0,
+    prereqs: firstPiece.prereqs || [],
+    notes: firstPiece.notes || ''
+  };
+
+  // Remove every related piece from wherever it sits
+  related.forEach(id => {
+    state.poolOrder = state.poolOrder.filter(x => x !== id);
+    Object.values(state.terms).forEach(t => {
+      t.blockIds = t.blockIds.filter(x => x !== id);
+    });
+    delete state.blocks[id];
+  });
+
+  state.poolOrder.push(originId);
+  state.blocks[originId] = restored;
+
+  closeModal();
+  renderAll();
+}
+
+/* ==================== Budget editing ==================== */
+function editBudget(e) {
+  e.stopPropagation();
+  const span = e.currentTarget;
+  const termId = span.dataset.termId;
+  const t = state.terms[termId];
+  const currentBase = t.budget;
+  span.innerHTML = `<input type="number" value="${currentBase}" min="0" max="40" autofocus>`;
+  const input = span.querySelector('input');
+  input.focus();
+  input.select();
+  const commit = () => {
+    const v = parseInt(input.value);
+    if (!isNaN(v) && v >= 0) t.budget = v;
+    renderAll();
+  };
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') input.blur();
+    if (e.key === 'Escape') { renderAll(); }
+  });
+}
+
+/* ==================== Toggles ==================== */
+document.getElementById('toggle-depth').addEventListener('change', e => {
+  state.config.showDepth = e.target.checked;
+  renderAll();
+});
+document.getElementById('toggle-buffer').addEventListener('change', e => {
+  state.config.applyBuffer = e.target.checked;
+  renderAll();
+});
+document.getElementById('toggle-spillover').addEventListener('change', e => {
+  state.config.autoSpillover = e.target.checked;
+  saveState();
+});
+
+/* ==================== Custom block creation ==================== */
+document.getElementById('btn-add-custom').addEventListener('click', () => {
+  const content = document.getElementById('modal-content');
+  content.innerHTML = `
+    <h3>Add custom block</h3>
+    <div class="modal-sub">For testing weeks, trips, cover lessons, or any custom event that occupies lessons.</div>
+    <div class="modal-field">
+      <label>Name</label>
+      <input type="text" id="custom-name" placeholder="e.g. Y10 mid-term test" style="width:100%;font-family:inherit;border:1px solid var(--line-2);border-radius:var(--radius);padding:6px 8px;font-size:13px;">
+    </div>
+    <div class="modal-field">
+      <label>Lessons</label>
+      <input type="number" id="custom-lessons" value="2" min="1" max="20">
+    </div>
+    <div class="modal-field">
+      <label>Notes (optional)</label>
+      <textarea id="custom-notes" rows="3" style="width:100%;font-family:inherit;border:1px solid var(--line-2);border-radius:var(--radius);padding:6px 8px;font-size:12px;resize:vertical;"></textarea>
+    </div>
+    <div class="modal-actions">
+      <div class="spacer"></div>
+      <button class="btn" id="btn-cancel-custom">Cancel</button>
+      <button class="btn btn-primary" id="btn-create-custom">Create</button>
+    </div>
+  `;
+  document.getElementById('modal-bg').classList.add('open');
+  document.getElementById('custom-name').focus();
+  document.getElementById('btn-cancel-custom').onclick = closeModal;
+  const create = () => {
+    const name = document.getElementById('custom-name').value.trim() || 'Custom block';
+    const lessons = parseInt(document.getElementById('custom-lessons').value) || 1;
+    const notes = document.getElementById('custom-notes').value.trim() || 'User-added block.';
+    state.customCounter = (state.customCounter || 0) + 1;
+    const id = `CUSTOM-${state.customCounter}`;
+    state.blocks[id] = { id, topic: 'CUSTOM', name, lessons, depth: 0, diff: 0, prereqs: [], notes };
+    state.poolOrder.unshift(id);  // place at top of pool for visibility
+    closeModal();
+    renderAll();
+  };
+  document.getElementById('btn-create-custom').onclick = create;
+  document.getElementById('custom-name').addEventListener('keydown', e => {
+    if (e.key === 'Enter') create();
+  });
+});
+
+/* ==================== Reset ==================== */
+document.getElementById('btn-reset').addEventListener('click', () => {
+  if (!confirm('Reset all placements and return blocks to the pool?')) return;
+  state = freshState();
+  document.getElementById('toggle-depth').checked = state.config.showDepth;
+  document.getElementById('toggle-buffer').checked = state.config.applyBuffer;
+  document.getElementById('toggle-spillover').checked = state.config.autoSpillover;
+  renderAll();
+});
+
+/* ==================== Export ==================== */
+document.getElementById('btn-export').addEventListener('click', () => {
+  const lines = ['# GCSE Physics SoW Plan', '', `_Generated ${new Date().toLocaleDateString('en-GB')}_`, ''];
+  lines.push(`**Config:** depth ${state.config.showDepth ? 'ON' : 'OFF'} · buffer ${state.config.applyBuffer ? 'ON (10%)' : 'OFF'}`);
+  lines.push('');
+  ['Y9','Y10','Y11'].forEach(year => {
+    lines.push(`## ${year}  —  ${yearUsed(year)} / ${yearBudget(year)} lessons placed`);
+    lines.push('');
+    yearTerms(year).forEach(t => {
+      const used = termUsed(t.id);
+      const budget = termBudget(t);
+      lines.push(`### ${year} ${t.label} (${t.dates})  —  ${used} / ${budget} lessons`);
+      if (t.blockIds.length === 0) {
+        lines.push('_(empty)_');
+      } else {
+        t.blockIds.forEach(id => {
+          const b = state.blocks[id];
+          const lessons = blockLessons(b);
+          const star = b.depth > 0 && state.config.showDepth ? ' ★' : '';
+          lines.push(`- **${displayCode(b.id)}** ${b.name} — ${lessons} lessons${star}`);
+        });
+      }
+      lines.push('');
+    });
+  });
+  const unplaced = state.poolOrder.filter(id => state.blocks[id]);
+  if (unplaced.length > 0) {
+    lines.push('## Unplaced');
+    lines.push('');
+    unplaced.forEach(id => {
+      const b = state.blocks[id];
+      lines.push(`- **${b.id}** ${b.name} — ${blockLessons(b)} lessons`);
+    });
+  }
+  const md = lines.join('\n');
+
+  // Show in modal
+  const content = document.getElementById('modal-content');
+  content.innerHTML = `
+    <h3>Export plan</h3>
+    <div class="modal-sub">Markdown — copy or download</div>
+    <textarea class="export-text" id="export-textarea">${md}</textarea>
+    <div class="modal-actions">
+      <button class="btn" id="btn-copy">Copy to clipboard</button>
+      <button class="btn" id="btn-download">Download .md</button>
+      <div class="spacer"></div>
+      <button class="btn btn-primary" id="btn-close-export">Close</button>
+    </div>
+  `;
+  document.getElementById('modal-bg').classList.add('open');
+  document.getElementById('btn-close-export').onclick = closeModal;
+  document.getElementById('btn-copy').onclick = () => {
+    const ta = document.getElementById('export-textarea');
+    ta.select();
+    document.execCommand('copy');
+    document.getElementById('btn-copy').textContent = 'Copied!';
+    setTimeout(() => document.getElementById('btn-copy').textContent = 'Copy to clipboard', 1500);
+  };
+  document.getElementById('btn-download').onclick = () => {
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `sow-plan-${Date.now()}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+});
+
+/* ==================== Preset system ====================
+ *
+ * A preset is a complete snapshot of the planning state:
+ *   { blocks, terms, poolOrder, customCounter, config }
+ *
+ * Built-in presets ship with the page and are immutable. They live in
+ * the BUILTIN_PRESETS object below; load them by id.
+ *
+ * User presets are saved by the user from the current state and live
+ * in localStorage under PRESETS_KEY. They can be loaded, renamed, or
+ * deleted. The current working state remains in STORAGE_KEY (separate)
+ * so loading a preset doesn't immediately overwrite the user's saves;
+ * the loaded preset becomes the new working state from that point.
+ */
+
+const PRESETS_KEY = 'sow-planner-presets-v1';
+
+// Helper for preset build functions: push topic blocks into half-terms in sequence.
+// Operates on a fresh snapshot (not the live state). EoHTs are already placed by
+// freshState(); topic blocks pushed here appear above them (renderTerm sorts EoHTs last).
+function presetPlaceMany(snap, placements) {
+  placements.forEach(([blockId, termId]) => {
+    if (!snap.blocks[blockId] || !snap.terms[termId]) return;
+    snap.poolOrder = snap.poolOrder.filter(id => id !== blockId);
+    snap.terms[termId].blockIds.push(blockId);
+  });
+}
+
+const BUILTIN_PRESETS = {
+  'blank': {
+    name: 'Blank (defaults only)',
+    description: 'Empty plan with end-of-half-term tests pre-placed. Start from scratch.',
+    build: () => freshState()
+  },
+
+  'three-spiral': {
+    name: 'Three-spiral mechanics (Joshua\'s design)',
+    description: 'Y9: Energy → Motion → Waves. Y10: motion revisit + T5/T6/T7 → T10/T11. Y11: T8/T9 → T12 → T13 → T14 → T15. Max spacing of mechanics; tight revision time.',
+    build: () => {
+      const s = freshState();
+      presetPlaceMany(s, [
+        // ===== Y9: Energy → Motion → Waves =====
+        // Aut 1: foundations + start energy
+        ['T1a','Y9-A1'], ['T1b','Y9-A1'], ['T3a','Y9-A1'], ['T3b','Y9-A1'],
+        // Aut 2: finish energy, start motion
+        ['T3c','Y9-A2'], ['T2a','Y9-A2'], ['T2b','Y9-A2'],
+        // Spr 1: Newton's laws (big block)
+        ['T2c','Y9-S1'],
+        // Spr 2: start waves
+        ['T4a','Y9-S2'], ['T4b','Y9-S2'],
+        // Sum 1: finish waves (slack for retrieval/consolidation)
+        ['T4c','Y9-U1'],
+        // Sum 2: Y9 exam slack (handled by user — exam blocks in pool)
+
+        // ===== Y10: motion revisit → T5/T6/T7 → T10/T11 =====
+        // Aut 1: mechanics revisit + start light
+        ['T2d','Y10-A1'], ['T2e','Y10-A1'], ['T2f','Y10-A1'],
+        ['T5a','Y10-A1'], ['T5b','Y10-A1'], ['T5c','Y10-A1'],
+        // Aut 2: finish light, full radioactivity
+        ['T5d','Y10-A2'], ['T6a','Y10-A2'], ['T6b','Y10-A2'], ['T6c','Y10-A2'], ['T6d','Y10-A2'],
+        // Spr 1: astronomy (wraps end of HT1 as specified)
+        ['T7a','Y10-S1'], ['T7b','Y10-S1'], ['T7c','Y10-S1'],
+        // Spr 2: electricity
+        ['T10a','Y10-S2'], ['T10b','Y10-S2'], ['T10c','Y10-S2'],
+        // Sum 1: finish electricity + static
+        ['T10d','Y10-U1'], ['T11','Y10-U1'],
+        // Sum 2: Y10 mock slack
+
+        // ===== Y11: T8/T9 → T12 → T13 → T14 → T15 =====
+        // Aut 1: forces revisit (3rd spiral)
+        ['T8a','Y11-A1'], ['T8b','Y11-A1'], ['T9a','Y11-A1'], ['T9b','Y11-A1'], ['T9c','Y11-A1'],
+        // Aut 2: magnetism + EM induction
+        ['T12a','Y11-A2'], ['T12b','Y11-A2'], ['T13a','Y11-A2'], ['T13b','Y11-A2'],
+        // Spr 1: particle model (all of it — T14d benefits from T2e momentum already taught)
+        ['T14a','Y11-S1'], ['T14b','Y11-S1'], ['T14c','Y11-S1'], ['T14d','Y11-S1'],
+        // Spr 2: forces & matter
+        ['T15a','Y11-S2'], ['T15b','Y11-S2'],
+        // Sum 1: revision (user places revision blocks from pool)
+      ]);
+      return s;
+    }
+  },
+
+  'distributed-depth': {
+    name: 'Distributed depth (lighter Y11)',
+    description: 'Same three-spiral idea, but T14a/b (heating, density) move into Y9 with energy, and T12 (magnetism) moves into Y10. Frees ~34 Y11 lessons for revision.',
+    build: () => {
+      const s = freshState();
+      presetPlaceMany(s, [
+        // ===== Y9: + T14a/b (particle & heat capacity sit naturally with energy) =====
+        ['T1a','Y9-A1'], ['T1b','Y9-A1'], ['T14a','Y9-A1'],
+        ['T3a','Y9-A2'], ['T14b','Y9-A2'],
+        ['T3b','Y9-S1'], ['T3c','Y9-S1'], ['T2a','Y9-S1'],
+        ['T2b','Y9-S2'],
+        ['T2c','Y9-U1'], ['T4a','Y9-U1'],
+        ['T4b','Y9-U2'], ['T4c','Y9-U2'],
+
+        // ===== Y10: motion revisit → T5/T6/T7 → T10/T11/T12 =====
+        ['T2d','Y10-A1'], ['T2e','Y10-A1'], ['T2f','Y10-A1'],
+        ['T5a','Y10-A1'], ['T5b','Y10-A1'], ['T5c','Y10-A1'],
+        ['T5d','Y10-A2'], ['T6a','Y10-A2'], ['T6b','Y10-A2'], ['T6c','Y10-A2'], ['T6d','Y10-A2'],
+        ['T7a','Y10-S1'], ['T7b','Y10-S1'], ['T7c','Y10-S1'],
+        ['T10a','Y10-S2'], ['T10b','Y10-S2'], ['T10c','Y10-S2'],
+        // Sum 1: finish electricity, static, start magnetism
+        ['T10d','Y10-U1'], ['T11','Y10-U1'], ['T12a','Y10-U1'],
+        // Sum 2: finish magnetism (+ Y10 mock slack)
+        ['T12b','Y10-U2'],
+
+        // ===== Y11: just T8/T9, T13, T14c-d, T15 — massively more revision time =====
+        ['T8a','Y11-A1'], ['T8b','Y11-A1'], ['T9a','Y11-A1'], ['T9b','Y11-A1'], ['T9c','Y11-A1'],
+        // EM induction + late particle topics (T14d after T2e, as required)
+        ['T13a','Y11-A2'], ['T13b','Y11-A2'], ['T14c','Y11-A2'], ['T14d','Y11-A2'],
+        // Forces & matter
+        ['T15a','Y11-S1'], ['T15b','Y11-S1'],
+        // Spr 2 + Sum 1: pure revision space (user places REV/SYNTH blocks)
+      ]);
+      return s;
+    }
+  },
+
+  'single-pass-forward': {
+    name: 'Single-pass forward (max revision)',
+    description: 'Each topic taught once in a forward-only sequence. Compresses content into Y9–Y10; leaves Y11 mostly for revision (~43 free lessons). No within-spec spiral.',
+    build: () => {
+      const s = freshState();
+      presetPlaceMany(s, [
+        // ===== Y9: foundations + motion (partial) + energy + waves + particle intro =====
+        ['T1a','Y9-A1'], ['T1b','Y9-A1'], ['T2a','Y9-A1'],
+        ['T2b','Y9-A2'], ['T2c','Y9-A2'],
+        ['T3a','Y9-S1'], ['T3b','Y9-S1'], ['T3c','Y9-S1'],
+        ['T4a','Y9-S2'], ['T4b','Y9-S2'],
+        ['T4c','Y9-U1'], ['T14a','Y9-U1'], ['T14b','Y9-U1'],
+        // Sum 2: Y9 exam slack
+
+        // ===== Y10: finish mechanics, then T5/T6/T10/T11/T12 =====
+        ['T2d','Y10-A1'], ['T2e','Y10-A1'], ['T2f','Y10-A1'],
+        ['T9a','Y10-A1'], ['T9b','Y10-A1'], ['T9c','Y10-A1'],
+        ['T8a','Y10-A2'], ['T8b','Y10-A2'],
+        ['T5a','Y10-A2'], ['T5b','Y10-A2'], ['T5c','Y10-A2'],
+        ['T5d','Y10-S1'], ['T6a','Y10-S1'], ['T6b','Y10-S1'], ['T6c','Y10-S1'],
+        ['T6d','Y10-S2'], ['T10a','Y10-S2'], ['T10b','Y10-S2'],
+        ['T10c','Y10-U1'], ['T10d','Y10-U1'], ['T11','Y10-U1'],
+        ['T12a','Y10-U2'], ['T12b','Y10-U2'],
+
+        // ===== Y11: T13, T7, T14c-d, T15 — then very large revision block =====
+        ['T13a','Y11-A1'], ['T13b','Y11-A1'], ['T7a','Y11-A1'], ['T7b','Y11-A1'],
+        ['T7c','Y11-A2'], ['T14c','Y11-A2'], ['T14d','Y11-A2'], ['T15a','Y11-A2'],
+        ['T15b','Y11-S1'],
+        // Spr 2 + Sum 1: pure revision (~43 lessons available)
+      ]);
+      return s;
+    }
+  }
+};
+
+function loadUserPresets() {
+  try {
+    const raw = localStorage.getItem(PRESETS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') return parsed;
+    }
+  } catch (e) { /* ignore */ }
+  return {};
+}
+
+function saveUserPresets(presets) {
+  try {
+    localStorage.setItem(PRESETS_KEY, JSON.stringify(presets));
+    return true;
+  } catch (e) {
+    alert('Could not save preset — browser storage may be full.');
+    return false;
+  }
+}
+
+// Snapshot current state. Strips runtime-only fields and deep-clones so
+// later edits to the working state don't leak into the saved preset.
+function snapshotState() {
+  return JSON.parse(JSON.stringify({
+    blocks: state.blocks,
+    terms: Object.fromEntries(Object.entries(state.terms).map(([id, t]) =>
+      [id, { ...t, blockIds: [...t.blockIds] }]
+    )),
+    poolOrder: state.poolOrder,
+    customCounter: state.customCounter || 0,
+    config: { ...state.config }
+  }));
+}
+
+// Hydrate a snapshot back into the live state. Validates minimally and
+// preserves the user's current toggle preferences if the preset doesn't
+// declare them (so loading a layout doesn't clobber UI prefs).
+function applySnapshot(snap) {
+  if (!snap || !snap.blocks || !snap.terms) {
+    alert('Preset is malformed and cannot be loaded.');
+    return false;
+  }
+  state = {
+    blocks: snap.blocks,
+    terms: snap.terms,
+    poolOrder: snap.poolOrder || [],
+    customCounter: snap.customCounter || 0,
+    config: {
+      showDepth: snap.config?.showDepth ?? state.config.showDepth,
+      applyBuffer: snap.config?.applyBuffer ?? state.config.applyBuffer,
+      autoSpillover: snap.config?.autoSpillover ?? state.config.autoSpillover
+    }
+  };
+  document.getElementById('toggle-depth').checked = state.config.showDepth;
+  document.getElementById('toggle-buffer').checked = state.config.applyBuffer;
+  document.getElementById('toggle-spillover').checked = state.config.autoSpillover;
+  renderAll();
+  return true;
+}
+
+// Loading any preset: confirm if current plan has user work in it.
+// "Has work" = anything other than the default EoHT placements.
+function hasUserWork() {
+  // Count non-EoHT placed blocks
+  for (const t of Object.values(state.terms)) {
+    if (t.blockIds.some(id => !id.startsWith('EOHT-'))) return true;
+  }
+  // Custom blocks beyond the auto-EoHT set
+  if ((state.customCounter || 0) > 0) return true;
+  // Any split pieces
+  if (Object.values(state.blocks).some(b => b.splitOrigin)) return true;
+  return false;
+}
+
+function loadPreset(presetId, source /* 'builtin' | 'user' */) {
+  let snap;
+  if (source === 'builtin') {
+    const p = BUILTIN_PRESETS[presetId];
+    if (!p) return;
+    snap = p.build();
+  } else {
+    const presets = loadUserPresets();
+    const p = presets[presetId];
+    if (!p) return;
+    snap = p.snapshot;
+  }
+  if (hasUserWork()) {
+    if (!confirm('Loading a preset will replace your current plan. Continue?')) return;
+  }
+  applySnapshot(snap);
+  closePresetMenu();
+}
+
+function savePresetAsUserPreset() {
+  const name = prompt('Name this plan (e.g. "Energy-first Y9 v2"):');
+  if (!name || !name.trim()) return;
+  const description = prompt('Optional one-line description (or leave blank):') || '';
+  const presets = loadUserPresets();
+  // Slug as id, dedupe with numeric suffix
+  let id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'plan';
+  let candidate = id, n = 2;
+  while (presets[candidate]) candidate = `${id}-${n++}`;
+  presets[candidate] = {
+    name: name.trim(),
+    description: description.trim(),
+    createdAt: new Date().toISOString(),
+    snapshot: snapshotState()
+  };
+  if (saveUserPresets(presets)) {
+    renderPresetMenu();
+  }
+}
+
+function deleteUserPreset(presetId) {
+  const presets = loadUserPresets();
+  if (!presets[presetId]) return;
+  if (!confirm(`Delete preset "${presets[presetId].name}"? This can't be undone.`)) return;
+  delete presets[presetId];
+  saveUserPresets(presets);
+  renderPresetMenu();
+}
+
+/* ==================== Preset menu UI ==================== */
+function renderPresetMenu() {
+  const menu = document.getElementById('preset-menu');
+  const userPresets = loadUserPresets();
+  const userEntries = Object.entries(userPresets).sort((a, b) =>
+    (b[1].createdAt || '').localeCompare(a[1].createdAt || '')
+  );
+
+  let html = '';
+
+  // Built-in section
+  html += '<div class="preset-section">';
+  html += '<div class="preset-section-label">Built-in layouts</div>';
+  Object.entries(BUILTIN_PRESETS).forEach(([id, p]) => {
+    html += `
+      <button class="preset-item" data-preset-id="${id}" data-source="builtin">
+        <span class="preset-item-icon">◆</span>
+        <span class="preset-item-body">
+          <div class="preset-item-name">${escapeHtml(p.name)}</div>
+          <div class="preset-item-desc">${escapeHtml(p.description || '')}</div>
+        </span>
+      </button>
+    `;
+  });
+  html += '</div>';
+
+  // User section
+  html += '<div class="preset-section">';
+  html += '<div class="preset-section-label">Saved plans</div>';
+  if (userEntries.length === 0) {
+    html += '<div class="preset-empty">None saved yet. Use "Save current plan" below.</div>';
+  } else {
+    userEntries.forEach(([id, p]) => {
+      html += `
+        <button class="preset-item" data-preset-id="${id}" data-source="user">
+          <span class="preset-item-icon">●</span>
+          <span class="preset-item-body">
+            <div class="preset-item-name">${escapeHtml(p.name)}</div>
+            <div class="preset-item-desc">${escapeHtml(p.description || formatPresetDate(p.createdAt))}</div>
+          </span>
+          <span class="preset-item-delete" data-delete-id="${id}" title="Delete this preset">×</span>
+        </button>
+      `;
+    });
+  }
+  html += '</div>';
+
+  // Action section
+  html += '<div class="preset-section">';
+  html += '<button class="preset-action" id="preset-action-save"><span class="preset-action-icon">+</span> Save current plan as preset…</button>';
+  html += '</div>';
+
+  menu.innerHTML = html;
+
+  // Wire up handlers
+  menu.querySelectorAll('.preset-item').forEach(btn => {
+    btn.addEventListener('click', e => {
+      // Don't load if the delete button was clicked
+      if (e.target.closest('.preset-item-delete')) return;
+      const id = btn.dataset.presetId;
+      const source = btn.dataset.source;
+      loadPreset(id, source);
+    });
+  });
+  menu.querySelectorAll('.preset-item-delete').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      deleteUserPreset(btn.dataset.deleteId);
+    });
+  });
+  document.getElementById('preset-action-save').addEventListener('click', () => {
+    closePresetMenu();
+    savePresetAsUserPreset();
+  });
+}
+
+function openPresetMenu() {
+  renderPresetMenu();
+  document.getElementById('preset-menu').classList.add('open');
+}
+function closePresetMenu() {
+  document.getElementById('preset-menu').classList.remove('open');
+}
+function togglePresetMenu() {
+  const menu = document.getElementById('preset-menu');
+  if (menu.classList.contains('open')) closePresetMenu();
+  else openPresetMenu();
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+function formatPresetDate(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  } catch (e) { return ''; }
+}
+
+document.getElementById('btn-presets').addEventListener('click', e => {
+  e.stopPropagation();
+  togglePresetMenu();
+});
+// Close menu on outside click
+document.addEventListener('click', e => {
+  const menu = document.getElementById('preset-menu');
+  const btn = document.getElementById('btn-presets');
+  if (!menu.contains(e.target) && !btn.contains(e.target)) closePresetMenu();
+});
+
+/* ==================== Initial render ==================== */
+document.getElementById('toggle-depth').checked = state.config.showDepth;
+document.getElementById('toggle-buffer').checked = state.config.applyBuffer;
+document.getElementById('toggle-spillover').checked = state.config.autoSpillover;
+renderAll();
+</script>
+
+</body>
+</html>

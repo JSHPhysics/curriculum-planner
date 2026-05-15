@@ -1,0 +1,23 @@
+{
+  "appId": "uk.staffordhaworth.curriculumplanner",
+  "productName": "Curriculum Planner",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "dist/**/*",
+    "dist-electron/**/*",
+    "package.json"
+  ],
+  "win": {
+    "target": ["nsis", "portable"]
+  },
+  "mac": {
+    "target": ["dmg"],
+    "category": "public.app-category.education"
+  },
+  "linux": {
+    "target": ["AppImage"],
+    "category": "Education"
+  }
+}

@@ -1,0 +1,44 @@
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/lora/400.css";
+@import "@fontsource/lora/500.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #FBF7EE;
+  --surface: #FFFFFF;
+  --surface-2: #F5EFE0;
+  --line: #E5DDC9;
+  --line-2: #D4CFC0;
+  --ink: #1A1A1A;
+  --ink-dim: #4A4A4A;
+  --ink-fade: #8A8478;
+  --navy: #1F3A5F;
+  --navy-dim: #324E73;
+  --gold: #B98D2C;
+  --warn: #B85C5C;
+  --good: #6FA068;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
