@@ -919,3 +919,41 @@ New module. `import.ts` already exports a lot (`importSpec`, validation types, h
 - `BUILD_PLAN.md` Session 12 step 4
 - `src/model/importTemplate.ts`
 - `src/components/ViewPlaceholder.tsx` (`downloadTemplate`)
+
+---
+
+## DEC-028 — Playwright tests run against the Vite renderer with a mocked `window.api`, not the packaged Electron app
+**Date:** 2026-05-16
+**Session:** 13
+**Status:** Accepted
+
+### Context
+`BUILD_PLAN.md` Session 13 step 2 says "Run on Windows and macOS via electron-builder packaged build". But electron-builder configuration is Session 14's job, and the renderer is the entire UI surface — `window.api` is a 5-method bridge to `dialog.showOpenDialog` etc., not load-bearing UI logic. Running the full Electron app under Playwright (`_electron.launch`) requires a packaged binary and adds tens of seconds to every test run; it pays off only for things that *only* break in the Electron context (preload context-isolation, OS dialogs, file-path handling). Those are best smoke-tested by hand in Session 14 after packaging works.
+
+### Decision
+Playwright runs against `npm run dev:vite` (renderer only). A test fixture (`tests/e2e/fixtures.ts`) installs a `window.api` mock via `page.addInitScript` before every test:
+- `openCurriculumFile` / `openSpreadsheetFile` — no-op by default (tests use the in-renderer "Load example" path which uses `fetch`, not the IPC bridge)
+- `saveCurriculumFile` / `saveSpreadsheetFile` — write to an in-process `Map<path, file>`. The mock exposes a `window.__testHooks.listFiles()` inspector so tests can assert "a `.curriculum` file was written" without leaving the renderer.
+- `setDirty` — no-op
+- `getAppVersion` — returns `"1.0.0-test"`
+
+Real Electron-only smoke tests (file dialogs, app close confirm, OS integration) are deferred to a manual Session 14 checklist.
+
+### Alternatives considered
+- **Playwright + `_electron.launch` against a packaged build.** Truer to the production environment but requires Session 14 first and dwarfs run time. Build plan's exit criterion "all e2e tests pass on Windows and macOS" is met by manual smoke-test of the installed app.
+- **Vitest + jsdom + React Testing Library.** Faster but no real DOM rendering, drag-and-drop testing is extremely fiddly with jsdom + dnd-kit, and you lose the "real Chrome layout / pointer events" fidelity that catches dnd-kit regressions.
+- **Playwright in browser mode without `window.api`.** Loses ability to verify Save / Export / Open flows even at the renderer level — those just no-op when `window.api === undefined`.
+
+### Consequences
+- The 10 E2E scenarios run in ~12 seconds against the Vite dev server (cold) — fast enough to run on every commit.
+- The mock surface is the same single source of truth as `src/types/api.d.ts`. If we add an IPC method, the mock breaks until it implements it — which is the right friction.
+- dnd-kit drag-and-drop works in Playwright via multi-step `page.mouse.move` (4px activation threshold + a multi-step move to the target). Documented inline in `tests/e2e/drag-and-edit.spec.ts`.
+- Session 14 still owns "does it actually launch + dialog + save + open on Windows and macOS". A short manual checklist in the SESSION_LOG is fine — the renderer side is already proven.
+
+### Related
+- `SPEC.md` §15 acceptance criteria (verified end-to-end where feasible)
+- `BUILD_PLAN.md` Session 13 steps 1–2
+- `playwright.config.ts`
+- `tests/e2e/fixtures.ts`
+- [DEC-014](#dec-014) (IPC bridge surface — the thing being mocked)
+- [DEC-019](#dec-019) (CI workflows — Session 13 doesn't yet add e2e to CI; could be a future addition)

@@ -57,8 +57,11 @@ export function CustomBlockModal({ onCancel, onCreate }: CustomBlockModalProps):
 
         <div className="px-5 py-4 space-y-4">
           <div>
-            <label className="block text-xs text-ink-dim mb-1">Name</label>
+            <label htmlFor="custom-block-name" className="block text-xs text-ink-dim mb-1">
+              Name
+            </label>
             <input
+              id="custom-block-name"
               type="text"
               autoFocus
               value={name}
@@ -69,8 +72,11 @@ export function CustomBlockModal({ onCancel, onCreate }: CustomBlockModalProps):
           </div>
 
           <div>
-            <label className="block text-xs text-ink-dim mb-1">Lessons</label>
+            <label htmlFor="custom-block-lessons" className="block text-xs text-ink-dim mb-1">
+              Lessons
+            </label>
             <input
+              id="custom-block-lessons"
               type="number"
               min={1}
               max={50}

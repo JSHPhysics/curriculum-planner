@@ -30,5 +30,12 @@ export default defineConfig({
       "**/.claude/**",
       "**/tests/e2e/**",
     ],
+    coverage: {
+      provider: "v8",
+      include: ["src/model/**/*.ts"],
+      exclude: ["src/model/**/*.d.ts", "src/model/types.ts"],
+      // BUILD_PLAN §13 exit criterion: ≥ 80% on src/model/
+      thresholds: { lines: 80, branches: 80, functions: 80, statements: 80 },
+    },
   },
 });

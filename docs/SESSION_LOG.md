@@ -732,3 +732,78 @@ Run `npm run dev`:
 
 ### Open questions for the user
 - None blocking. Session 13 (Playwright E2E) and Session 14 (electron-builder packaging + perf measurement on installed builds) remain.
+
+---
+
+## Session 13 — Playwright E2E + coverage gate
+**Date:** 2026-05-16
+**Status:** Complete (with documented deferral — see *Deviations*)
+**Commit:** *(pending — see git log)*
+
+### What was built
+- `playwright.config.ts` — Chromium-only, 1440×900 viewport (matching `SPEC.md` §8.4 recommended size). Vite dev server auto-spawned via `webServer`. `reuseExistingServer: true` outside CI so local re-runs are fast.
+- `tests/e2e/fixtures.ts` — `test` fixture that pre-installs:
+  - A mocked `window.api` (in-memory Map for `saveCurriculumFile` / `saveSpreadsheetFile`; no-op `setDirty`; `getAppVersion → "1.0.0-test"`) — per [DEC-028](DECISIONS.md#dec-028)
+  - A `window.__testHooks` inspection surface (`listFiles`, `readFile`, `preloadCurriculum`) so tests can assert mock-file writes without exposing the mock impl
+  - `AppPage` page-object helper with `loadExample()`, `switchView(name)`, `listMockFiles()`
+- Five spec files in `tests/e2e/`:
+  - **`first-run.spec.ts`** (2 tests) — empty workspace shows the three primary actions; template download writes a `.xlsx` via the mocked save dialog
+  - **`views.spec.ts`** (3 tests) — load example renders Sub-topic view; all four view selectors render without error; Objective view shows full coverage immediately after import
+  - **`custom-block.spec.ts`** (1 test) — Custom block modal end-to-end, block appears in pool
+  - **`drag-and-edit.spec.ts`** (1 test) — drag T1a from pool to Y9-A1 with multi-step mouse moves, click the placement, verify the BlockEditModal opens with the "Spec defines N lessons" hint added in the previous tweak
+  - **`persistence.spec.ts`** (3 tests) — workspace survives a reload via localStorage autosave; "Save as…" writes a `.curriculum` file; "Export" writes an `.xlsx`
+- Coverage gate in `vite.config.ts` `test.coverage`:
+  - `include: ["src/model/**/*.ts"]`, excludes pure-type `types.ts`
+  - Thresholds: 80% on lines, branches, functions, statements (BUILD_PLAN §13 exit criterion)
+  - `npm run test:coverage` script for convenience
+- `src/components/CustomBlockModal.tsx` — small a11y polish: `htmlFor` + `id` on the Name and Lessons inputs so `getByLabel` / screen readers can find them
+
+### Exit criteria check
+- [x] E2E scenarios from BUILD_PLAN.md Session 13 step 1:
+  - [x] Import example → see all 4 views populated (`views.spec.ts`)
+  - [x] Drag a block, save, reopen — drag + click-to-edit (`drag-and-edit.spec.ts`); save round-trip (`persistence.spec.ts`); reopen as a reload-based persistence test
+  - [x] Switch views, verify same data (`views.spec.ts`)
+  - [x] Add a custom block, save (`custom-block.spec.ts` + `persistence.spec.ts`)
+  - [ ] Load a preset, verify placement — *N/A, presets deferred to v1.1+ per Session 12 deviation*
+  - [ ] Restore to import, verify orphans — *not added this session, see Deviations*
+  - [x] Export to Excel (`persistence.spec.ts`)
+- [x] Run on Windows — yes (this is Windows). macOS via electron-builder packaged build is Session 14 territory per [DEC-028](DECISIONS.md#dec-028)
+- [x] Coverage ≥ 80% on `src/model/` — **87.91% lines / 88.95% branches / 95.55% functions / 87.91% statements** (gate enforced via vitest threshold; build fails if it drops below 80%)
+- [x] `npm test` (unit) passes — 191/191 across 11 files
+- [x] `npm run test:e2e` passes — 10/10 across 5 spec files (~12s cold)
+- [x] `npm run typecheck` clean
+- [x] `npm run build:renderer` clean
+
+### Deviations from BUILD_PLAN.md
+- **Tests run against the Vite renderer with a mocked `window.api`, not a packaged Electron build.** Logged in [DEC-028](DECISIONS.md#dec-028). The packaged-build smoke test belongs in Session 14 alongside `electron-builder` config; renderer coverage is the load-bearing testbed for v1.
+- **No Restore-to-import E2E.** Adding it requires either (a) preloading a workspace with an orphan placement (deserialise a hand-crafted curriculum JSON and inject it through the autosave key), or (b) triggering the restore tab menu and asserting on the modal. Decided to skip (a) for tight scope; (b) would only test the modal-open path without exercising the orphan-listing branch. Better to wait until presets land (which would give a natural orphan-producing scenario) or to add this as a Session 14 polish item.
+- **No preset loading E2E.** Presets aren't implemented (deferred since Session 8 / Session 12). When they land, add a test alongside.
+
+### Decisions logged
+- [DEC-028](DECISIONS.md#dec-028) — Playwright runs against renderer + mocked api, not packaged Electron build
+
+### Surprises and gotchas
+- **dnd-kit drag-and-drop works in Playwright** with multi-step `page.mouse.move`. The trick is two-stage: jitter past the 4px `PointerSensor` activation threshold first (10px diagonal works), then a 20-step move to the target's centre. `page.dragAndDrop()` alone doesn't fire enough events for dnd-kit's pointer listeners.
+- **dnd-kit ships an aria-live region** (`#DndLiveRegion-N`) that announces "Draggable item X was dropped over droppable Y". This is great for a11y but matched my first `getByText("T1a")` locator and caused a strict-mode violation. Fix: target the placement wrapper (`.touch-none`) explicitly so the announcement isn't a candidate.
+- **`addInitScript` runs on every navigation, including reload.** My first version cleared `localStorage` in an init script — that defeated the persistence test because reload re-cleared the autosave. Removed the clear; Playwright already gives each test a fresh browser context.
+- **`getByRole("tab", { name: "Topic" })` matches both `Topic` and `Sub-topic`** because "Topic" is a substring. Added `exact: true` to the view helper.
+- **The "Drag lessons between cells…" hint** appears once per year row in Lesson view — strict mode catches the resulting 3-element match. Used `.first()` for the smoke check.
+- **`test:coverage` reports 87.91% lines** with `queries.ts` at 53% being the weakest module. `queries.ts` is mostly exercised by the renderer (UI integration), not by unit tests. The overall gate still passes comfortably. Could add explicit `queries.ts` tests in a polish pass if the number ever drops below 80%.
+- **Mock api surface drifts independently of `src/types/api.d.ts`.** Worth noting for future contributors: if you add a method to the IPC bridge, you must add it to `tests/e2e/fixtures.ts` too. A single type-checked mock would prevent drift; small cost, not worth this session.
+- **No CI integration this session.** `npm run test:e2e` runs locally; adding it to `.github/workflows/ci.yml` would require installing Playwright browsers in CI (cached fine but adds setup time) and accepting the ~30s wall-clock. Leaving this as a Session 14 follow-up if you want the E2E gate enforced before merges.
+
+### What's usable now
+- `npm run test:e2e` — 10 scenarios, ~12s cold, ~4s warm
+- `npm run test:coverage` — unit tests with coverage report and a fail-on-drop gate at 80%
+- Confidence that:
+  - First-run UI matches SPEC §7.1
+  - The example loads, all four views render, coverage indicator works
+  - A user can drag from the pool to a half-term cell and the resulting placement is editable
+  - The spec-natural lesson hint added last session is wired correctly through the UI
+  - Custom blocks create and surface in the pool
+  - Workspace state survives a browser reload
+  - Save/Export both write files via the IPC bridge
+
+### Open questions for the user
+- Want the E2E suite added to the CI workflow (would require installing Playwright browsers each run)? Or keep it as a local pre-push check?
+- Session 14 remaining: electron-builder packaging, app icon, smoke-test the installer on Windows (you), performance pass on the packaged build.
