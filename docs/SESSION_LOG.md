@@ -595,3 +595,65 @@ Run `npm run dev` and use the view selector → Objective. You'll see:
 
 ### Open questions for the user
 - None blocking. Sessions 11 (Topic view), 12 (polish + restore-to-import modal + first-run + presets), 13 (Playwright E2E), 14 (electron-builder packaging) remain.
+
+---
+
+## Session 11 — Topic view
+**Date:** 2026-05-16
+**Status:** Complete
+**Commit:** *(pending — see git log)*
+
+### What was built
+- `src/model/topics.ts` — per-half-term aggregation:
+  - `TopicBlockSummary { topicCode, topicName, colour, totalLessons, subTopics[], placedBlockIds[] }`
+  - `SubTopicContribution { subTopicCode, subTopicName, lessons, placedBlockIds[] }` — merges multiple PlacedBlocks of the same sub-topic in the same cell (e.g. a recombine target with two pieces of the same sub-topic) into one contribution
+  - `getTopicBlocksForCell(subject, halfTerm)` — emits summaries in spec topic order (stable across edits), excludes EoHT and custom placements per [DEC-011](DECISIONS.md#dec-011) / [DEC-024](DECISIONS.md#dec-024)
+  - `getPlacedBlockIdsForTopicInCell(subject, halfTerm, topicCode)` — flat list in `placedBlocks` order, used by the store's bulk-move action
+  - `getNonContentLessonsInCell(halfTerm)` — sum of EoHT + custom lessons for the cell footer
+  - `getTotalLessonsForTopic(subject, topicCode)` — whole-timeline total; not yet displayed, kept here so aggregation logic stays in one place
+- `src/store/useWorkspaceStore.ts` — `moveTopicInHalfTerm(topicCode, fromTermId, toTermId)`:
+  - Same-target no-op (no spurious dirty flag)
+  - Unknown subject / source-term / empty-topic no-op
+  - For each matching PlacedBlock id, calls the pure `moveBlock` op; identity, `splitFrom`, `splitType`, and `userEdits` survive ([DEC-024](DECISIONS.md#dec-024))
+- UI components, single top-level `DndContext`:
+  - `TopicBlock.tsx` — draggable summary card with topic-colour left border, code, name, total lesson count, a stacked breakdown bar (sub-topic widths proportional to lesson share, alternating mid-tone for distinguishability), and a sub-topic code/count footer line
+  - `TopicHalfTermCell.tsx` — drop zone with the standard `label · used/budget` header (warn-colour when over), one `TopicBlock` per topic in the cell, plus a dashed "+NL EoHT / custom" footer when non-content placements exist
+  - `TopicView.tsx` — three Y-rows × half-term columns, drag dispatches `moveTopicInHalfTerm`. Drag overlay shows the same `TopicBlock` so the drag preview is the moving block, not a generic chip
+- `src/App.tsx` — routes `currentView === "topic"` → `TopicView`. ViewPlaceholder now only fires when no subject is loaded; the per-view "coming in Session N" copy is unreachable in the production tree (kept as a fallback comment + map for future view types).
+- Tests:
+  - `tests/model/topics.test.ts` — 9 tests: empty cell, single-topic two-sub-topic aggregation, multi-topic ordering by spec, EoHT/custom exclusion, same-sub-topic split merge into one contribution, `getPlacedBlockIdsForTopicInCell` happy + empty, `getTotalLessonsForTopic` across multiple terms, `getNonContentLessonsInCell`
+  - `tests/store/useWorkspaceStore.test.ts` — +2 tests: bulk move with distractor topic stays put + id preservation; same-target / empty-source no-op
+
+### Exit criteria check
+- [x] Topic view functional — aggregated blocks render with breakdown bar; cells show per-year totals via the existing StatusBar wired in App
+- [x] Topic drag moves the whole topic correctly — `moveTopicInHalfTerm` iterates and applies `moveBlock`; verified by the bulk-move store test (T2a + T2b → A2 in one action, T3a distractor stays in A1)
+- [x] View switching between Topic ↔ Sub-topic shows consistent state — both views read from the same `subject.timeline`; identity preservation means a placement edited in Sub-topic view (Block modal) still appears (under the same id) in the Topic view's breakdown
+- [x] `npm test` passes (186/186 across 10 files, up from 175 — 9 new topics + 2 new store tests)
+- [x] `npm run typecheck` passes (renderer + electron tsconfigs)
+- [x] `npm run build:renderer` passes (691 KB main chunk — +6 KB from Session 10; deferral to Session 12 still applies)
+
+### Deviations from BUILD_PLAN.md
+- **Per-half-term Topic blocks, not whole-topic Topic blocks.** SPEC.md §4.1 is internally consistent with both readings; chose per-cell aggregation for identity preservation. Logged in [DEC-024](DECISIONS.md#dec-024).
+- **No spillover on bulk move.** Build plan step 3 says "subject to capacity / spillover" but spillover would discard placement identity for every piece in the move. Over-budget cells show the warn-colour total per the existing `halfTermUsed` machinery; the user can split from the Sub-topic view. Logged in [DEC-024](DECISIONS.md#dec-024).
+- **No separate "click a topic block" behaviour.** Build plan doesn't mention an edit modal for topic blocks; SPEC.md §4.1 explicitly says "Cannot split or recombine topics from Topic view (must go to sub-topic view)". The block is draggable but not clickable to open a modal — clicking it does nothing (no flicker on click). If user testing reveals confusion, the polish pass can add a "Click to switch to Sub-topic view filtered to T2" action.
+
+### Decisions logged
+- [DEC-024](DECISIONS.md#dec-024) — Per-half-term aggregation, identity-preserving bulk move, no spillover, EoHT/custom in footer only
+
+### Surprises and gotchas
+- **Example spec quirk: T1 has only one sub-topic** (`T1a Units and measurement`). My first store test placed `T1a` + `T1b` + `T2a` to verify the "move all sub-topics of T1" path, but `T1b` doesn't exist in the spec; the placement created an orphan that `findTopicAndSubTopic` skipped, and the assertion looking for "no T1a/T1b in A1 after move" still saw the orphan T1b. Switched to T2 (which has T2a–T2d). Worth keeping in mind for future tests against the bundled example.
+- **TopicBlock as drag overlay.** Initial draft used a plain `<div>` for the overlay preview; the result looked unlike what the user was dragging. Reusing the `TopicBlock` component inside `<DragOverlay>` with the same `halfTermId` made the preview feel anchored to the source. The `TopicBlock` happily renders inside `<DragOverlay>` because dnd-kit only needs a stable DOM child — the `useDraggable` hook on the source still owns the drag lifecycle.
+- **`mixWithWhite` for breakdown-bar shading.** First iteration used the topic's solid colour for every sub-topic segment, which made the bar look like one solid block. Alternating 0% / 25% lightening gives just enough contrast to see sub-topic divisions without introducing new palette colours. Cheap, no dependency, defensive against bad hex input.
+- **EoHT / custom blocks visible but not draggable.** Showing them via a dashed footer rather than hiding them keeps the cell's used/budget meaningful — a teacher reading the Topic view sees "Y9-A1 has T2(8L), T3(3L), plus 1L EoHT" → 12L total, matching the StatusBar.
+- **Unused `firstOrderHint` field.** First aggregator draft tracked the index of the first placed-block per sub-topic with intent to sort sub-topics by appearance order. Realised spec order is the right ordering (matches the Sub-topic view and is stable across edits), removed the field. Worth checking premature complexity at code-review time.
+- **Bundle 685 → 691 KB.** Stable; the new view is small.
+
+### What's usable now
+Run `npm run dev` and use the view selector → Topic. You'll see:
+1. Three year rows (Y9/Y10/Y11), each with their half-term columns.
+2. Each cell shows topic-level blocks — e.g. a T2 (Motion and forces) card with "8L", a breakdown bar showing T2a/T2b/T2c proportions, and the sub-topic codes/counts beneath.
+3. A "+1L EoHT / custom" footer in cells with EoHT placements.
+4. Drag any topic block to another cell → every sub-topic placement of that topic in the source cell moves together. Identity preserved; switching to Sub-topic view shows the same PlacedBlock ids.
+
+### Open questions for the user
+- None blocking. Sessions 12 (polish + restore-to-import modal + first-run + presets + Excel export from all views), 13 (Playwright E2E), 14 (electron-builder packaging) remain.

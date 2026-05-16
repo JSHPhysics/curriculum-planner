@@ -155,6 +155,49 @@ describe("placement actions delegate to the active subject's timeline", () => {
     expect(after?.lessonsClaimed).toBe(4);
   });
 
+  it("moveTopicInHalfTerm moves every sub-topic placement of that topic from source to target", () => {
+    const store = useWorkspaceStore.getState();
+    store.addSubject(loadExampleSubject("subj-1"));
+    // Place two sub-topics of T2 (Motion and forces) in Y9-A1, plus one of T3 as a distractor
+    store.placeBlock({ kind: "sub-topic", subTopicCode: "T2a" }, "Y9-A1", 2);
+    store.placeBlock({ kind: "sub-topic", subTopicCode: "T2b" }, "Y9-A1", 2);
+    store.placeBlock({ kind: "sub-topic", subTopicCode: "T3a" }, "Y9-A1", 1);
+
+    const before = useWorkspaceStore.getState().workspace.subjects[0]!;
+    const a1Before = before.timeline.halfTerms.find((h) => h.id === "Y9-A1")!;
+    const t2Ids = a1Before.placedBlocks
+      .filter((p) => p.source.kind === "sub-topic" && (p.source.subTopicCode === "T2a" || p.source.subTopicCode === "T2b"))
+      .map((p) => p.id);
+
+    store.moveTopicInHalfTerm("T2", "Y9-A1", "Y9-A2");
+
+    const after = useWorkspaceStore.getState().workspace.subjects[0]!;
+    const a1 = after.timeline.halfTerms.find((h) => h.id === "Y9-A1")!;
+    const a2 = after.timeline.halfTerms.find((h) => h.id === "Y9-A2")!;
+
+    // T2 placements gone from A1, T3 distractor stays
+    expect(a1.placedBlocks.filter((p) => p.source.kind === "sub-topic" && (p.source.subTopicCode === "T2a" || p.source.subTopicCode === "T2b"))).toHaveLength(0);
+    expect(a1.placedBlocks.some((p) => p.source.kind === "sub-topic" && p.source.subTopicCode === "T3a")).toBe(true);
+
+    // Both T2 ids are now in A2 (identity preserved)
+    const movedIds = a2.placedBlocks.filter((p) => t2Ids.includes(p.id)).map((p) => p.id);
+    expect(movedIds.length).toBe(2);
+    expect(new Set(movedIds)).toEqual(new Set(t2Ids));
+  });
+
+  it("moveTopicInHalfTerm is a no-op when source equals target or topic has no placements in cell", () => {
+    const store = useWorkspaceStore.getState();
+    store.addSubject(loadExampleSubject("subj-1"));
+    store.placeBlock({ kind: "sub-topic", subTopicCode: "T2a" }, "Y9-A1", 2);
+    store.markClean();
+
+    store.moveTopicInHalfTerm("T2", "Y9-A1", "Y9-A1");
+    expect(useWorkspaceStore.getState().dirty).toBe(false);
+
+    store.moveTopicInHalfTerm("T2", "Y9-A2", "Y9-A1"); // no T2 in A2
+    expect(useWorkspaceStore.getState().dirty).toBe(false);
+  });
+
   it("placement actions are no-ops when no active subject exists", () => {
     const before = useWorkspaceStore.getState().workspace;
     useWorkspaceStore.getState().placeBlock({ kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 2);

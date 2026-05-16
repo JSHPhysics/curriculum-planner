@@ -5,6 +5,7 @@ import { LessonView } from "@/components/LessonView";
 import { ObjectiveView } from "@/components/ObjectiveView";
 import { StatusBar } from "@/components/StatusBar";
 import { SubTopicView } from "@/components/SubTopicView";
+import { TopicView } from "@/components/TopicView";
 import { ViewPlaceholder } from "@/components/ViewPlaceholder";
 import { exportSubjectToXlsx } from "@/model/export";
 import { importSpec } from "@/model/import";
@@ -161,7 +162,9 @@ export function App(): JSX.Element {
       />
       <StatusBar subject={activeSubject} onToggleConfig={updateActiveSubjectConfig} />
       <main className="flex-1 flex overflow-hidden">
-        {activeSubject && currentView === "sub-topic" ? (
+        {activeSubject && currentView === "topic" ? (
+          <TopicView subject={activeSubject} />
+        ) : activeSubject && currentView === "sub-topic" ? (
           <SubTopicView subject={activeSubject} />
         ) : activeSubject && currentView === "lesson" ? (
           <LessonView subject={activeSubject} />

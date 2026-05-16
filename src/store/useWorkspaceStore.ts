@@ -11,6 +11,7 @@ import {
   splitBlock as plSplitBlock,
 } from "@/model/placement";
 import { findObjectiveLocation } from "@/model/objectives";
+import { getPlacedBlockIdsForTopicInCell } from "@/model/topics";
 import {
   addObjectiveToLesson as specAddObjectiveToLesson,
   appendLesson as specAppendLesson,
@@ -79,6 +80,11 @@ export interface WorkspaceStoreActions {
   readonly recombineBlock: (placedBlockId: string) => void;
   readonly removeBlock: (placedBlockId: string) => void;
   readonly moveBlock: (placedBlockId: string, toTermId: string) => void;
+  readonly moveTopicInHalfTerm: (
+    topicCode: string,
+    fromTermId: string,
+    toTermId: string
+  ) => void;
   readonly editBlockLessons: (placedBlockId: string, newLessons: number) => void;
   readonly extractAndMoveLesson: (
     placedBlockId: string,
@@ -297,6 +303,27 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set) => ({
       ),
       dirty: true,
     })),
+
+  moveTopicInHalfTerm: (topicCode, fromTermId, toTermId) =>
+    set((state) => {
+      if (fromTermId === toTermId) return {};
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      const fromTerm = subject.timeline.halfTerms.find((h) => h.id === fromTermId);
+      if (!fromTerm) return {};
+      const ids = getPlacedBlockIdsForTopicInCell(subject, fromTerm, topicCode);
+      if (ids.length === 0) return {};
+      let timeline = subject.timeline;
+      for (const pbId of ids) {
+        timeline = plMoveBlock(timeline, pbId, toTermId);
+      }
+      return {
+        workspace: replaceSubject(state.workspace, id, { ...subject, timeline }),
+        dirty: true,
+      };
+    }),
 
   editBlockLessons: (placedBlockId, newLessons) =>
     set((state) => ({

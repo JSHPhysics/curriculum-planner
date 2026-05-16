@@ -782,3 +782,37 @@ Same-target drops are no-ops in the store (no spurious dirty flag).
 - `src/components/ObjectiveView.tsx` (`handleDragEnd`)
 - `src/store/useWorkspaceStore.ts` (`placeObjectiveInLesson`, `removeObjective`)
 - [DEC-020](#dec-020), [DEC-022](#dec-022)
+
+---
+
+## DEC-024 — Topic-view drag is per-half-term, identity-preserving; no spillover on topic move
+**Date:** 2026-05-16
+**Session:** 11
+**Status:** Accepted
+
+### Context
+`SPEC.md` §4.1 says a "Topic block" is "the aggregation of all that topic's placed sub-topic blocks in that half-term", and "Drag a topic to move *all* its sub-topics together to a different half-term (subject to capacity / spillover)". The phrase "subject to capacity / spillover" is ambiguous: is the *whole topic* subject to spillover (auto-splitting across multiple target half-terms), or is the per-block identity preserved (per [DEC-017](#dec-017)'s term→term policy in Sub-topic view)?
+
+### Decision
+- **Per-half-term aggregation.** A Topic block is per `(topicCode, halfTermId)`. If T2 has placements in Y9-A1 and Y9-A2, the user sees *two* T2 blocks (one per cell). Dragging the Y9-A1 block only moves the Y9-A1 placements; the Y9-A2 ones stay put.
+- **Identity-preserving.** `moveTopicInHalfTerm(topicCode, fromTermId, toTermId)` iterates the source cell's placed blocks of that topic and calls `moveBlock` on each. Ids, `splitFrom` chains, `userEdits`, and existing `splitType` values all survive.
+- **No spillover on the moved bundle.** If the target cell goes over budget, the StatusBar warning fires — same UX as Sub-topic view term→term drag ([DEC-017](#dec-017)). The user can split individual pieces from Sub-topic view if needed.
+- **Excludes EoHT / custom placements from the topic-block aggregation.** Consistent with [DEC-011](#dec-011). The cell still shows a "+NL EoHT / custom" footer chip so the user sees overall load, but those placements aren't part of any draggable topic block.
+
+### Alternatives considered
+- **Whole-topic Topic block (sum across all half-terms).** Easy aggregation but the drag UX collapses: dragging "T2 (15L across 3 half-terms)" into a single target cell would have to spillover-redistribute, breaking identity for every piece. Worse, the user can't tell which half-term's piece they're moving from.
+- **Spillover the bundle on overflow.** Tempting for first-time users but loses identity for every sub-block in the move, breaking any per-placement edits. SPEC.md §4.1 also says "Cannot split or recombine topics from Topic view (must go to sub-topic view)" — spillover would *create* splits as a side effect of a move.
+- **Include EoHT/custom in the topic-block aggregation.** They don't belong to a topic, so they can't be moved as part of one. Surfacing them as a non-draggable footer is the honest middle.
+
+### Consequences
+- The Topic view is the cleanest place to see "T2 spans three half-terms" because each cell shows one T2 block; the user reads spatial sequence from the calendar grid.
+- Bulk moves work without surprising the user: drag T2 Y9-A1 → Y9-A2; if T2 Y9-A2 already existed there it now has two T2 placements in the same cell (the breakdown bar reflects that). No silent merging — the Sub-topic view can recombine if the user wants.
+- Cross-cell moves use `moveTopicInHalfTerm` as a single store action, which folds into one dirty flag and one autosave debounce.
+
+### Related
+- `SPEC.md` §4.1
+- `BUILD_PLAN.md` Session 11 steps 2–3
+- `src/model/topics.ts` (`getTopicBlocksForCell`, `getPlacedBlockIdsForTopicInCell`)
+- `src/components/TopicView.tsx` (`handleDragEnd`)
+- `src/store/useWorkspaceStore.ts` (`moveTopicInHalfTerm`)
+- [DEC-011](#dec-011), [DEC-017](#dec-017)

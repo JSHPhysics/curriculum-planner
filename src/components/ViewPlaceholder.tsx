@@ -18,6 +18,8 @@ const SESSIONS: Record<ViewType, string> = {
   lesson: "Session 9",
   objective: "Session 10",
 };
+// Every ViewType now has a real implementation; SESSIONS is only consulted
+// when no subject is loaded (in which case EmptyWorkspace runs instead).
 
 export interface ViewPlaceholderProps {
   readonly view: ViewType;
