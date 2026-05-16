@@ -168,12 +168,6 @@ export function LessonEditModal({
               <label className="text-xs text-ink-dim">
                 Objectives ({objectives.length})
               </label>
-              <button
-                onClick={addObjective}
-                className="text-xs px-2 py-0.5 border border-line rounded hover:bg-surface-2"
-              >
-                + Add
-              </button>
             </div>
             <div className="flex flex-col gap-1">
               {objectives.map((o, idx) => (
@@ -183,7 +177,8 @@ export function LessonEditModal({
                       onClick={() => moveObjective(idx, -1)}
                       disabled={idx === 0}
                       title="Move up"
-                      className="text-[10px] leading-none px-1 text-ink-fade hover:text-ink disabled:opacity-30 disabled:cursor-not-allowed"
+                      aria-label="Move objective up"
+                      className="text-[10px] leading-none px-1 text-ink-fade hover:text-ink disabled:opacity-30 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-navy"
                     >
                       ▴
                     </button>
@@ -191,7 +186,8 @@ export function LessonEditModal({
                       onClick={() => moveObjective(idx, 1)}
                       disabled={idx === objectives.length - 1}
                       title="Move down"
-                      className="text-[10px] leading-none px-1 text-ink-fade hover:text-ink disabled:opacity-30 disabled:cursor-not-allowed"
+                      aria-label="Move objective down"
+                      className="text-[10px] leading-none px-1 text-ink-fade hover:text-ink disabled:opacity-30 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-navy"
                     >
                       ▾
                     </button>
@@ -200,32 +196,45 @@ export function LessonEditModal({
                     type="text"
                     value={o.text}
                     onChange={(e) => setObjectiveText(idx, e.target.value)}
-                    className="flex-1 px-2 py-1 border border-line rounded text-xs"
+                    placeholder="Objective text…"
+                    className="flex-1 px-2 py-1 border border-line rounded text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
                   />
                   <button
                     onClick={() => toggleObjectiveDepth(idx)}
                     title={o.isDepth ? "Depth-marked (click to unmark)" : "Mark as depth"}
+                    aria-label={o.isDepth ? "Unmark as depth" : "Mark as depth"}
+                    aria-pressed={o.isDepth}
                     className={
-                      "text-sm px-1 " + (o.isDepth ? "text-gold" : "text-ink-fade hover:text-gold")
+                      "text-base px-1.5 leading-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gold rounded " +
+                      (o.isDepth ? "text-gold" : "text-ink-fade hover:text-gold")
                     }
                   >
                     ★
                   </button>
                   <button
                     onClick={() => deleteObjective(idx)}
-                    title="Delete objective"
-                    className="text-warn text-sm px-1 hover:bg-warn/10 rounded"
+                    title="Remove this objective"
+                    aria-label="Remove objective"
+                    className="flex items-center gap-1 text-[11px] px-2 py-1 border border-line text-ink-dim rounded hover:border-warn hover:text-warn hover:bg-warn/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn"
                   >
-                    ×
+                    <span aria-hidden className="text-sm leading-none">×</span>
+                    Remove
                   </button>
                 </div>
               ))}
               {objectives.length === 0 && (
-                <p className="text-[11px] text-ink-fade italic">
-                  No objectives yet. Click + Add to add one.
+                <p className="text-[11px] text-ink-fade italic px-1 py-2">
+                  No objectives yet. Use the button below to add one.
                 </p>
               )}
             </div>
+            <button
+              type="button"
+              onClick={addObjective}
+              className="mt-2 w-full px-3 py-2 text-sm text-navy border border-dashed border-line-2 rounded hover:border-navy hover:bg-navy/5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
+            >
+              + Add objective
+            </button>
           </div>
         </div>
 
