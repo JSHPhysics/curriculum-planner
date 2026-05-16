@@ -706,3 +706,79 @@ Store actions `editLesson`, `setLessonObjectives`, and `addLesson` always operat
 - `src/model/specEdits.ts`
 - `src/store/useWorkspaceStore.ts` (`editLesson`, `setLessonObjectives`, `addLesson`)
 - [DEC-013](#dec-013) (`restoreSubjectToImport` returns orphans)
+
+---
+
+## DEC-022 — Unmapped objectives are derived by id-diff against `importedSpec`, not stored separately
+**Date:** 2026-05-16
+**Session:** 10
+**Status:** Accepted
+
+### Context
+`SPEC.md` §4.4 calls for a side panel of "Unmapped objectives — objectives that exist in the spec but aren't currently mapped to any lesson". The data model nests objectives under lessons, so there's no canonical place to "park" an objective that the user has removed from one lesson and not yet placed in another. Three ways to surface "unmapped":
+1. Add `Subject.unmappedObjectives: Objective[]` and shuttle objectives in/out of it explicitly
+2. Derive the unmapped list at read time by comparing `importedSpec` vs `workingSpec`
+3. Allow only "move between lessons" — never "remove without target", which sidesteps unmapped entirely
+
+### Decision
+Option 2. `computeObjectiveCoverage(subject)` walks `importedSpec` and emits any objective whose id isn't in `workingSpec`. This works because every Objective has had a stable `id` since Session 2 (Objective ids are generated at import or when the user adds a new one via the Lesson view).
+
+Consequences for behaviour:
+- Removing an objective from a working-spec lesson makes it appear in the unmapped panel iff its id is in `importedSpec` (i.e. it's a spec objective). User-added objectives just disappear when removed.
+- Dragging an unmapped objective onto a lesson restores it under its original id and text from `importedSpec` (the user's working-spec edits to that objective don't persist through the unmapped round-trip, because there's no working-spec record while unmapped — there's nowhere to attach them).
+- Coverage % = `mappedCount / importedCount`, independent of user-added objectives.
+
+### Alternatives considered
+- **Option 1 (explicit storage).** More code (extra field, serialisation, restore-to-import logic), but lets unmapped objectives carry working-spec edits. Not worth it for v1: the user can always restore-then-edit.
+- **Option 3 (no unmapped concept).** Cleanest, but loses the §4.4 coverage warning that the spec specifically calls out as a value.
+
+### Consequences
+- The unmapped panel is always in sync without separate state.
+- Restoring a subject to import (`restoreSubjectToImport`) wipes the working spec back to imported spec, so the unmapped list resets to empty automatically — no special handling needed.
+- Future: if users want unmapped objectives to carry edits, add an explicit `unmappedObjectives` field and migrate. Easy because reads can fall back to the derivation when the field is absent.
+
+### Related
+- `SPEC.md` §3.3, §4.4
+- `BUILD_PLAN.md` Session 10 step 3
+- `src/model/objectives.ts` (`computeObjectiveCoverage`)
+- [DEC-021](#dec-021) (working spec is the editable side)
+
+---
+
+## DEC-023 — Drag-to-pool ("unmap") and drag-from-pool ("restore") on the Objective view; no objective-level reorder within a lesson
+**Date:** 2026-05-16
+**Session:** 10
+**Status:** Accepted
+
+### Context
+`BUILD_PLAN.md` Session 10 lists four drag interactions on the Objective view:
+- (a) Drag an objective from one lesson onto another
+- (b) Drag an unmapped objective onto a lesson
+- (c) Reorder objectives within a lesson
+- Plus an implied (d) Drop a lesson's objective onto the unmapped panel to remove it
+
+`SPEC.md` §4.4 names (a), (b), (d) explicitly but not (c). The current `LessonEditModal` already supports per-lesson reorder via up/down arrows.
+
+### Decision
+- **(a) lesson → lesson:** `placeObjectiveInLesson(objectiveId, toSubTopicCode, toLessonId)` — a store action that resolves the objective from working spec (or imported spec if unmapped), removes it from its current lesson, and appends to the target.
+- **(b) unmapped → lesson:** same store action; the objective is found in `importedSpec` and appended to the target lesson under its original id.
+- **(d) lesson → unmapped panel:** `removeObjective(objectiveId)`. The objective becomes unmapped automatically iff it's a spec objective. User-added objectives disappear.
+- **(c) intra-lesson reorder:** *deferred*. The Lesson view's modal already supports this via arrow buttons, and dnd-kit's sortable mode would require nested DndContexts or sortable-strategy plumbing that adds complexity for a marginal win. v1.1+ can layer it on with `@dnd-kit/sortable`.
+
+Same-target drops are no-ops in the store (no spurious dirty flag).
+
+### Alternatives considered
+- **Add `@dnd-kit/sortable` and support (c).** Possible but the drag-and-drop UX for fine-grained reordering of small chips is fiddly; users already have the modal. Skip for v1.
+- **Make "drop on unmapped panel" do nothing for unmapped-source chips.** Already the case — handler guards `drag.fromLessonId !== null`.
+
+### Consequences
+- The view supports the three core SPEC §4.4 interactions cleanly.
+- Reordering is via the modal, consistent with the Lesson view.
+- A user-added (non-spec) objective dropped on the unmapped panel is destroyed. Acceptable for v1 (the user added it, they can re-add it); a future "trash bin" pool could replace this if needed.
+
+### Related
+- `SPEC.md` §4.4
+- `BUILD_PLAN.md` Session 10 steps 4–5
+- `src/components/ObjectiveView.tsx` (`handleDragEnd`)
+- `src/store/useWorkspaceStore.ts` (`placeObjectiveInLesson`, `removeObjective`)
+- [DEC-020](#dec-020), [DEC-022](#dec-022)

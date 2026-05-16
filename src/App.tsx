@@ -2,6 +2,7 @@ import { useCallback, useEffect } from "react";
 
 import { Header } from "@/components/Header";
 import { LessonView } from "@/components/LessonView";
+import { ObjectiveView } from "@/components/ObjectiveView";
 import { StatusBar } from "@/components/StatusBar";
 import { SubTopicView } from "@/components/SubTopicView";
 import { ViewPlaceholder } from "@/components/ViewPlaceholder";
@@ -164,6 +165,8 @@ export function App(): JSX.Element {
           <SubTopicView subject={activeSubject} />
         ) : activeSubject && currentView === "lesson" ? (
           <LessonView subject={activeSubject} />
+        ) : activeSubject && currentView === "objective" ? (
+          <ObjectiveView subject={activeSubject} />
         ) : (
           <ViewPlaceholder view={currentView} hasSubject={activeSubject !== null} />
         )}

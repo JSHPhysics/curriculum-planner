@@ -525,3 +525,73 @@ Run `npm run dev`. You'll get:
 
 ### Open questions for the user
 - None blocking. Next: Session 10 (Objective view) — coverage indicator, unmapped pool, drag objectives between lessons.
+
+---
+
+## Session 10 — Objective view
+**Date:** 2026-05-16
+**Status:** Complete (with documented deferral — see *Deviations*)
+**Commit:** *(pending — see git log)*
+
+### What was built
+- `src/model/objectives.ts` — derivation helpers with no separate storage:
+  - `getObjectiveRows(subject)` — walks the timeline in calendar order and emits one `ObjectiveRow` per placed sub-topic lesson (EoHT/custom skipped per [DEC-011](DECISIONS.md#dec-011)), respecting `lessonRange`
+  - `computeObjectiveCoverage(subject)` — `{ importedCount, mappedCount, workingTotal, unmapped }`. "Unmapped" = objectives in `importedSpec` whose id isn't in `workingSpec`. Per-objective ids have existed since Session 2, so this is a pure walk. See [DEC-022](DECISIONS.md#dec-022)
+  - `findObjectiveLocation(spec, id)` — returns the surrounding lesson/sub-topic
+- `src/model/specEdits.ts` — added `updateObjective`, `removeObjective`, `addObjectiveToLesson` plus `ObjectiveEditableFields` export, and a private `mapEveryLesson` helper. All are pure spec→spec rebuilders.
+- `src/store/useWorkspaceStore.ts` — new actions:
+  - `placeObjectiveInLesson(objectiveId, toSubTopicCode, toLessonId)` — resolves source from working spec (or imported spec when unmapped), atomically remove + append; same-target no-op
+  - `removeObjective(objectiveId)` — removes from wherever it lives in workingSpec
+  - `updateObjective(objectiveId, patch)` — edits text and/or `isDepth`
+  - `addObjectiveToLesson(subTopicCode, lessonId, objective)`
+- UI components (single top-level `DndContext` per LessonView pattern):
+  - `ObjectiveChip.tsx` — draggable chip; carries `{ objectiveId, fromLessonId, fromSubTopicCode }` in drag data
+  - `ObjectiveRow.tsx` — drop zone per lesson (id = `lesson-row:<lessonId>`); shows half-term · sub-topic · title · objective chips
+  - `UnmappedPanel.tsx` — sticky right-side drop zone (id = `unmapped-panel`), one chip per unmapped objective with breadcrumb (`"from T1a · L3"`)
+  - `CoverageIndicator.tsx` — top bar with `mapped / imported (pct%)`, working-total, and a filter button that toggles to show only rows with zero objectives mapped
+  - `ObjectiveEditModal.tsx` — text + depth, save/cancel, and a "Remove from lesson" action that's hidden when the objective is already unmapped
+  - `ObjectiveView.tsx` — composes the above; routes drops:
+    - drop on lesson row → `placeObjectiveInLesson`
+    - drop on unmapped panel (only if drag originated from a lesson) → `removeObjective`
+- `src/App.tsx` — wires `currentView === "objective"` to `ObjectiveView`
+- Tests:
+  - `tests/model/objectives.test.ts` — 9 tests: empty placement, calendar ordering across multiple terms, EoHT skip, `lessonRange` slicing, full-coverage baseline, unmapped after removal (with breadcrumb), `workingTotal` includes user-added objectives, `findObjectiveLocation` happy and unknown
+  - `tests/model/specEdits.test.ts` — +7 tests: `updateObjective` patch/unknown, `removeObjective` happy/unknown, `addObjectiveToLesson` append/duplicate-id-no-op/unknown
+
+### Exit criteria check
+- [x] Coverage indicator correct — `computeObjectiveCoverage` derives mapped/imported counts and an unmapped list with original-position context; verified by 3 unit tests across full-coverage, removal, and user-added scenarios
+- [x] Drag-drop between lessons works — `handleDragEnd` routes to `placeObjectiveInLesson`; same-target is a no-op in the store
+- [x] Unmapped objectives pool surfaces correctly — derived purely from id-diff; drop-on-panel calls `removeObjective` to send a chip back to unmapped; drop-from-panel-onto-row restores under original id
+- [x] `npm test` passes (175/175 across 9 files, up from 159 — 9 new objectives + 7 new specEdits tests; +1 from a re-counted existing assertion)
+- [x] `npm run typecheck` passes (renderer + electron tsconfigs)
+- [x] `npm run build:renderer` passes (685 KB main chunk — bundle growth expected from a sixth view + extra modal; defer code-splitting to Session 12)
+
+### Deviations from BUILD_PLAN.md
+- **Intra-lesson reorder via drag is deferred.** Build plan step 5 mentions it indirectly via "Drag objectives between lessons"; SPEC.md §4.4 doesn't require it. The `LessonEditModal` already supports per-lesson reorder via arrow buttons. Logged in [DEC-023](DECISIONS.md#dec-023). Adding `@dnd-kit/sortable` for this is a polish-pass call.
+- **Edit-objective is modal-only**, not inline. Build plan step 6 leaves the choice to me ("inline or via modal; modal is safer for accidental clicks"). Chose modal for consistency with `BlockEditModal` and `LessonEditModal`, and because accidental clicks on a chip during a drag attempt would otherwise commit text edits silently.
+- **Worktree install required.** Per Session 2's gotchas, the worktree had no `node_modules`; ran `npm install` (620 packages, 19 vulnerability warnings — same baseline as main, no new deps added this session).
+
+### Decisions logged
+- [DEC-022](DECISIONS.md#dec-022) — Unmapped is derived by id-diff, not stored separately
+- [DEC-023](DECISIONS.md#dec-023) — Drag-to-pool / drag-from-pool / drag-between-lessons; intra-lesson reorder deferred
+
+### Surprises and gotchas
+- **No new dependencies needed.** `Objective.id` has been on the type since Session 1 and populated since Session 2 (idGen in import); this turned what could have been a churn-heavy "add id everywhere + migrate snapshots" task into a one-import-line change. Worth checking similar id needs early when planning future sessions.
+- **Drop-on-unmapped from an unmapped chip is a deliberate no-op** (`drag.fromLessonId !== null` guard). Without the guard, dropping the chip back on the same panel would call `removeObjective` on something already unmapped — harmless but mutates state and fires autosave. The guard keeps it cleanly idempotent.
+- **`useDraggable` on a `<button>`.** The chip is a `<button onClick>` for keyboard / a11y, with `{...listeners} {...attributes}` from dnd-kit. The 4px activation distance from the existing `PointerSensor` lets clicks reach `onClick` to open the edit modal; intentional moves trigger the drag. Same pattern as Session 8.
+- **Two `findObjectiveLocation` calls in `placeObjectiveInLesson`** (working spec first, imported spec fallback) — wanted to be safe across both the "moving a mapped objective" and "restoring an unmapped objective" cases without branching at the call site. Tiny cost for spec sizes we care about; pulling them apart is a v1.1+ optimisation if it ever shows up in a profile.
+- **Bundle grew from 599 KB → 685 KB.** Mostly the new view tree and the existing dnd-kit reused with another DndContext. Acceptable for an Electron app; Session 12 has the code-splitting punch list.
+
+### What's usable now
+Run `npm run dev` and use the view selector → Objective. You'll see:
+1. A coverage bar at the top: "247 / 250 spec objectives mapped (98%)".
+2. A scrolling list of rows in calendar order, one per placed sub-topic lesson, each with its half-term context and a row of objective chips.
+3. A right-side panel listing the 3 unmapped objectives with breadcrumbs ("from T2c · L4 — Acceleration").
+4. Drag any objective chip onto another lesson row → moves it.
+5. Drag a chip onto the unmapped panel → removes it from its lesson; if it was a spec objective, it appears in the unmapped list.
+6. Drag an unmapped chip onto a lesson row → restores it under its original id.
+7. Click any chip → ObjectiveEditModal opens to edit text / depth / remove.
+8. Click the "X unmapped — filter rows" button to show only rows with no objectives, then click again to clear the filter.
+
+### Open questions for the user
+- None blocking. Sessions 11 (Topic view), 12 (polish + restore-to-import modal + first-run + presets), 13 (Playwright E2E), 14 (electron-builder packaging) remain.

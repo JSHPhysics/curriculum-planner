@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  addObjectiveToLesson,
   appendLesson,
+  removeObjective,
   setLessonObjectives,
   updateLesson,
+  updateObjective,
 } from "@/model/specEdits";
 import type { Lesson, Objective, Spec } from "@/model/types";
 
@@ -128,5 +131,59 @@ describe("appendLesson", () => {
       objectives: [],
     };
     expect(appendLesson(before, "T99z", newLesson)).toEqual(before);
+  });
+});
+
+describe("updateObjective", () => {
+  it("patches text/isDepth on the matching objective", () => {
+    const before = makeSpec();
+    const after = updateObjective(before, "o1", { text: "renamed", isDepth: true });
+    const o1 = after.topics[0]?.subTopics[0]?.lessons[0]?.objectives[0];
+    expect(o1?.text).toBe("renamed");
+    expect(o1?.isDepth).toBe(true);
+    // input untouched
+    expect(before.topics[0]?.subTopics[0]?.lessons[0]?.objectives[0]?.text).toBe("obj one");
+  });
+
+  it("is a no-op for an unknown objective id", () => {
+    const before = makeSpec();
+    expect(updateObjective(before, "ghost", { text: "x" })).toEqual(before);
+  });
+});
+
+describe("removeObjective", () => {
+  it("removes the matching objective from whichever lesson holds it", () => {
+    const before = makeSpec();
+    const after = removeObjective(before, "o1");
+    const ids = after.topics[0]?.subTopics[0]?.lessons[0]?.objectives.map((o) => o.id);
+    expect(ids).toEqual(["o2"]);
+  });
+
+  it("is a no-op for an unknown objective id", () => {
+    const before = makeSpec();
+    expect(removeObjective(before, "ghost")).toEqual(before);
+  });
+});
+
+describe("addObjectiveToLesson", () => {
+  it("appends an objective at the end of the named lesson", () => {
+    const before = makeSpec();
+    const obj: Objective = { id: "o-x", text: "new", isDepth: false };
+    const after = addObjectiveToLesson(before, "T1a", "L2", obj);
+    expect(after.topics[0]?.subTopics[0]?.lessons[1]?.objectives).toEqual([obj]);
+  });
+
+  it("is a no-op when the lesson already contains an objective with the same id", () => {
+    const before = makeSpec();
+    const dup: Objective = { id: "o1", text: "duplicate text", isDepth: false };
+    const after = addObjectiveToLesson(before, "T1a", "L1", dup);
+    expect(after).toEqual(before);
+  });
+
+  it("is a no-op for an unknown sub-topic or lesson", () => {
+    const before = makeSpec();
+    const obj: Objective = { id: "o-x", text: "x", isDepth: false };
+    expect(addObjectiveToLesson(before, "T99z", "L1", obj)).toEqual(before);
+    expect(addObjectiveToLesson(before, "T1a", "ghost", obj)).toEqual(before);
   });
 });

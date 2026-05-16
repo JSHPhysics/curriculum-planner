@@ -10,11 +10,16 @@ import {
   removeBlock as plRemoveBlock,
   splitBlock as plSplitBlock,
 } from "@/model/placement";
+import { findObjectiveLocation } from "@/model/objectives";
 import {
+  addObjectiveToLesson as specAddObjectiveToLesson,
   appendLesson as specAppendLesson,
+  removeObjective as specRemoveObjective,
   setLessonObjectives as specSetLessonObjectives,
   updateLesson as specUpdateLesson,
+  updateObjective as specUpdateObjective,
   type LessonEditableFields,
+  type ObjectiveEditableFields,
 } from "@/model/specEdits";
 import type {
   CustomBlock,
@@ -92,6 +97,21 @@ export interface WorkspaceStoreActions {
     objectives: readonly Objective[]
   ) => void;
   readonly addLesson: (subTopicCode: string, lesson: Lesson) => void;
+  readonly placeObjectiveInLesson: (
+    objectiveId: string,
+    toSubTopicCode: string,
+    toLessonId: string
+  ) => void;
+  readonly removeObjective: (objectiveId: string) => void;
+  readonly updateObjective: (
+    objectiveId: string,
+    patch: Partial<ObjectiveEditableFields>
+  ) => void;
+  readonly addObjectiveToLesson: (
+    subTopicCode: string,
+    lessonId: string,
+    objective: Objective
+  ) => void;
   // View
   readonly setCurrentView: (view: ViewType) => void;
   readonly setCurrentTermId: (termId: string | null) => void;
@@ -340,6 +360,87 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set) => ({
       const updated: Subject = {
         ...subject,
         workingSpec: specAppendLesson(subject.workingSpec, subTopicCode, lesson),
+      };
+      return {
+        workspace: replaceSubject(state.workspace, id, updated),
+        dirty: true,
+      };
+    }),
+
+  placeObjectiveInLesson: (objectiveId, toSubTopicCode, toLessonId) =>
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      // Resolve the objective: prefer working spec (currently mapped) so any
+      // user edits to its text/depth ride along; fall back to imported spec
+      // (restoring an unmapped objective).
+      const current =
+        findObjectiveLocation(subject.workingSpec, objectiveId) ??
+        findObjectiveLocation(subject.importedSpec, objectiveId);
+      if (!current) return {};
+      if (current.lesson.id === toLessonId) return {}; // no-op same-target
+      const removed = specRemoveObjective(subject.workingSpec, objectiveId);
+      const added = specAddObjectiveToLesson(
+        removed,
+        toSubTopicCode,
+        toLessonId,
+        current.objective
+      );
+      const updated: Subject = { ...subject, workingSpec: added };
+      return {
+        workspace: replaceSubject(state.workspace, id, updated),
+        dirty: true,
+      };
+    }),
+
+  removeObjective: (objectiveId) =>
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      const updated: Subject = {
+        ...subject,
+        workingSpec: specRemoveObjective(subject.workingSpec, objectiveId),
+      };
+      return {
+        workspace: replaceSubject(state.workspace, id, updated),
+        dirty: true,
+      };
+    }),
+
+  updateObjective: (objectiveId, patch) =>
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      const updated: Subject = {
+        ...subject,
+        workingSpec: specUpdateObjective(subject.workingSpec, objectiveId, patch),
+      };
+      return {
+        workspace: replaceSubject(state.workspace, id, updated),
+        dirty: true,
+      };
+    }),
+
+  addObjectiveToLesson: (subTopicCode, lessonId, objective) =>
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      const updated: Subject = {
+        ...subject,
+        workingSpec: specAddObjectiveToLesson(
+          subject.workingSpec,
+          subTopicCode,
+          lessonId,
+          objective
+        ),
       };
       return {
         workspace: replaceSubject(state.workspace, id, updated),
