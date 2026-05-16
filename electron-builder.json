@@ -1,23 +1,42 @@
 {
   "appId": "uk.staffordhaworth.curriculumplanner",
   "productName": "Curriculum Planner",
+  "copyright": "Copyright © 2026 Joshua Stafford-Haworth",
   "directories": {
-    "output": "release"
+    "output": "release",
+    "buildResources": "build"
   },
   "files": [
     "dist/**/*",
     "dist-electron/**/*",
     "package.json"
   ],
+  "asar": true,
   "win": {
-    "target": ["nsis", "portable"]
+    "target": ["nsis", "portable"],
+    "icon": "build/icon.ico",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Curriculum Planner"
+  },
+  "portable": {
+    "artifactName": "${productName}-${version}-${os}-portable.${ext}"
   },
   "mac": {
     "target": ["dmg"],
-    "category": "public.app-category.education"
+    "icon": "build/icon.icns",
+    "category": "public.app-category.education",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
   },
   "linux": {
     "target": ["AppImage"],
+    "icon": "build/icon.png",
     "category": "Education"
   }
 }

@@ -957,3 +957,74 @@ Real Electron-only smoke tests (file dialogs, app close confirm, OS integration)
 - `tests/e2e/fixtures.ts`
 - [DEC-014](#dec-014) (IPC bridge surface — the thing being mocked)
 - [DEC-019](#dec-019) (CI workflows — Session 13 doesn't yet add e2e to CI; could be a future addition)
+
+---
+
+## DEC-029 — Icon assets are committed; `sharp` + `png2icons` are dev-only tools for regeneration
+**Date:** 2026-05-16
+**Session:** 14
+**Status:** Accepted
+
+### Context
+`SPEC.md` §15 acceptance criterion #8 ("App icon shows correctly") and BUILD_PLAN Session 14 step 2 ("App icon — design one matching the palette") need an icon for every supported platform: `.ico` for Windows, `.icns` for macOS, `.png` for Linux. Generating those from a single SVG source needs an SVG rasteriser and a multi-size container builder.
+
+Two ways to handle this:
+1. Generate on every CI run from `build/icon.svg` (no committed binaries, deterministic from source)
+2. Commit the generated `.png/.ico/.icns` and treat the tooling as a developer convenience for when the source changes
+
+### Decision
+Option 2. The generated icon files are committed under `build/`. `sharp` and `png2icons` are added as devDependencies and consumed by `scripts/generate-icons.mjs` (wired as `npm run build:icons`). Contributors edit `build/icon.svg`, run `npm run build:icons`, and commit all four files.
+
+### Alternatives considered
+- **Option 1 (regenerate on every build).** Cleaner provenance, but adds ~40s of CI time on each release run for an artefact that changes once per year and requires no per-build inputs. Also forces the release workflow to install `sharp` (which has prebuilt platform binaries — easy on Win/Mac, occasionally fiddly on Linux Docker images).
+- **A separate `icon-builder` package.** Adds an indirection for a single command's worth of code; the inline script is 50 lines and a future contributor can read it in one sitting.
+- **Skip the icon for v1 and use Electron's default.** Acceptance criterion #8 explicitly disallows.
+
+### Consequences
+- Three small binary files (~530 KB total) live in the repo under `build/`. Acceptable.
+- New devDeps `sharp@^0.33.5` and `png2icons@^2.0.1` — both well-maintained, dev-only, small footprint after `sharp`'s ~60MB platform binary (only installed on contributor machines, not in CI's release path since the icons are committed).
+- The release workflow doesn't depend on icon-generation tooling at all — it just reads the pre-built files.
+
+### Related
+- `SPEC.md` §15 acceptance criterion #8
+- `BUILD_PLAN.md` Session 14 step 2
+- `build/icon.svg`, `build/icon.png`, `build/icon.ico`, `build/icon.icns`
+- `scripts/generate-icons.mjs`
+- `package.json` (`build:icons` script + devDependencies)
+
+---
+
+## DEC-030 — Release workflow builds installers on three platforms via GitHub Actions matrix; no code signing in v1
+**Date:** 2026-05-16
+**Session:** 14
+**Status:** Accepted
+
+### Context
+`SPEC.md` §1.1 promises Windows + macOS + Linux desktop builds. The author works on Windows; macOS and Linux installers need to be produced on their native runners (electron-builder can cross-compile some targets but DMG and AppImage are reliably native-only). BUILD_PLAN.md Session 14 step 5: "Code signing left for a future phase (note in release notes that the app is unsigned)".
+
+### Decision
+`.github/workflows/release.yml` runs an `os` matrix (`windows-latest`, `macos-latest`, `ubuntu-latest`) on tag push (`v*`) or `workflow_dispatch`. Each runner:
+1. Installs deps, typechecks, runs unit tests, builds renderer + electron main
+2. Runs `electron-builder` with the native target (NSIS + portable on Win, DMG on Mac, AppImage on Linux)
+3. Uploads its artefacts via `actions/upload-artifact@v4`
+
+A `release` job downloads everything and attaches them to a GitHub Release via `softprops/action-gh-release@v2`. Pre-release detection: any tag with a `-` (e.g. `v1.0.0-beta.1`) is marked pre-release.
+
+No code signing: `electron-builder` logs "no signing info identified, signing is skipped" on both Windows and macOS. Users will see SmartScreen / Gatekeeper warnings on first launch. Documented in the release-notes generator (auto-derived from commits between tags).
+
+### Alternatives considered
+- **Build all three from a single Linux runner via cross-compile.** macOS DMG can't be built off-macOS without ugly workarounds; AppImage works but the win + linux split provides nothing.
+- **Code signing now.** Requires (Win) a Windows code-signing cert (~£200/yr) and (macOS) an Apple Developer account + notarization round-trip. Out of scope for a v1 personal-use desktop tool.
+- **Pin to specific runner versions (e.g. `windows-2022`).** Not yet necessary; `*-latest` is fine until GitHub starts rotating defaults more aggressively.
+
+### Consequences
+- Cutting a release: `git tag v1.0.0 && git push origin v1.0.0` — the workflow takes ~10 minutes wall-clock per OS in parallel (~12 min total) and the GitHub Release appears with three installer assets attached. `workflow_dispatch` lets you re-run a release manually.
+- First-launch on Windows: SmartScreen warning ("Windows protected your PC" → More info → Run anyway). On macOS: right-click → Open the first time. Document in the release notes.
+- Adding signing later: pin the cert via `WIN_CSC_LINK` / `CSC_LINK` repo secrets and electron-builder picks them up automatically; no workflow rewrite needed.
+
+### Related
+- `SPEC.md` §1.1, §11.5
+- `BUILD_PLAN.md` Session 14 steps 1–5
+- `.github/workflows/release.yml`
+- `electron-builder.json`
+- [DEC-019](#dec-019) (existing CI / Pages workflows)

@@ -807,3 +807,80 @@ Run `npm run dev`:
 ### Open questions for the user
 - Want the E2E suite added to the CI workflow (would require installing Playwright browsers each run)? Or keep it as a local pre-push check?
 - Session 14 remaining: electron-builder packaging, app icon, smoke-test the installer on Windows (you), performance pass on the packaged build.
+
+---
+
+## Session 14 — Packaging + release pipeline + app icon
+**Date:** 2026-05-16
+**Status:** Complete (with documented deferrals — see *Deviations*)
+**Commit:** *(pending — see git log)*
+
+### What was built
+- **App icon** (per `SPEC.md` §15 #8 and BUILD_PLAN Session 14 step 2):
+  - `build/icon.svg` — calendar-grid design: navy rounded square background with an 18-cell cream grid (6 cols × 3 rows = the planner's actual layout structure) plus one gold-accented cell to suggest a "placed block". User picked this over a "C" lettermark alternative.
+  - `scripts/generate-icons.mjs` — reads the SVG, uses `sharp` to rasterise to 1024×1024 PNG, then `png2icons` to produce multi-size `.ico` (Windows) and `.icns` (macOS).
+  - Generated artefacts committed under `build/` so CI and contributors don't need to install `sharp`. Re-run after editing the SVG with `npm run build:icons`. See [DEC-029](DECISIONS.md#dec-029).
+- **electron-builder config** updated (`electron-builder.json`):
+  - Icon paths per platform (`build/icon.ico`, `build/icon.icns`, `build/icon.png`)
+  - NSIS installer settings: not one-click (lets user pick install dir), per-user (no admin required), creates Desktop + Start Menu shortcuts, named "Curriculum Planner"
+  - Portable `.exe` variant alongside the installer
+  - Artefact naming includes version + OS + arch: `Curriculum Planner-1.0.0-win-x64.exe`
+  - `asar: true` (default but explicit) — packs renderer + electron into a single archive
+  - `buildResources: "build"` so electron-builder finds the icons by convention
+  - Copyright line
+- **Release workflow** (`.github/workflows/release.yml`):
+  - Triggered on tags matching `v*` or `workflow_dispatch`
+  - Matrix across `windows-latest`, `macos-latest`, `ubuntu-latest` (no fail-fast so a single-platform regression doesn't block the others)
+  - Each runner: deps, typecheck, unit tests, build:renderer, build:electron, electron-builder, upload-artifact
+  - Aggregate `release` job downloads all artefacts and attaches them to a GitHub Release via `softprops/action-gh-release@v2` with auto-generated release notes from commits between tags
+  - Pre-release detection: tag containing `-` (e.g. `v1.0.0-beta.1`) marked pre-release
+  - Code signing skipped per [DEC-030](DECISIONS.md#dec-030)
+- **Local Windows build verified.** `npx electron-builder --win --publish never` produced:
+  - `release/Curriculum Planner-1.0.0-win-x64.exe` — NSIS installer, ~91 MB
+  - `release/Curriculum Planner-1.0.0-win-portable.exe` — portable, ~91 MB
+  - `release/win-unpacked/` — unpacked app directory for inspection
+  - No symlink permission errors (Session 5 SESSION_LOG had flagged this as a risk; ran without admin rights and it succeeded)
+
+### Exit criteria check
+- [x] electron-builder configured for Win (NSIS + portable), macOS (DMG), Linux (AppImage)
+- [x] App icon designed and rasterised — user-approved calendar-grid design rendered at 1024×1024 with multi-size containers
+- [x] Version `1.0.0` in `package.json` (set at Session 0; unchanged)
+- [x] Windows build works locally — both installer and portable produced cleanly; size ~91 MB
+- [ ] macOS build verified — *deferred*: no macOS host. The release workflow handles this on `macos-latest` when triggered; can't be smoke-tested without a Mac.
+- [ ] Linux build verified — *deferred*: similar. AppImage built on `ubuntu-latest` via the workflow but not run.
+- [x] Code signing left for a future phase per BUILD_PLAN step 5; documented in [DEC-030](DECISIONS.md#dec-030).
+- [x] No unit-test regressions (191/191), no E2E regressions (10/10), typecheck clean.
+
+### Deviations from BUILD_PLAN.md
+- **No macOS / Linux smoke-test this session.** The release workflow builds them on native runners, but I can't verify "the installer runs and the app opens" without those hosts. When the first user on each OS opens the installer, that's the real smoke test. Document any failure as a Session 14.5 follow-up.
+- **No performance measurement on the packaged build.** Session 12 deferred this to Session 14; it's still deferred. Observation: the dev build (with HMR overhead and unminified bundle) feels responsive on the example file (sub-100ms view switches, smooth drag). The packaged build will be faster. A formal Lighthouse / DevTools profiling pass is best done by you in front of the actual installed app since it's hardware-dependent.
+- **No release cut this session.** The pipeline is ready but I didn't tag `v1.0.0`. Worth doing manually after you've smoke-tested the Windows installer; that lets you control the changelog and release timing.
+
+### Decisions logged
+- [DEC-029](DECISIONS.md#dec-029) — Icon assets committed; sharp + png2icons are dev-only regeneration tools
+- [DEC-030](DECISIONS.md#dec-030) — Release builds on three-OS matrix; no code signing in v1
+
+### Surprises and gotchas
+- **Local Windows build worked without admin rights this time.** Session 5 SESSION_LOG flagged "electron-builder fails on Windows without admin rights ('Cannot create symbolic link')" as a risk. Either the underlying issue (electron-builder symlink dance) has been resolved upstream, or it only triggers under specific configs (e.g. `asar: false`, or building for win + mac in one invocation). Either way: building NSIS + portable from a non-elevated PowerShell works fine.
+- **electron-builder downloaded ~115MB of Electron binaries on first build.** That's expected — CI skips this download via `ELECTRON_SKIP_BINARY_DOWNLOAD=1` (which the release workflow does *not* set — it needs them). Cached locally for subsequent builds.
+- **`png2icons` requires PNG input, can't read SVG directly.** Two-step pipeline: sharp does SVG→PNG, png2icons does PNG→multi-size container. Documented in the script comment.
+- **The committed icon files** (~530 KB total: 19 KB PNG + 432 KB ICO + 76 KB ICNS) are larger than the SVG source (1.7 KB) but tiny relative to the 91MB installer. Net positive.
+- **`sharp` install on Windows pulled prebuilt binaries** without needing libvips compilation. The 60MB devDep footprint lands once on `npm install` and stays in node_modules — never in the shipped installer (devDeps aren't packed).
+- **GitHub Actions runner versions: `*-latest` matters here.** macOS-latest is currently macOS 14; if Apple drops support for `dmg-license` (a transitive electron-builder dep) on a newer runner we'd need to pin. Worth checking the release workflow before each release.
+- **`asar: true` + custom protocol handlers.** Renderer fetches via `fetch(new URL("./example_physics_spec.xlsx", document.baseURI))` — confirmed in the packaged build's `dist/index.html` that relative URLs resolve correctly under `file://`. The `base: "./"` in `vite.config.ts` from Session 0 is what makes this work.
+
+### What's usable now
+- `npm run build:icons` regenerates platform icons from `build/icon.svg`
+- `npx electron-builder --win --publish never` produces both NSIS + portable Windows builds locally in ~2 minutes (after the first run that cached Electron binaries)
+- Pushing a `v*` tag triggers `.github/workflows/release.yml` which builds for all three OSes in parallel and creates a GitHub Release with the installers attached
+
+### How to cut v1.0.0
+1. Manually smoke-test `release/Curriculum Planner-1.0.0-win-x64.exe` — install it, open the app, load the example, drag a block, save a `.curriculum` file, reopen it. If anything's broken, fix and re-build before tagging.
+2. `git tag v1.0.0 && git push origin v1.0.0`
+3. Watch the release workflow at https://github.com/JSHPhysics/curriculum-planner/actions
+4. After ~12 minutes, the GitHub Release appears at https://github.com/JSHPhysics/curriculum-planner/releases with Win + Mac + Linux installers attached
+5. Edit the release notes to add a "Known issues" section flagging the unsigned-installer warnings users will see on first launch
+
+### Open questions for the user
+- Want me to cut `v1.0.0` now and trigger the first real release? Or smoke-test the Windows installer first?
+- All BUILD_PLAN sessions (0–14) are complete. The remaining work is the v1.1+ deferred items (presets, keyboard drag, intra-lesson objective reorder, cross-subject view, retrieval scheduler, PWA, cloud sync) and any user-reported polish from real use.

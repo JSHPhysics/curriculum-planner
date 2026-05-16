@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" shape-rendering="geometricPrecision">
+  <!-- Navy app icon background with rounded corners -->
+  <rect width="1024" height="1024" rx="216" ry="216" fill="#1F3A5F"/>
+
+  <!-- 6 columns × 3 rows grid of cream cells, like the planner's calendar.
+       Cell size 116px, gutter 16px. Inset 124px on x, 296px on y. -->
+  <g fill="#FBF7EE">
+    <!-- Row 1 (Y9) -->
+    <rect x="124"  y="296" width="116" height="116" rx="14"/>
+    <rect x="256"  y="296" width="116" height="116" rx="14"/>
+    <rect x="388"  y="296" width="116" height="116" rx="14"/>
+    <rect x="520"  y="296" width="116" height="116" rx="14"/>
+    <rect x="652"  y="296" width="116" height="116" rx="14"/>
+    <rect x="784"  y="296" width="116" height="116" rx="14"/>
+    <!-- Row 2 (Y10) -->
+    <rect x="124"  y="428" width="116" height="116" rx="14"/>
+    <rect x="256"  y="428" width="116" height="116" rx="14"/>
+    <rect x="388"  y="428" width="116" height="116" rx="14"/>
+    <rect x="520"  y="428" width="116" height="116" rx="14"/>
+    <rect x="652"  y="428" width="116" height="116" rx="14"/>
+    <rect x="784"  y="428" width="116" height="116" rx="14"/>
+    <!-- Row 3 (Y11) -->
+    <rect x="124"  y="560" width="116" height="116" rx="14"/>
+    <rect x="256"  y="560" width="116" height="116" rx="14"/>
+    <rect x="388"  y="560" width="116" height="116" rx="14"/>
+    <rect x="520"  y="560" width="116" height="116" rx="14"/>
+    <rect x="652"  y="560" width="116" height="116" rx="14"/>
+    <rect x="784"  y="560" width="116" height="116" rx="14"/>
+  </g>
+
+  <!-- Gold "placed block" inside row 2 col 3, to suggest the planner's active state -->
+  <rect x="388" y="428" width="116" height="116" rx="14" fill="#B98D2C"/>
+</svg>
