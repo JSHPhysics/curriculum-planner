@@ -14,7 +14,6 @@ const SPREADSHEET_FILTERS = [
 // Tracks whether the renderer has unsaved changes; consulted by the close
 // interceptor below. Renderer pushes this via the `app:setDirty` IPC channel.
 let rendererDirty = false;
-let forceClose = false;
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -36,10 +35,12 @@ function createWindow(): void {
     win.show();
   });
 
-  // SPEC §9.3: confirm before discarding unsaved changes. A `Cancel` choice
-  // keeps the window open; `Discard` sets the bypass flag and re-issues close.
+  // SPEC §9.3: confirm before discarding unsaved changes. `Cancel` keeps the
+  // window open; `Discard` calls win.destroy() — which bypasses the close
+  // event entirely, so we don't recurse or fight Electron's already-prevented
+  // close state.
   win.on("close", (event) => {
-    if (!rendererDirty || forceClose) return;
+    if (!rendererDirty) return;
     event.preventDefault();
     const choice = dialog.showMessageBoxSync(win, {
       type: "warning",
@@ -52,8 +53,7 @@ function createWindow(): void {
         "Closing now will discard them. Use File → Save (or the Save button in the header) first if you want to keep them.",
     });
     if (choice === 1) {
-      forceClose = true;
-      win.close();
+      win.destroy();
     }
   });
 
