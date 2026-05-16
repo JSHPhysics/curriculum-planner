@@ -15,6 +15,7 @@ export interface CurriculumPlannerApi {
     options?: { defaultName?: string }
   ): Promise<{ path: string } | null>;
   getAppVersion(): Promise<string>;
+  setDirty(dirty: boolean): Promise<void>;
 }
 
 declare global {

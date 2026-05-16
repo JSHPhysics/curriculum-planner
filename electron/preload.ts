@@ -23,6 +23,8 @@ const api = {
       defaultName: options?.defaultName,
     }),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke("app:getVersion"),
+  setDirty: (dirty: boolean): Promise<void> =>
+    ipcRenderer.invoke("app:setDirty", dirty),
 };
 
 export type CurriculumPlannerApi = typeof api;

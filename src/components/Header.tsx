@@ -98,7 +98,7 @@ function ActionButton({
   disabled,
   variant = "default",
 }: ActionButtonProps): JSX.Element {
-  const base = "px-3 py-1.5 text-sm rounded-card transition disabled:opacity-40 disabled:cursor-not-allowed";
+  const base = "px-3 py-1.5 text-sm rounded-card transition disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy focus-visible:ring-offset-1 focus-visible:ring-offset-bg";
   const styles =
     variant === "primary"
       ? "bg-navy text-bg hover:bg-navy-dim"

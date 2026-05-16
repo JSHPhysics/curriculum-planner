@@ -816,3 +816,106 @@ Same-target drops are no-ops in the store (no spurious dirty flag).
 - `src/components/TopicView.tsx` (`handleDragEnd`)
 - `src/store/useWorkspaceStore.ts` (`moveTopicInHalfTerm`)
 - [DEC-011](#dec-011), [DEC-017](#dec-017)
+
+---
+
+## DEC-025 — Unsaved-changes prompt: 2-button Discard/Cancel, not 3-button Save/Discard/Cancel
+**Date:** 2026-05-16
+**Session:** 12
+**Status:** Accepted
+
+### Context
+`SPEC.md` §9.3 says "Window close while dirty prompts 'Unsaved changes — save before closing?'", which reads as a 3-button dialog (Save / Don't save / Cancel — the OS-standard pattern). Implementing the Save path from a `close` event on the Electron main process requires:
+1. A round-trip IPC call to the renderer to serialise the workspace
+2. A second IPC call to perform the file dialog + write (or composing the existing save IPC inside main)
+3. Handling the case where the user cancels the dialog *during* the close-confirmation flow (do we close anyway? cancel everything?)
+
+That's a fair amount of plumbing for a confirm-and-discard pattern that's already the harder half of the SPEC's intent.
+
+### Decision
+The Electron `close` interceptor shows a 2-button dialog: `Cancel` (keep window open, default) and `Discard unsaved changes` (set bypass flag, re-issue close). Renderer also installs a `beforeunload` listener for the browser/Pages build, which triggers the native browser confirm prompt.
+
+If the user wants to save, they cancel the close dialog and use the Save button in the header — the same UI that's already wired and that they're familiar with. The dialog message text explicitly nudges them to do this.
+
+### Alternatives considered
+- **Full 3-button OS-standard dialog.** Better fidelity to the SPEC's literal wording but requires either (a) plumbing a Save round-trip through IPC on close, or (b) having main process call `dialog.showSaveDialog` directly with serialised state — but main doesn't know the workspace state, that's a renderer concern. The IPC choreography for "ask renderer to save, wait for confirmation it succeeded, then close" is non-trivial and error-prone for marginal UX gain.
+- **Block close in renderer and never let main get the event.** Doesn't work cleanly — `beforeunload` is a hint, not a guarantee; Electron specifically needs to handle window close at the main-process level.
+- **No close prompt.** Loses §9.3 requirement.
+
+### Consequences
+- The user sees a single clear question instead of three options.
+- A future polish pass can add a "Save now" button to the dialog by wiring an IPC round-trip if user feedback says they want it.
+- The `app:setDirty` IPC pushes dirty state on every change; small overhead but it keeps main's view of dirtiness fresh without polling.
+
+### Related
+- `SPEC.md` §9.3
+- `BUILD_PLAN.md` Session 12 step 5
+- `electron/main.ts` (`win.on("close")`, `app:setDirty` handler)
+- `electron/preload.ts` (`setDirty`)
+- `src/App.tsx` (`beforeunload` + `window.api.setDirty(dirty)`)
+- [DEC-014](#dec-014) (IPC bridge pattern)
+
+---
+
+## DEC-026 — Restore-to-import uses a preview function + commit-on-confirm modal
+**Date:** 2026-05-16
+**Session:** 12
+**Status:** Accepted
+
+### Context
+Session 7 wired Restore via the Subject tab menu directly to `restoreSubjectToImport`, surfacing dropped placements via `alert()` *after* the mutation had committed. SPEC §7.6 specifies a confirmation modal with "orphaned placements surfaced as a list to review", which implies showing orphans *before* committing.
+
+### Decision
+Add a pure `previewRestoreSubjectToImport(workspace, subjectId): { subject, orphans }` to `workspace.ts` that runs the same orphan-collection logic but doesn't return a new workspace. The UI:
+
+1. User clicks Restore in the tab menu → App.tsx calls the preview function and opens `RestoreToImportModal` with the result
+2. Modal shows orphan count, list with breadcrumbs (sub-topic name, lessons claimed, lessonRange), and Cancel/Confirm buttons
+3. On Confirm → calls the commit `restoreSubjectToImport` store action and closes the modal
+
+`previewRestoreSubjectToImport` is `O(placements)`; cheap enough to call synchronously on every modal open without memoisation.
+
+### Alternatives considered
+- **Compute orphans inside the modal component itself.** Same logic but couples the modal to the implementation details of orphan-collection; the workspace module is the right home.
+- **Keep the alert-after pattern.** Loses the "review before committing" semantic of SPEC §7.6 — and worse, undo doesn't exist, so the user can't recover from a mistaken click.
+
+### Consequences
+- 3 new workspace tests pin the preview function (orphan happy path, no-orphans path, unknown-subject throw).
+- The modal is also a natural place to put a future "Save these orphans as custom blocks" action if v1.1+ user feedback wants it.
+- `restoreSubjectToImport` still exists with its original signature — `previewRestore` is an additive function, no breaking changes.
+
+### Related
+- `SPEC.md` §3.3, §7.6
+- `BUILD_PLAN.md` Session 12 step 2
+- `src/model/workspace.ts` (`previewRestoreSubjectToImport`)
+- `src/components/RestoreToImportModal.tsx`
+- `src/App.tsx` (`handleRestore`, `confirmRestore`)
+- [DEC-013](#dec-013) (`restoreSubjectToImport` returns orphans)
+
+---
+
+## DEC-027 — Import template generator lives in its own module, not in import.ts
+**Date:** 2026-05-16
+**Session:** 12
+**Status:** Accepted
+
+### Context
+SPEC §5.5 calls for "Download import template" producing a blank `.xlsx` with header row and example rows. Two reasonable homes:
+1. Extend `src/model/import.ts` with a `generateImportTemplate()` export, since it deals with the same column conventions
+2. New module `src/model/importTemplate.ts`
+
+### Decision
+New module. `import.ts` already exports a lot (`importSpec`, validation types, header constants); adding template generation would make it the kind of file that's about two things. A dedicated module also makes it cheap to extend the template later (per-subject example rows, multi-template selector, etc.) without touching import.
+
+### Alternatives considered
+- **Extend `import.ts`.** Smaller surface, but mixes the "parse a user file" intent with "produce a starter file" intent.
+- **Put generation in the renderer.** Worse — the column definitions duplicate across files and drift over time. Keeping it in the model means the test suite catches drift via the round-trip test.
+
+### Consequences
+- Template round-trips cleanly through `importSpec` → verified by `tests/model/importTemplate.test.ts` so any future change to column names or merge rules breaks the test, not the user.
+- The empty-state UI (`EmptyWorkspace`) and the Electron save dialog share the same single source of truth for what a template looks like.
+
+### Related
+- `SPEC.md` §5.1, §5.5
+- `BUILD_PLAN.md` Session 12 step 4
+- `src/model/importTemplate.ts`
+- `src/components/ViewPlaceholder.tsx` (`downloadTemplate`)

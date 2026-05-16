@@ -1,8 +1,9 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Header } from "@/components/Header";
 import { LessonView } from "@/components/LessonView";
 import { ObjectiveView } from "@/components/ObjectiveView";
+import { RestoreToImportModal } from "@/components/RestoreToImportModal";
 import { StatusBar } from "@/components/StatusBar";
 import { SubTopicView } from "@/components/SubTopicView";
 import { TopicView } from "@/components/TopicView";
@@ -10,7 +11,12 @@ import { ViewPlaceholder } from "@/components/ViewPlaceholder";
 import { exportSubjectToXlsx } from "@/model/export";
 import { importSpec } from "@/model/import";
 import { createDefaultTimeline, createEoHTBlocks } from "@/model/timeline";
-import { deserializeWorkspace, serializeWorkspace } from "@/model/workspace";
+import type { PlacedBlock, Subject } from "@/model/types";
+import {
+  deserializeWorkspace,
+  previewRestoreSubjectToImport,
+  serializeWorkspace,
+} from "@/model/workspace";
 import {
   enableAutosave,
   loadAutosaved,
@@ -39,6 +45,25 @@ export function App(): JSX.Element {
     loadAutosaved();
     return enableAutosave();
   }, []);
+
+  // SPEC §9.3: prompt before closing when the workspace is dirty. Browsers and
+  // Electron both honour beforeunload for in-window navigation; the Electron
+  // window-close path also calls window.api.setDirty so main can intercept.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    function onBeforeUnload(e: BeforeUnloadEvent): void {
+      if (!dirty) return;
+      e.preventDefault();
+      // Modern browsers ignore the custom message; setting returnValue is the
+      // accepted way to trigger the native confirm prompt.
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    if (typeof window.api !== "undefined" && window.api.setDirty) {
+      void window.api.setDirty(dirty);
+    }
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty]);
 
   const activeSubject =
     workspace.subjects.find((s) => s.id === workspace.activeSubjectId) ?? null;
@@ -129,17 +154,24 @@ export function App(): JSX.Element {
     [removeSubject]
   );
 
+  const [restorePending, setRestorePending] = useState<
+    | { subject: Subject; orphans: readonly PlacedBlock[] }
+    | null
+  >(null);
+
   const handleRestore = useCallback(
     (id: string) => {
-      const orphans = restoreSubjectToImport(id);
-      if (orphans.length > 0) {
-        alert(
-          `Restored. ${orphans.length} placement${orphans.length === 1 ? " was" : "s were"} dropped because their source is no longer in the spec.`
-        );
-      }
+      const preview = previewRestoreSubjectToImport(workspace, id);
+      setRestorePending({ subject: preview.subject, orphans: preview.orphans });
     },
-    [restoreSubjectToImport]
+    [workspace]
   );
+
+  const confirmRestore = useCallback(() => {
+    if (!restorePending) return;
+    restoreSubjectToImport(restorePending.subject.id);
+    setRestorePending(null);
+  }, [restorePending, restoreSubjectToImport]);
 
   return (
     <div className="h-full flex flex-col">
@@ -174,6 +206,14 @@ export function App(): JSX.Element {
           <ViewPlaceholder view={currentView} hasSubject={activeSubject !== null} />
         )}
       </main>
+      {restorePending && (
+        <RestoreToImportModal
+          subject={restorePending.subject}
+          orphans={restorePending.orphans}
+          onCancel={() => setRestorePending(null)}
+          onConfirm={confirmRestore}
+        />
+      )}
     </div>
   );
 }

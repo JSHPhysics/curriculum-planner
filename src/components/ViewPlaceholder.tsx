@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { importSpec } from "@/model/import";
+import { generateImportTemplate } from "@/model/importTemplate";
 import { createDefaultTimeline, createEoHTBlocks } from "@/model/timeline";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import type { ViewType } from "@/model/types";
@@ -47,25 +48,37 @@ function EmptyWorkspace(): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function loadExample(): Promise<void> {
+  const inElectron = typeof window !== "undefined" && typeof window.api !== "undefined";
+
+  async function commitImport(
+    buf: ArrayBuffer,
+    sourceFilename: string,
+    subjectName: string
+  ): Promise<void> {
+    const result = importSpec(buf, { sourceFilename, subjectName });
+    if (!result.ok) {
+      throw new Error(result.errors.map((e) => `${e.code}: ${e.message}`).join("\n"));
+    }
+    const timeline = createEoHTBlocks(createDefaultTimeline());
+    addSubject({ ...result.subject, timeline });
+    if (result.warnings.length > 0) {
+      console.warn(`[import] ${result.warnings.length} warnings:`, result.warnings);
+    }
+  }
+
+  async function importFromFile(): Promise<void> {
+    if (!inElectron) return;
     setBusy(true);
     setError(null);
     try {
-      const url = new URL("./example_physics_spec.xlsx", document.baseURI).toString();
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`Fetch failed: ${response.status} ${response.statusText}`);
-      const buf = await response.arrayBuffer();
-      const result = importSpec(buf, {
-        sourceFilename: "example_physics_spec.xlsx",
-        subjectName: "GCSE Physics 1PH0 (example)",
-      });
-      if (!result.ok) {
-        throw new Error(
-          result.errors.map((e) => `${e.code}: ${e.message}`).join("\n")
-        );
-      }
-      const timeline = createEoHTBlocks(createDefaultTimeline());
-      addSubject({ ...result.subject, timeline });
+      const opened = await window.api.openSpreadsheetFile();
+      if (!opened) return;
+      const ab = opened.buffer.buffer.slice(
+        opened.buffer.byteOffset,
+        opened.buffer.byteOffset + opened.buffer.byteLength
+      ) as ArrayBuffer;
+      const name = opened.path.split(/[\\/]/).pop() ?? "Subject";
+      await commitImport(ab, name, name.replace(/\.xlsx$/i, ""));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -73,27 +86,89 @@ function EmptyWorkspace(): JSX.Element {
     }
   }
 
-  const inElectron = typeof window !== "undefined" && typeof window.api !== "undefined";
+  async function loadExample(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      const url = new URL("./example_physics_spec.xlsx", document.baseURI).toString();
+      const response = await fetch(url);
+      if (!response.ok)
+        throw new Error(`Fetch failed: ${response.status} ${response.statusText}`);
+      const buf = await response.arrayBuffer();
+      await commitImport(buf, "example_physics_spec.xlsx", "GCSE Physics 1PH0 (example)");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function downloadTemplate(): Promise<void> {
+    setError(null);
+    try {
+      const buf = generateImportTemplate();
+      if (inElectron) {
+        const result = await window.api.saveSpreadsheetFile(new Uint8Array(buf), {
+          defaultName: "curriculum-planner-template.xlsx",
+        });
+        if (result) console.info(`[template] wrote ${result.path}`);
+        return;
+      }
+      // Browser fallback: trigger an anchor download.
+      const blob = new Blob([buf], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "curriculum-planner-template.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
 
   return (
     <div className="flex-1 flex items-center justify-center text-center px-8">
       <div className="max-w-md">
-        <h2 className="font-display text-2xl text-navy mb-2">No subject loaded</h2>
+        <h2 className="font-display text-2xl text-navy mb-2">
+          Import a specification to begin
+        </h2>
         <p className="text-ink-dim text-sm mb-6">
-          Load the bundled example to try the prototype, or import your own spec.
+          Pick an `.xlsx` file matching the import format, download a template to
+          start from scratch, or load the bundled example to explore the prototype.
         </p>
         <div className="flex flex-col items-center gap-3">
+          {inElectron && (
+            <button
+              onClick={() => void importFromFile()}
+              disabled={busy}
+              className="px-4 py-2 bg-navy text-bg rounded-card hover:bg-navy-dim transition disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
+            >
+              {busy ? "Loading…" : "Import .xlsx file"}
+            </button>
+          )}
+          <button
+            onClick={() => void downloadTemplate()}
+            className="px-4 py-2 border border-line rounded-card text-ink hover:bg-surface-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
+          >
+            Download import template
+          </button>
           <button
             onClick={() => void loadExample()}
             disabled={busy}
-            className="px-4 py-2 bg-navy text-bg rounded-card hover:bg-navy-dim transition disabled:opacity-50"
+            className="px-4 py-2 text-ink-dim text-sm underline-offset-2 hover:underline disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy rounded"
           >
-            {busy ? "Loading…" : "Load example file"}
+            {busy ? "Loading…" : "Or load the bundled example"}
           </button>
           {!inElectron && (
-            <p className="text-[11px] text-ink-fade max-w-xs">
-              Running in a browser — file dialogs, Save, Open, and Export are disabled.
-              The Electron build exposes those via the OS.
+            <p className="text-[11px] text-ink-fade max-w-xs mt-3">
+              Running in a browser — direct file import, Save, Open, and Export are
+              disabled. The Electron build exposes those via the OS. Template download
+              still works as a normal browser download.
             </p>
           )}
           {error && (

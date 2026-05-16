@@ -657,3 +657,78 @@ Run `npm run dev` and use the view selector → Topic. You'll see:
 
 ### Open questions for the user
 - None blocking. Sessions 12 (polish + restore-to-import modal + first-run + presets + Excel export from all views), 13 (Playwright E2E), 14 (electron-builder packaging) remain.
+
+---
+
+## Session 12 — Polish: restore-to-import modal, import template, first-run, unsaved-changes prompt, a11y
+**Date:** 2026-05-16
+**Status:** Complete (with documented deferrals — see *Deviations*)
+**Commit:** *(pending — see git log)*
+
+### What was built
+- **Restore-to-import flow:**
+  - `previewRestoreSubjectToImport(workspace, subjectId): { subject, orphans }` in `workspace.ts` — pure, no mutation; same orphan rules as `restoreSubjectToImport` ([DEC-013](DECISIONS.md#dec-013)) but cheap enough to call on every modal open ([DEC-026](DECISIONS.md#dec-026))
+  - `RestoreToImportModal.tsx` — shows subject name, dropped-placement count and list (with breadcrumbs and lessonRange), Cancel and warn-coloured Confirm
+  - `App.tsx` — tab-menu Restore now opens the modal instead of committing+`alert()` after the fact
+- **Import template generator** (SPEC §5.5):
+  - `src/model/importTemplate.ts` — `generateImportTemplate(): ArrayBuffer`. Single "Spec" sheet with every required + optional header per SPEC §5.1 and three example rows (one lesson split across two rows to demonstrate row-merging, one second lesson with newline-separated objectives + practical + depth flag). Sheet has reasonable column widths so the template is readable without manual sizing. [DEC-027](DECISIONS.md#dec-027) explains why this is its own module.
+- **First-run UI** (SPEC §7.1):
+  - `EmptyWorkspace` (in `ViewPlaceholder.tsx`) now leads with "Import a specification to begin" and offers three actions:
+    - **Import .xlsx file** (Electron-only — uses `window.api.openSpreadsheetFile`)
+    - **Download import template** (generates the template and saves via the OS dialog in Electron, or triggers a browser blob download in the Pages build)
+    - **Or load the bundled example** (secondary text link)
+  - Browser-mode note retained, with template-download exception called out
+- **Unsaved-changes prompt** (SPEC §9.3, [DEC-025](DECISIONS.md#dec-025)):
+  - Renderer: `App.tsx` installs a `beforeunload` listener that triggers the native confirm prompt while `dirty === true`; also pushes the dirty state to Electron via `window.api.setDirty(dirty)` on every change
+  - Preload: added `setDirty(dirty: boolean): Promise<void>` to the api surface; declaration added to `src/types/api.d.ts`
+  - Main: tracks `rendererDirty` from the new `app:setDirty` IPC handler. The window's `close` event is intercepted with `dialog.showMessageBoxSync` ("Cancel" / "Discard unsaved changes"). Confirm sets a `forceClose` bypass and re-issues `win.close()`.
+- **a11y polish:**
+  - `Header.tsx` `ActionButton`: added `focus-visible:ring-2 focus-visible:ring-navy focus-visible:ring-offset-1` so keyboard focus is visible
+  - `ViewSelector.tsx` tab buttons: same focus-ring treatment, inset variant (so the rounded outer border isn't clipped)
+  - `RestoreToImportModal.tsx`: `role="dialog"`, `aria-modal="true"`, `aria-labelledby` linking the heading, focus rings on both action buttons
+  - `EmptyWorkspace` buttons: focus rings
+- **Tests:**
+  - `tests/model/workspace.test.ts` — +3 tests: preview returns orphans without mutation, no-orphans path, unknown-subject throw
+  - `tests/model/importTemplate.test.ts` — 2 tests: header presence + structure; round-trip through `importSpec` proves the template parses cleanly into a 1-topic / 1-sub-topic / 2-lesson subject with merged objectives, practical, and depth flag intact
+
+### Exit criteria check
+- [x] Excel export from any view → already wired in Session 7; no work needed
+- [x] Restore-to-import: confirmation modal + orphan surface — `RestoreToImportModal` shown before commit; orphans listed with breadcrumbs
+- [x] First-run experience per §7.1: "Import a specification to begin" + Import / Download template / Load example
+- [x] "Download import template" generates a blank .xlsx with example rows — verified by round-trip test
+- [x] Unsaved-changes prompt on app close — beforeunload (browser/Pages) and Electron close interceptor (with [DEC-025](DECISIONS.md#dec-025) 2-button compromise)
+- [x] Keyboard accessibility partial pass — visible focus rings on header buttons, view selector, modal actions, empty-state actions. Full keyboard-driven drag-and-drop (Space pickup + arrows) deferred — see Deviations.
+- [x] `npm test` passes (191/191 across 11 files; +5 new — 3 workspace, 2 template)
+- [x] `npm run typecheck` passes (renderer + electron tsconfigs)
+- [x] `npm run build:renderer` passes (698 KB main chunk; +7 KB from Session 11)
+- [ ] All §15 acceptance criteria pass — most do; #8 ("no regressions vs prototype in Sub-topic view") and #9 ("App packages on Win/macOS") are Session 14 territory; #10 (perf targets met on 2020-era laptop) not measured this session
+
+### Deviations from BUILD_PLAN.md
+- **Presets not implemented this session.** Build plan Session 8 step 9–10 (PresetMenu + three built-in presets) was deferred at the time and not picked up here; not on Session 12's explicit checklist either. They need topic-code-aware authored layouts and a UX surface (header dropdown vs a side panel). Recommend deferring to a v1.1+ pass after the user has used the tool enough to know what defaults would be helpful.
+- **Performance pass: not measured.** Build plan step 7 says "measure import time, view switch time, drag fps; fix anything missing the targets in §10". Subjective use of the dev build feels well within the targets on the example file (sub-100ms view switches, snappy drag, sub-second import). A formal measurement pass needs production builds on the user's actual hardware and is better paired with the Session 14 packaging output. Defer.
+- **Keyboard drag-and-drop (Space pickup + arrows) not implemented.** SPEC §13.1 mentions it. dnd-kit ships a `KeyboardSensor` but wiring announcements through `aria-live` for screen readers, plus a focused-cell-and-block model in every view (Sub-topic, Lesson, Objective, Topic), is half a session's work on its own. Visible focus rings cover the "see where I am" case; keyboard movement is a v1.1+ feature.
+- **3-button Save/Discard/Cancel close dialog reduced to 2-button.** Logged as [DEC-025](DECISIONS.md#dec-025). The compromise saves IPC choreography for marginal UX gain; the message text nudges the user to cancel + use Save.
+- **No ARIA labels added to non-iconographic buttons.** They already have visible text content; the WAI-ARIA spec considers innerText a sufficient accessible name. Added explicit ARIA only where structural (e.g. `aria-labelledby` on the restore modal).
+
+### Decisions logged
+- [DEC-025](DECISIONS.md#dec-025) — Unsaved-changes close dialog is 2-button, not 3-button
+- [DEC-026](DECISIONS.md#dec-026) — Restore-to-import uses preview + commit-on-confirm
+- [DEC-027](DECISIONS.md#dec-027) — Import template generator is its own module
+
+### Surprises and gotchas
+- **`beforeunload` doesn't fire on Electron window close by default.** Found this while testing the dirty prompt — closing the window with `Cmd+W`/title-bar-X bypasses the renderer's `beforeunload`. The fix is the `close`-event interceptor in `main.ts` with explicit dirty tracking via IPC. Worth noting for any future "intercept renderer-side navigation" pattern: it covers in-window navigation only.
+- **`dialog.showMessageBoxSync` is the right primitive here.** The async variant returns a `Promise` and doesn't compose with `event.preventDefault()` inside the close handler (the event has already finished synchronously by the time the promise resolves). Sync is fine because the dialog is modal and blocks the window's UI thread anyway.
+- **Vite handled the `URL.createObjectURL` blob download** in the EmptyWorkspace without extra config. No `mime-db` lookup needed; the standard xlsx MIME type works. The `a.click()` pattern is verbose but the standard idiom for "browser, please save this Blob as a file".
+- **Preserved the `restoreSubjectToImport` store action and added a new wrapper around it.** Originally tempted to refactor the store action to take the preview's `subject` so the modal could pass back a pre-fetched value. Net result: same cost, more coupling. Kept the existing action and re-fetched orphans on commit — duplicate work measured in microseconds, simpler API.
+- **`focus-visible` is the right primitive, not `focus`.** Tailwind 3 ships with `focus-visible:` out of the box and the modern browser default only paints rings on keyboard focus. Using plain `focus:` would draw rings on every mouse click, which we don't want on the action buttons.
+- **Bundle 691 → 698 KB.** Mostly the SheetJS xlsx-writer path being reachable from EmptyWorkspace (previously only via Export). Acceptable.
+
+### What's usable now
+Run `npm run dev`:
+1. **First-run:** Empty workspace shows three buttons. "Import .xlsx file" opens the OS file dialog. "Download import template" saves a blank template you can fill in. "Load the bundled example" pulls in the example physics spec.
+2. **Restore-to-import:** Right-click a subject tab (or click the ⋯), pick "Restore to imported spec…". A modal opens listing every placement that *would* be dropped before you commit. Cancel keeps you safe.
+3. **Unsaved changes:** Make any edit (drag a block, edit a lesson). Try to close the window or refresh the browser — you get a native prompt asking to confirm.
+4. **Keyboard focus:** Tab through the header buttons, view selector, and modal actions — every focused control shows a navy ring.
+
+### Open questions for the user
+- None blocking. Session 13 (Playwright E2E) and Session 14 (electron-builder packaging + perf measurement on installed builds) remain.

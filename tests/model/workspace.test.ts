@@ -15,6 +15,7 @@ import {
   createWorkspace,
   deserializeWorkspace,
   getActiveSubject,
+  previewRestoreSubjectToImport,
   removeSubject,
   replaceSubject,
   restoreSubjectToImport,
@@ -237,6 +238,51 @@ describe("restoreSubjectToImport", () => {
     let ws = createWorkspace();
     ws = addSubject(ws, loadExampleSubject("subj-1"));
     expect(() => restoreSubjectToImport(ws, "ghost")).toThrow();
+  });
+});
+
+describe("previewRestoreSubjectToImport", () => {
+  it("returns orphans without mutating the workspace", () => {
+    let ws = createWorkspace();
+    ws = addSubject(ws, loadExampleSubject("subj-1"));
+    // Place an orphan referencing a non-existent sub-topic
+    const subj = ws.subjects[0]!;
+    const tl = placeBlock(
+      subj.timeline,
+      { kind: "sub-topic", subTopicCode: "T99z" },
+      "Y9-A1",
+      3,
+      { idGen: counterIdGen() }
+    );
+    ws = replaceSubject(ws, "subj-1", { ...subj, timeline: tl });
+    const wsBefore = ws;
+    const preview = previewRestoreSubjectToImport(ws, "subj-1");
+    expect(preview.orphans).toHaveLength(1);
+    expect(preview.subject.id).toBe("subj-1");
+    // Workspace is the same reference — function is pure
+    expect(ws).toBe(wsBefore);
+    expect(ws.subjects[0]?.timeline.halfTerms[0]?.placedBlocks).toHaveLength(1);
+  });
+
+  it("returns an empty orphan list when nothing would be dropped", () => {
+    let ws = createWorkspace();
+    ws = addSubject(ws, loadExampleSubject("subj-1"));
+    const subj = ws.subjects[0]!;
+    const tl = placeBlock(
+      subj.timeline,
+      { kind: "sub-topic", subTopicCode: "T2a" },
+      "Y9-A1",
+      2,
+      { idGen: counterIdGen() }
+    );
+    ws = replaceSubject(ws, "subj-1", { ...subj, timeline: tl });
+    expect(previewRestoreSubjectToImport(ws, "subj-1").orphans).toEqual([]);
+  });
+
+  it("throws on unknown subject id", () => {
+    let ws = createWorkspace();
+    ws = addSubject(ws, loadExampleSubject("subj-1"));
+    expect(() => previewRestoreSubjectToImport(ws, "ghost")).toThrow();
   });
 });
 

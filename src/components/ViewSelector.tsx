@@ -29,6 +29,7 @@ export function ViewSelector({ value, onChange }: ViewSelectorProps): JSX.Elemen
             onClick={() => onChange(view.id)}
             className={
               "px-3 py-1.5 text-sm transition border-l border-line first:border-l-0 " +
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy focus-visible:ring-inset " +
               (active
                 ? "bg-navy text-bg"
                 : "text-ink hover:bg-surface-2")

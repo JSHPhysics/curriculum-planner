@@ -79,6 +79,40 @@ export interface RestoreResult {
   readonly orphans: readonly PlacedBlock[];
 }
 
+export interface RestorePreview {
+  readonly subject: Subject;
+  readonly orphans: readonly PlacedBlock[];
+}
+
+/**
+ * Like `restoreSubjectToImport` but does not mutate the workspace. Returns
+ * the subject (so the UI can show its name/colour) and the list of placements
+ * that *would* be dropped if the restore is committed. Cheap enough to call
+ * synchronously from a confirmation modal.
+ */
+export function previewRestoreSubjectToImport(
+  workspace: Workspace,
+  subjectId: string
+): RestorePreview {
+  const subject = workspace.subjects.find((s) => s.id === subjectId);
+  if (!subject) {
+    throw new Error(`previewRestoreSubjectToImport: subject "${subjectId}" not found`);
+  }
+  const validSubTopicCodes = collectSubTopicCodes(subject.importedSpec);
+  const validCustomIds = new Set(subject.customBlocks.map((c) => c.id));
+  const orphans: PlacedBlock[] = [];
+  for (const ht of subject.timeline.halfTerms) {
+    for (const pb of ht.placedBlocks) {
+      if (pb.source.kind === "sub-topic" && !validSubTopicCodes.has(pb.source.subTopicCode)) {
+        orphans.push(pb);
+      } else if (pb.source.kind === "custom" && !validCustomIds.has(pb.source.customBlockId)) {
+        orphans.push(pb);
+      }
+    }
+  }
+  return { subject, orphans };
+}
+
 /**
  * Reset a subject's `workingSpec` to a clone of its `importedSpec` and drop any
  * placements that reference sub-topic codes or custom-block ids that no longer

@@ -11,6 +11,11 @@ const SPREADSHEET_FILTERS = [
   { name: "Excel spreadsheet", extensions: ["xlsx"] },
 ];
 
+// Tracks whether the renderer has unsaved changes; consulted by the close
+// interceptor below. Renderer pushes this via the `app:setDirty` IPC channel.
+let rendererDirty = false;
+let forceClose = false;
+
 function createWindow(): void {
   const win = new BrowserWindow({
     width: 1440,
@@ -29,6 +34,27 @@ function createWindow(): void {
 
   win.once("ready-to-show", () => {
     win.show();
+  });
+
+  // SPEC §9.3: confirm before discarding unsaved changes. A `Cancel` choice
+  // keeps the window open; `Discard` sets the bypass flag and re-issues close.
+  win.on("close", (event) => {
+    if (!rendererDirty || forceClose) return;
+    event.preventDefault();
+    const choice = dialog.showMessageBoxSync(win, {
+      type: "warning",
+      buttons: ["Cancel", "Discard unsaved changes"],
+      defaultId: 0,
+      cancelId: 0,
+      title: "Unsaved changes",
+      message: "You have unsaved changes in the workspace.",
+      detail:
+        "Closing now will discard them. Use File → Save (or the Save button in the header) first if you want to keep them.",
+    });
+    if (choice === 1) {
+      forceClose = true;
+      win.close();
+    }
   });
 
   if (DEV_SERVER_URL) {
@@ -132,6 +158,10 @@ ipcMain.handle(
 );
 
 ipcMain.handle("app:getVersion", () => app.getVersion());
+
+ipcMain.handle("app:setDirty", (_event, dirty: boolean) => {
+  rendererDirty = Boolean(dirty);
+});
 
 // ============================================================
 // App lifecycle
