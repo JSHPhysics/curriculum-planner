@@ -15,7 +15,11 @@ function makeSubject(overrides?: Partial<Spec>): Subject {
     : { topics: defaultTopics() };
   return {
     id: "subj",
-    meta: { name: "Test", colour: "#1F3A5F", sourceFilename: null },
+    // keyStage: "KS4" disambiguates Y9 as KS4 (3-year GCSE framing) so the
+    // existing tests which place Y9 then ask about Y10-Y11 still treat them
+    // as same-KS. Without this, Y9 defaults to KS3 and the new
+    // restrictToContextKeyStage default filters them out.
+    meta: { name: "Test", colour: "#1F3A5F", sourceFilename: null, keyStage: "KS4" },
     importedSpec: spec,
     workingSpec: spec,
     timeline: createDefaultTimeline(),
@@ -215,6 +219,34 @@ describe("suggestRetrievalCandidates", () => {
     const t1bFromConfig = fromConfig.find((c) => c.subTopicCode === "T1b")!;
     const t1bFromOverride = fromCallOverride.find((c) => c.subTopicCode === "T1b")!;
     expect(t1bFromOverride.score).toBeGreaterThan(t1bFromConfig.score);
+  });
+});
+
+describe("restrictToContextKeyStage", () => {
+  it("by default, suggestions from a KS4 context exclude KS3 (Y9) placements when subject is KS3-tagged", () => {
+    // Build a subject explicitly KS3-tagged so Y9 maps to KS3.
+    const subject = { ...makeSubject(), meta: { ...makeSubject().meta, keyStage: "KS3" as const } };
+    let tl = placeBlock(subject.timeline, { kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 1);
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T1b" }, "Y10-A1", 1);
+    const placed: Subject = { ...subject, timeline: tl };
+
+    // Context = Y11-A1 (KS4). With KS3-tagged subject:
+    //   T1a in Y9 → KS3 (excluded by default restriction)
+    //   T1b in Y10 → KS4 (included)
+    const defaultCandidates = suggestRetrievalCandidates(placed, "Y11-A1");
+    expect(defaultCandidates.map((c) => c.subTopicCode)).toEqual(["T1b"]);
+  });
+
+  it("restrictToContextKeyStage: false includes cross-KS candidates", () => {
+    const subject = { ...makeSubject(), meta: { ...makeSubject().meta, keyStage: "KS3" as const } };
+    let tl = placeBlock(subject.timeline, { kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 1);
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T1b" }, "Y10-A1", 1);
+    const placed: Subject = { ...subject, timeline: tl };
+
+    const crossKs = suggestRetrievalCandidates(placed, "Y11-A1", {
+      restrictToContextKeyStage: false,
+    });
+    expect(crossKs.map((c) => c.subTopicCode).sort()).toEqual(["T1a", "T1b"]);
   });
 });
 

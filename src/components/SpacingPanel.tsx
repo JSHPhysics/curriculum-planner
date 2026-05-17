@@ -4,9 +4,12 @@ import { findTopicAndSubTopic } from "@/model/queries";
 import {
   DEFAULT_SPACING_THRESHOLDS,
   getSpacingFlags,
+  getSpacingFlagsByKeyStage,
   resolveSpacingThresholds,
+  type SpacingFlags,
 } from "@/model/spacing";
-import type { SpacingThresholds, Subject } from "@/model/types";
+import { getVisibleKeyStages } from "@/model/timeline";
+import type { KeyStage, SpacingThresholds, Subject } from "@/model/types";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
 export interface SpacingPanelProps {
@@ -37,6 +40,10 @@ export function SpacingPanel({ subject }: SpacingPanelProps): JSX.Element | null
   const setCurrentTermId = useWorkspaceStore((s) => s.setCurrentTermId);
   const updateActiveSubjectConfig = useWorkspaceStore((s) => s.updateActiveSubjectConfig);
   const [expanded, setExpanded] = useState<boolean>(readExpandedFromStorage);
+  // When a subject spans multiple key stages, we default to per-KS analytics
+  // (DEC-037). This toggle lets the user collapse to a single combined view
+  // for cross-KS spacing analysis when they actively want it.
+  const [combineKS, setCombineKS] = useState(false);
 
   useEffect(() => {
     if (typeof localStorage === "undefined") return;
@@ -47,13 +54,29 @@ export function SpacingPanel({ subject }: SpacingPanelProps): JSX.Element | null
     }
   }, [expanded]);
 
-  const flags = useMemo(() => (subject ? getSpacingFlags(subject) : null), [subject]);
+  const flagsByKs = useMemo(
+    () => (subject ? getSpacingFlagsByKeyStage(subject) : null),
+    [subject]
+  );
+  const combinedFlags = useMemo(
+    () => (subject ? getSpacingFlags(subject) : null),
+    [subject]
+  );
+  const visibleKs = useMemo(
+    () => (subject ? getVisibleKeyStages(subject) : []),
+    [subject]
+  );
   const thresholds = useMemo(
     () => (subject ? resolveSpacingThresholds(subject) : null),
     [subject]
   );
 
-  if (!subject || !flags || !thresholds) return null;
+  if (!subject || !combinedFlags || !flagsByKs || !thresholds) return null;
+
+  const showPerKs = visibleKs.length > 1 && !combineKS;
+  // For the collapsed-row summary we always show the combined totals so the
+  // user gets the big picture at a glance, regardless of grouping toggle.
+  const flags = combinedFlags;
 
   function patchThresholds(patch: Partial<SpacingThresholds>): void {
     updateActiveSubjectConfig({
@@ -128,142 +151,215 @@ export function SpacingPanel({ subject }: SpacingPanelProps): JSX.Element | null
       </button>
 
       {expanded && (
-        <div
-          id="spacing-panel-details"
-          className="px-6 py-3 border-t border-line grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"
-        >
-          <Section
-            title="Single-touch"
-            description="Placed once — consider scheduling a retrieval pass."
-            rationale={
-              <>
-                <p>
-                  Sub-topics placed exactly once get no spaced retrieval — the only practice
-                  happens within the original teaching block. By exam time that's months or
-                  years of forgetting with no reinforcement.
+        <div id="spacing-panel-details" className="px-6 py-3 border-t border-line space-y-3">
+          {visibleKs.length > 1 && (
+            <div className="flex items-center justify-end gap-2 text-[11px]">
+              <label className="flex items-center gap-1.5 text-ink-dim cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={combineKS}
+                  onChange={(e) => setCombineKS(e.target.checked)}
+                  className="accent-navy"
+                />
+                Combine across key stages
+              </label>
+              <details className="text-ink-fade">
+                <summary className="cursor-pointer hover:text-ink">why?</summary>
+                <p className="mt-1 max-w-md text-right leading-snug">
+                  Key stages are treated as separate learning contexts by default — a
+                  sub-topic taught once in KS3 and once in KS4 is single-touch in BOTH,
+                  not a 2-placement spread. Tick this box if you want spacing computed
+                  across the whole timeline regardless of KS.
                 </p>
-                <p>
-                  Foundational content that subsequent topics depend on is usually fine
-                  (it gets revisited <em>implicitly</em> when applied). Depth-extension or
-                  higher-difficulty content that doesn't get implicit revisit is the
-                  bigger concern — these are the items worth wrapping in a later retrieval
-                  block.
-                </p>
-                <p className="text-[10px] text-ink-fade">
-                  Reference: Cepeda et al. 2006 (spaced practice meta-analysis); Roediger &
-                  Karpicke 2006 (testing effect). Full rationale in <code>docs/PEDAGOGY.md</code> §3.
-                </p>
-              </>
-            }
-            empty="None"
-          >
-            {flags.singleTouch.map((code) => (
-              <SubTopicChip key={code} code={code} subject={subject} />
-            ))}
-          </Section>
+              </details>
+            </div>
+          )}
 
-          <Section
-            title="Unplaced"
-            description="Not yet anywhere in the calendar."
-            rationale={
-              <>
-                <p>
-                  Spec content with no calendar slot is content not taught — a coverage
-                  gap rather than a spacing one. The panel surfaces it here because it
-                  shares the same "is this on the plan?" question.
-                </p>
-                <p>
-                  If the omission is deliberate (e.g. an optional triple-only topic for a
-                  foundation cohort, or content you've decided to skip), the warning is
-                  informational and safe to leave.
-                </p>
-              </>
-            }
-            empty="Everything is placed"
-          >
-            {flags.unplaced.map((code) => (
-              <SubTopicChip key={code} code={code} subject={subject} />
-            ))}
-          </Section>
-
-          <Section
-            title="Blocked cells"
-            description="One topic dominates ≥80% of the lessons in the cell."
-            rationale={
-              <>
-                <p>
-                  Cells dominated by a single topic give students extended <em>blocked</em>
-                  practice — they build in-session fluency but lose the within-session
-                  opportunity to contrast with neighbouring topics, which is the
-                  discriminating skill exam questions test.
-                </p>
-                <p>
-                  Rohrer's lab work consistently shows <em>interleaved</em> practice produces
-                  stronger transfer for mathematics-like material; the effect generalises
-                  to most subjects with discriminable categories. Click any flagged cell
-                  to focus it; consider splitting the dominant sub-topic across two
-                  half-terms with another topic interleaved between.
-                </p>
-                <p className="text-[10px] text-ink-fade">
-                  Reference: Rohrer & Taylor 2007; Bjork's "desirable difficulties" (1994).
-                  Full rationale in <code>docs/PEDAGOGY.md</code> §3.
-                </p>
-              </>
-            }
-            empty="No cells dominated by a single topic"
-          >
-            {flags.blockedCells.map((cell) => (
-              <button
-                key={cell.halfTermId}
-                onClick={() => setCurrentTermId(cell.halfTermId)}
-                className="text-[11px] px-2 py-0.5 border border-warn/40 text-warn rounded hover:bg-warn/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn"
-                title={`${cell.lessons} lessons, ${Math.round(cell.dominantShare * 100)}% from ${cell.dominantTopicCode}`}
-              >
-                {cell.halfTermId} · {cell.dominantTopicCode} {Math.round(cell.dominantShare * 100)}%
-              </button>
-            ))}
-          </Section>
-
-          <Section
-            title="Well-spaced"
-            description="3+ placements with mean gap ≥4 half-terms."
-            rationale={
-              <>
-                <p>
-                  A positive flag. This configuration approximates spaced practice: the
-                  sub-topic is encountered repeatedly at intervals long enough for
-                  forgetting to begin, which is when retrieval payoff is highest
-                  (Bjork's "desirable difficulties").
-                </p>
-                <p>
-                  Use these as templates for other high-priority sub-topics — if a
-                  pattern of "Y9 introduction → Y10 deepening → Y11 retrieval" works for
-                  one topic, it likely works for similar ones.
-                </p>
-              </>
-            }
-            empty="Nothing well-spaced yet"
-          >
-            {flags.wellSpaced.map((code) => (
-              <SubTopicChip key={code} code={code} subject={subject} tone="good" />
-            ))}
-          </Section>
-
-          <div className="md:col-span-2 lg:col-span-4">
-            <details className="border-t border-line pt-2 mt-1">
-              <summary className="cursor-pointer text-xs text-ink-dim hover:text-ink select-none">
-                ⚙ Tune thresholds for this subject
-              </summary>
-              <ThresholdsEditor
-                thresholds={thresholds}
-                onChange={patchThresholds}
-                onReset={resetThresholds}
-                hasOverrides={hasThresholdOverrides}
+          {showPerKs ? (
+            visibleKs.map((ks) => (
+              <KeyStageGroup
+                key={ks}
+                keyStage={ks}
+                flags={flagsByKs.get(ks) ?? EMPTY_FLAGS}
+                subject={subject}
+                onCellClick={setCurrentTermId}
               />
-            </details>
-          </div>
+            ))
+          ) : (
+            <SectionsGrid
+              flags={combinedFlags}
+              subject={subject}
+              onCellClick={setCurrentTermId}
+            />
+          )}
+
+          <details className="border-t border-line pt-2 mt-1">
+            <summary className="cursor-pointer text-xs text-ink-dim hover:text-ink select-none">
+              ⚙ Tune thresholds for this subject
+            </summary>
+            <ThresholdsEditor
+              thresholds={thresholds}
+              onChange={patchThresholds}
+              onReset={resetThresholds}
+              hasOverrides={hasThresholdOverrides}
+            />
+          </details>
         </div>
       )}
+    </div>
+  );
+}
+
+const EMPTY_FLAGS: SpacingFlags = {
+  singleTouch: [],
+  unplaced: [],
+  blockedCells: [],
+  wellSpaced: [],
+};
+
+interface KeyStageGroupProps {
+  readonly keyStage: KeyStage;
+  readonly flags: SpacingFlags;
+  readonly subject: Subject;
+  readonly onCellClick: (halfTermId: string) => void;
+}
+
+function KeyStageGroup({ keyStage, flags, subject, onCellClick }: KeyStageGroupProps): JSX.Element {
+  return (
+    <fieldset className="border border-line rounded p-3">
+      <legend className="px-1.5 font-mono text-[10px] tracking-wider uppercase text-ink-dim">
+        {keyStage}
+      </legend>
+      <SectionsGrid flags={flags} subject={subject} onCellClick={onCellClick} />
+    </fieldset>
+  );
+}
+
+interface SectionsGridProps {
+  readonly flags: SpacingFlags;
+  readonly subject: Subject;
+  readonly onCellClick: (halfTermId: string) => void;
+}
+
+function SectionsGrid({ flags, subject, onCellClick }: SectionsGridProps): JSX.Element {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <Section
+        title="Single-touch"
+        description="Placed once — consider scheduling a retrieval pass."
+        rationale={
+          <>
+            <p>
+              Sub-topics placed exactly once get no spaced retrieval — the only practice
+              happens within the original teaching block. By exam time that's months or
+              years of forgetting with no reinforcement.
+            </p>
+            <p>
+              Foundational content that subsequent topics depend on is usually fine
+              (it gets revisited <em>implicitly</em> when applied). Depth-extension or
+              higher-difficulty content that doesn't get implicit revisit is the
+              bigger concern — these are the items worth wrapping in a later retrieval
+              block.
+            </p>
+            <p className="text-[10px] text-ink-fade">
+              Reference: Cepeda et al. 2006 (spaced practice meta-analysis); Roediger &
+              Karpicke 2006 (testing effect). Full rationale in <code>docs/PEDAGOGY.md</code> §3.
+            </p>
+          </>
+        }
+        empty="None"
+      >
+        {flags.singleTouch.map((code) => (
+          <SubTopicChip key={code} code={code} subject={subject} />
+        ))}
+      </Section>
+
+      <Section
+        title="Unplaced"
+        description="Not yet anywhere in the (visible) calendar."
+        rationale={
+          <>
+            <p>
+              Spec content with no calendar slot is content not taught — a coverage
+              gap rather than a spacing one. The panel surfaces it here because it
+              shares the same "is this on the plan?" question.
+            </p>
+            <p>
+              If the omission is deliberate (e.g. an optional triple-only topic for a
+              foundation cohort, or content you've decided to skip), the warning is
+              informational and safe to leave.
+            </p>
+          </>
+        }
+        empty="Everything is placed"
+      >
+        {flags.unplaced.map((code) => (
+          <SubTopicChip key={code} code={code} subject={subject} />
+        ))}
+      </Section>
+
+      <Section
+        title="Blocked cells"
+        description="One topic dominates ≥80% of the lessons in the cell."
+        rationale={
+          <>
+            <p>
+              Cells dominated by a single topic give students extended <em>blocked</em>
+              practice — they build in-session fluency but lose the within-session
+              opportunity to contrast with neighbouring topics, which is the
+              discriminating skill exam questions test.
+            </p>
+            <p>
+              Rohrer's lab work consistently shows <em>interleaved</em> practice produces
+              stronger transfer for mathematics-like material; the effect generalises
+              to most subjects with discriminable categories. Click any flagged cell
+              to focus it; consider splitting the dominant sub-topic across two
+              half-terms with another topic interleaved between.
+            </p>
+            <p className="text-[10px] text-ink-fade">
+              Reference: Rohrer & Taylor 2007; Bjork's "desirable difficulties" (1994).
+              Full rationale in <code>docs/PEDAGOGY.md</code> §3.
+            </p>
+          </>
+        }
+        empty="No cells dominated by a single topic"
+      >
+        {flags.blockedCells.map((cell) => (
+          <button
+            key={cell.halfTermId}
+            onClick={() => onCellClick(cell.halfTermId)}
+            className="text-[11px] px-2 py-0.5 border border-warn/40 text-warn rounded hover:bg-warn/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn"
+            title={`${cell.lessons} lessons, ${Math.round(cell.dominantShare * 100)}% from ${cell.dominantTopicCode}`}
+          >
+            {cell.halfTermId} · {cell.dominantTopicCode} {Math.round(cell.dominantShare * 100)}%
+          </button>
+        ))}
+      </Section>
+
+      <Section
+        title="Well-spaced"
+        description="3+ placements with mean gap ≥4 half-terms."
+        rationale={
+          <>
+            <p>
+              A positive flag. This configuration approximates spaced practice: the
+              sub-topic is encountered repeatedly at intervals long enough for
+              forgetting to begin, which is when retrieval payoff is highest
+              (Bjork's "desirable difficulties").
+            </p>
+            <p>
+              Use these as templates for other high-priority sub-topics — if a
+              pattern of "Y9 introduction → Y10 deepening → Y11 retrieval" works for
+              one topic, it likely works for similar ones.
+            </p>
+          </>
+        }
+        empty="Nothing well-spaced yet"
+      >
+        {flags.wellSpaced.map((code) => (
+          <SubTopicChip key={code} code={code} subject={subject} tone="good" />
+        ))}
+      </Section>
     </div>
   );
 }

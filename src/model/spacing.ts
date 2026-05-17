@@ -1,5 +1,30 @@
 import { findTopicAndSubTopic } from "./queries";
-import type { HalfTerm, PlacedBlock, SpacingThresholds, Subject } from "./types";
+import {
+  getKeyStageForYear,
+  getVisibleKeyStages,
+  getVisibleTimelineYears,
+} from "./timeline";
+import type {
+  HalfTerm,
+  KeyStage,
+  PlacedBlock,
+  SpacingThresholds,
+  Subject,
+  YearId,
+} from "./types";
+
+/**
+ * Half-terms the analytics should look at: skips any year the user has hidden.
+ * Hiding a year is the user saying "this isn't part of my planning scope" —
+ * spacing warnings about unplaced sub-topics in those years would be noise.
+ * Shared with `src/model/export.ts` via duplicated logic (small enough to not
+ * warrant a separate module); both must filter identically.
+ */
+function visibleHalfTerms(subject: Subject): readonly HalfTerm[] {
+  const hidden = new Set(subject.config.hiddenYears ?? []);
+  if (hidden.size === 0) return subject.timeline.halfTerms;
+  return subject.timeline.halfTerms.filter((ht) => !hidden.has(ht.year));
+}
 
 // ============================================================
 // Default thresholds. Per-subject overrides live in
@@ -60,7 +85,11 @@ export function getPlacementHistory(
   subTopicCode: string
 ): readonly SubTopicPlacement[] {
   const out: SubTopicPlacement[] = [];
+  // Hidden years are excluded — a sub-topic placed only in a hidden year is
+  // effectively "out of scope" for spacing/retrieval analytics.
+  const hidden = new Set(subject.config.hiddenYears ?? []);
   subject.timeline.halfTerms.forEach((halfTerm, halfTermIdx) => {
+    if (hidden.has(halfTerm.year)) return;
     for (const placedBlock of halfTerm.placedBlocks) {
       if (placedBlock.source.kind !== "sub-topic") continue;
       if (placedBlock.source.subTopicCode !== subTopicCode) continue;
@@ -183,7 +212,9 @@ export function getInterleavingScore(
 export function getInterleavingScoresAll(
   subject: Subject
 ): readonly InterleavingScore[] {
-  return subject.timeline.halfTerms.map((ht) => getInterleavingScore(subject, ht));
+  // Hidden years are excluded from the rolled-up interleaving sweep — they
+  // can't be "blocked cells" if the user doesn't even see them.
+  return visibleHalfTerms(subject).map((ht) => getInterleavingScore(subject, ht));
 }
 
 // ============================================================
@@ -245,4 +276,42 @@ export function getSpacingFlags(subject: Subject): SpacingFlags {
   }
 
   return { singleTouch, unplaced, blockedCells, wellSpaced };
+}
+
+/**
+ * Per-key-stage spacing analytics (see DEC-037). Each key stage's flags are
+ * computed independently — a sub-topic placed once in KS3 and once in KS4
+ * counts as single-touch in BOTH buckets, not as a 2-placement spread.
+ *
+ * Reuses `getSpacingFlags` by synthesising a "this KS only" subject view
+ * that hides every year not in the target KS. The user's actual hiddenYears
+ * config is preserved (additional hides layered on top).
+ *
+ * Y9 is disambiguated by `subject.meta.keyStage` when set; defaults to KS3.
+ */
+export function getSpacingFlagsByKeyStage(
+  subject: Subject
+): ReadonlyMap<KeyStage, SpacingFlags> {
+  const visibleKs = getVisibleKeyStages(subject);
+  const visibleYears = getVisibleTimelineYears(subject);
+  const out = new Map<KeyStage, SpacingFlags>();
+
+  for (const ks of visibleKs) {
+    const yearsInThisKs = new Set<YearId>(
+      visibleYears.filter((y) => getKeyStageForYear(y, subject.meta.keyStage) === ks)
+    );
+    const extraHidden = visibleYears.filter((y) => !yearsInThisKs.has(y));
+    const scopedSubject: Subject = {
+      ...subject,
+      config: {
+        ...subject.config,
+        hiddenYears: [
+          ...(subject.config.hiddenYears ?? []),
+          ...extraHidden,
+        ],
+      },
+    };
+    out.set(ks, getSpacingFlags(scopedSubject));
+  }
+  return out;
 }

@@ -1,4 +1,5 @@
 import { getPlacementHistory } from "./spacing";
+import { getKeyStageForYear } from "./timeline";
 import type { RetrievalWeights, Subject } from "./types";
 
 // ============================================================
@@ -87,6 +88,13 @@ export interface SuggestRetrievalOptions {
    * user is dragging a slider before saving.
    */
   readonly weights?: RetrievalWeights;
+  /**
+   * Default true (DEC-037): only consider candidates whose previous placements
+   * are in the same key stage as the context half-term. Set false to surface
+   * cross-KS revisits — useful for the rare case where a teacher wants
+   * spaced retrieval to span KS boundaries (Y9→Y10, etc.).
+   */
+  readonly restrictToContextKeyStage?: boolean;
 }
 
 // ============================================================
@@ -114,10 +122,13 @@ export function suggestRetrievalCandidates(
   const max = options.maxCandidates ?? DEFAULT_MAX_CANDIDATES;
   const minHTs = options.minHalfTermsSinceTouch ?? DEFAULT_MIN_HALF_TERMS_SINCE_TOUCH;
   const includeUnplaced = options.includeUnplaced ?? false;
+  const restrictToKs = options.restrictToContextKeyStage ?? true;
   const weights = resolveRetrievalWeights(subject, options.weights);
 
   const contextIdx = subject.timeline.halfTerms.findIndex((ht) => ht.id === contextHalfTermId);
   if (contextIdx === -1) return [];
+  const contextHalfTerm = subject.timeline.halfTerms[contextIdx]!;
+  const contextKs = getKeyStageForYear(contextHalfTerm.year, subject.meta.keyStage);
 
   const candidates: RetrievalCandidate[] = [];
   let specOrder = 0; // monotonic counter for tie-breaks
@@ -126,7 +137,16 @@ export function suggestRetrievalCandidates(
     for (const subTopic of topic.subTopics) {
       specOrder++;
       const history = getPlacementHistory(subject, subTopic.code);
-      const before = history.filter((p) => p.halfTermIdx < contextIdx);
+      let before = history.filter((p) => p.halfTermIdx < contextIdx);
+      // KS scope: when restricted, only count previous placements in the same
+      // key stage as the context cell. A Y9 (KS3) placement isn't a valid
+      // "earlier touch" of the same content for a Y11 (KS4) revisit unless
+      // the user explicitly opts into cross-KS via the popover toggle.
+      if (restrictToKs) {
+        before = before.filter(
+          (p) => getKeyStageForYear(p.halfTerm.year, subject.meta.keyStage) === contextKs
+        );
+      }
 
       if (before.length === 0) {
         if (!includeUnplaced) continue;

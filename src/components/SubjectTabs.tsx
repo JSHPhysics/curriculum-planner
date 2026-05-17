@@ -58,24 +58,8 @@ export function SubjectTabs({
     setMenuFor(null);
   }
 
-  function handleSetKeyStage(subjectId: string, current: KeyStage | undefined): void {
-    const options = ["KS3", "KS4", "KS5", "(unset)"];
-    const message =
-      `Set key stage for this subject. Currently: ${current ?? "unset"}.\n\n` +
-      options.map((o, i) => `${i + 1}. ${o}`).join("\n");
-    const input = prompt(message, current ?? "");
-    if (input === null) {
-      setMenuFor(null);
-      return;
-    }
-    const normalised = input.trim().toUpperCase();
-    if (normalised === "" || normalised === "(UNSET)") {
-      onSetKeyStage(subjectId, null);
-    } else if (normalised === "KS3" || normalised === "KS4" || normalised === "KS5") {
-      onSetKeyStage(subjectId, normalised);
-    } else {
-      alert(`"${input}" isn't one of KS3 / KS4 / KS5. No change made.`);
-    }
+  function applyKeyStage(subjectId: string, value: KeyStage | null): void {
+    onSetKeyStage(subjectId, value);
     setMenuFor(null);
   }
 
@@ -149,12 +133,42 @@ export function SubjectTabs({
                 >
                   📅 Edit calendar for this subject…
                 </button>
-                <button
-                  onClick={() => handleSetKeyStage(s.id, s.meta.keyStage)}
-                  className="w-full text-left px-3 py-1.5 hover:bg-surface-2"
-                >
-                  Set key stage… {s.meta.keyStage && <span className="text-ink-fade">({s.meta.keyStage})</span>}
-                </button>
+                <div className="px-3 py-1.5">
+                  <div className="text-[10px] uppercase tracking-wider text-ink-fade mb-1">
+                    Key stage
+                  </div>
+                  <div role="radiogroup" className="inline-flex border border-line rounded overflow-hidden">
+                    {(["KS3", "KS4", "KS5"] as readonly KeyStage[]).map((ks) => {
+                      const active = s.meta.keyStage === ks;
+                      return (
+                        <button
+                          key={ks}
+                          type="button"
+                          role="radio"
+                          aria-checked={active}
+                          onClick={() => applyKeyStage(s.id, ks)}
+                          className={
+                            "px-2 py-1 text-xs font-mono transition border-l border-line first:border-l-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy focus-visible:ring-inset " +
+                            (active ? "bg-navy text-bg" : "text-ink hover:bg-surface-2")
+                          }
+                        >
+                          {ks}
+                        </button>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => applyKeyStage(s.id, null)}
+                      className={
+                        "px-2 py-1 text-xs italic transition border-l border-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy focus-visible:ring-inset " +
+                        (s.meta.keyStage === undefined ? "bg-surface-2 text-ink-dim" : "text-ink-fade hover:bg-surface-2")
+                      }
+                      title="Unset key stage"
+                    >
+                      none
+                    </button>
+                  </div>
+                </div>
                 <div className="border-t border-line my-1" />
                 <button
                   onClick={() => handleClose(s.id, s.meta.name)}

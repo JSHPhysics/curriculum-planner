@@ -6,6 +6,7 @@ import {
   suggestRetrievalCandidates,
   type RetrievalCandidate,
 } from "@/model/retrievalSuggestions";
+import { getKeyStageForYear, getVisibleKeyStages } from "@/model/timeline";
 import type {
   CustomBlock,
   HalfTerm,
@@ -42,15 +43,26 @@ export function RetrievalSuggestionPopover({
   const updateActiveSubjectConfig = useWorkspaceStore((s) => s.updateActiveSubjectConfig);
 
   const effectiveWeights = useMemo(() => resolveRetrievalWeights(subject), [subject]);
-
-  const candidates = useMemo(
-    () => suggestRetrievalCandidates(subject, halfTerm.id, { maxCandidates: MAX_CANDIDATES }),
-    [subject, halfTerm.id]
-  );
+  // Only show the cross-KS toggle when the subject's visible timeline actually
+  // spans multiple key stages — otherwise it has no effect and would just be
+  // noise (e.g. a KS4-only subject has nothing to revisit from KS3).
+  const visibleKs = useMemo(() => getVisibleKeyStages(subject), [subject]);
+  const contextKs = getKeyStageForYear(halfTerm.year, subject.meta.keyStage);
+  const offerCrossKsToggle = visibleKs.length > 1;
 
   const [selected, setSelected] = useState<readonly string[]>([]);
   const [lessons, setLessons] = useState(DEFAULT_LESSONS);
   const [tuneOpen, setTuneOpen] = useState(false);
+  const [includeCrossKs, setIncludeCrossKs] = useState(false);
+
+  const candidates = useMemo(
+    () =>
+      suggestRetrievalCandidates(subject, halfTerm.id, {
+        maxCandidates: MAX_CANDIDATES,
+        restrictToContextKeyStage: !includeCrossKs,
+      }),
+    [subject, halfTerm.id, includeCrossKs]
+  );
 
   function toggle(code: string): void {
     setSelected((prev) =>
@@ -111,6 +123,22 @@ export function RetrievalSuggestionPopover({
             Ranked by spacing gap × depth × difficulty. Tick the sub-topics you'd cover in retrieval
             (tests, homework, lesson starters) and create a retrieval block in this cell.
           </p>
+          {offerCrossKsToggle && (
+            <div className="flex items-center gap-2 mt-2 text-[11px]">
+              <label className="flex items-center gap-1.5 text-ink-dim cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeCrossKs}
+                  onChange={(e) => setIncludeCrossKs(e.target.checked)}
+                  className="accent-gold"
+                />
+                Include cross-KS revisits
+              </label>
+              <span className="text-ink-fade">
+                (context is {contextKs}; off = only suggest {contextKs} content)
+              </span>
+            </div>
+          )}
         </header>
 
         <div className="px-5 py-4 overflow-y-auto flex-1">

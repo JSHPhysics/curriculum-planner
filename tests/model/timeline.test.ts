@@ -5,7 +5,9 @@ import {
   createDefaultTimeline,
   createEoHTBlocks,
   DEFAULT_CALENDAR_TEMPLATE,
+  getKeyStageForYear,
   getTimelineYears,
+  getVisibleKeyStages,
   getVisibleTimelineYears,
   halfTermRoom,
   halfTermUsed,
@@ -317,5 +319,68 @@ describe("inferKeyStage", () => {
 
   it("returns null for an empty timeline", () => {
     expect(inferKeyStage({ halfTerms: [] })).toBeNull();
+  });
+});
+
+describe("getKeyStageForYear", () => {
+  it("returns KS3 for Y7/Y8 and KS4 for Y10/Y11 and KS5 for Y12/Y13", () => {
+    expect(getKeyStageForYear("Y7")).toBe("KS3");
+    expect(getKeyStageForYear("Y8")).toBe("KS3");
+    expect(getKeyStageForYear("Y10")).toBe("KS4");
+    expect(getKeyStageForYear("Y11")).toBe("KS4");
+    expect(getKeyStageForYear("Y12")).toBe("KS5");
+    expect(getKeyStageForYear("Y13")).toBe("KS5");
+  });
+
+  it("defaults Y9 to KS3 when subject KS is unset", () => {
+    expect(getKeyStageForYear("Y9")).toBe("KS3");
+  });
+
+  it("treats Y9 as KS4 when subject is tagged KS4 (3-year GCSE schools)", () => {
+    expect(getKeyStageForYear("Y9", "KS4")).toBe("KS4");
+  });
+
+  it("treats Y9 as KS3 when subject is tagged KS3 (3-year KS3 schools)", () => {
+    expect(getKeyStageForYear("Y9", "KS3")).toBe("KS3");
+  });
+
+  it("ignores subjectKs when it doesn't match the year (subject tag must be plausible)", () => {
+    // A KS5-tagged subject with Y9 still maps Y9 to the default (KS3) — the
+    // subject tag only disambiguates years that legitimately span two KSes.
+    expect(getKeyStageForYear("Y9", "KS5")).toBe("KS3");
+  });
+});
+
+describe("getVisibleKeyStages", () => {
+  function ks3Plus5Subject(): Subject {
+    return {
+      id: "subj",
+      meta: { name: "Mixed", colour: "#1F3A5F", sourceFilename: null },
+      importedSpec: { topics: [] },
+      workingSpec: { topics: [] },
+      timeline: applyCalendarTemplate({
+        cycleLengthInWeeks: 1,
+        lessonsPerCyclePerYear: { Y8: 3, Y12: 4 },
+        halfTerms: [
+          { id: "Y8-HT1", name: "HT1", year: "Y8", weeks: 6 },
+          { id: "Y12-HT1", name: "HT1", year: "Y12", weeks: 6 },
+        ],
+      }),
+      customBlocks: [],
+      config: { includeDepth: false, lostLessonBuffer: false, autoSpillover: true },
+    };
+  }
+
+  it("returns the KSes present in the visible timeline", () => {
+    expect(getVisibleKeyStages(ks3Plus5Subject())).toEqual(["KS3", "KS5"]);
+  });
+
+  it("excludes KSes whose only years are hidden", () => {
+    const subj = ks3Plus5Subject();
+    const hidden: Subject = {
+      ...subj,
+      config: { ...subj.config, hiddenYears: ["Y8"] },
+    };
+    expect(getVisibleKeyStages(hidden)).toEqual(["KS5"]);
   });
 });

@@ -7,6 +7,7 @@ import {
   getInterleavingScoresAll,
   getPlacementHistory,
   getSpacingFlags,
+  getSpacingFlagsByKeyStage,
   getSpacingProfile,
   getSpacingProfilesAll,
   resolveSpacingThresholds,
@@ -305,5 +306,62 @@ describe("resolveSpacingThresholds", () => {
       wellSpacedMinPlacements: DEFAULT_SPACING_THRESHOLDS.wellSpacedMinPlacements,
       wellSpacedMinMeanGap: 2, // from config
     });
+  });
+});
+
+describe("hidden years filtering in spacing analytics", () => {
+  it("excludes hidden-year placements from getPlacementHistory", () => {
+    const subject = makeSubject();
+    let tl = placeBlock(subject.timeline, { kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 1);
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T1a" }, "Y10-A2", 1);
+    const placed: Subject = { ...subject, timeline: tl };
+
+    expect(getPlacementHistory(placed, "T1a")).toHaveLength(2);
+
+    const withHidden: Subject = {
+      ...placed,
+      config: { ...placed.config, hiddenYears: ["Y9"] },
+    };
+    const history = getPlacementHistory(withHidden, "T1a");
+    expect(history.map((p) => p.halfTerm.id)).toEqual(["Y10-A2"]);
+  });
+
+  it("hidden-only placements appear as 'unplaced' in spacing flags", () => {
+    const subject = makeSubject();
+    const tl = placeBlock(subject.timeline, { kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 3);
+    const withHidden: Subject = {
+      ...subject,
+      timeline: tl,
+      config: { ...subject.config, hiddenYears: ["Y9"] },
+    };
+    // From the visible-scope perspective, T1a is unplaced
+    expect(getSpacingFlags(withHidden).unplaced).toContain("T1a");
+  });
+});
+
+describe("getSpacingFlagsByKeyStage", () => {
+  it("buckets single-touch by KS — a KS3+KS4 placed sub-topic is single-touch in both", () => {
+    const subject = makeSubject();
+    // T1a placed once in Y9 (KS3 default) and once in Y10 (KS4)
+    let tl = placeBlock(subject.timeline, { kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 1);
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T1a" }, "Y10-A1", 1);
+    const placed: Subject = { ...subject, timeline: tl };
+
+    const byKs = getSpacingFlagsByKeyStage(placed);
+    expect(byKs.get("KS3")?.singleTouch).toContain("T1a");
+    expect(byKs.get("KS4")?.singleTouch).toContain("T1a");
+  });
+
+  it("returns a single KS entry for a single-KS subject", () => {
+    const subject = makeSubject();
+    // Default Y9-Y11 timeline with subject keyStage unset → Y9 defaults to KS3,
+    // Y10/Y11 are KS4. So actually this subject spans KS3 (Y9) + KS4 (Y10/Y11).
+    // To get a single-KS, tag the subject as KS4:
+    const ks4Subject: Subject = {
+      ...subject,
+      meta: { ...subject.meta, keyStage: "KS4" },
+    };
+    const byKs = getSpacingFlagsByKeyStage(ks4Subject);
+    expect([...byKs.keys()]).toEqual(["KS4"]);
   });
 });

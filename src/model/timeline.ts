@@ -192,6 +192,40 @@ export function inferKeyStage(timeline: Timeline): KeyStage | null {
   return null;
 }
 
+/**
+ * Map a single year to the key stage it belongs to. Y9 is the ambiguous case
+ * — it's officially KS3 (Y7–Y9) but many schools treat it as the start of a
+ * 3-year GCSE (KS4). Disambiguated by `subjectKs` when provided: if the
+ * subject is tagged KS4, Y9 in this subject is KS4.
+ *   Y7, Y8       → KS3
+ *   Y9           → subjectKs if KS3/KS4 (default: KS3 per DfE definition)
+ *   Y10, Y11     → KS4
+ *   Y12, Y13     → KS5
+ */
+export function getKeyStageForYear(year: YearId, subjectKs?: KeyStage): KeyStage {
+  if (year === "Y9") {
+    if (subjectKs === "KS3" || subjectKs === "KS4") return subjectKs;
+    return "KS3";
+  }
+  if (year === "Y7" || year === "Y8") return "KS3";
+  if (year === "Y10" || year === "Y11") return "KS4";
+  return "KS5"; // Y12, Y13
+}
+
+/**
+ * Key stages represented in a subject's visible timeline, in canonical
+ * KS3→KS4→KS5 order. Used by analytics to decide whether to group results
+ * per-KS (multiple) or render a single flat view (one).
+ */
+export function getVisibleKeyStages(subject: Subject): readonly KeyStage[] {
+  const present = new Set<KeyStage>();
+  const visibleYears = getVisibleTimelineYears(subject);
+  for (const year of visibleYears) {
+    present.add(getKeyStageForYear(year, subject.meta.keyStage));
+  }
+  return (["KS3", "KS4", "KS5"] as readonly KeyStage[]).filter((ks) => present.has(ks));
+}
+
 function defaultIdGen(): string {
   return crypto.randomUUID();
 }

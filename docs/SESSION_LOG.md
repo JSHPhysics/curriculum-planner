@@ -1413,3 +1413,86 @@ Per user's earlier choice: just hideable years, no combined-multi-subject view.
 - Spacing analytics: should they respect hiddenYears too? Pro: less noise when a user hides Y7/Y8 because they don't teach those. Con: hiding becomes a way to silence valid warnings about unplaced content. Currently spacing keeps seeing everything; happy to flip if the noise is problematic.
 - "Set key stage" uses a text prompt right now (typing "KS3"/"KS4"/"KS5"). A dropdown picker would be friendlier but adds ~50 LOC of custom UI. Worth doing now or in the polish pass?
 - KS metadata is currently descriptive only. Want it to inform anything else — e.g. filter subjects in the tab bar by KS, group exports by KS, etc.?
+
+---
+
+## Session 22 — KS-scoped analytics + inline KS picker (Session 21 follow-up polish)
+**Date:** 2026-05-17
+**Status:** Complete
+**Commit:** *(pending — see git log)*
+
+Direct response to the three open questions raised at the bottom of the Session 21 entry. All three answered "yes / do it now" by the user:
+1. *"Yes, respect hidden. No point calculating spacing against unused years."*
+2. *"Replace now."* (the text `prompt()` for Set Key Stage)
+3. *"Analytics should be grouped by keystage. Key stages can be considered separate learning, provide the option to consider across multiple keystage if the user asks."*
+
+### What was built
+
+**Engine layer (`src/model/`):**
+- `timeline.ts` gains two helpers:
+  - `getKeyStageForYear(year, subjectKs?): KeyStage` — canonical year→KS mapping with Y9 disambiguation via `subject.meta.keyStage`. Default: Y7/Y8/Y9 → KS3; Y10/Y11 → KS4; Y12/Y13 → KS5. Y9 with a KS3/KS4-tagged subject yields the subject's tag; KS5 tag is ignored for Y9 (no reality-bending).
+  - `getVisibleKeyStages(subject): readonly KeyStage[]` — returns the KSes present in the *visible* timeline (after hidden-year filter), preserving canonical KS3→KS4→KS5 order.
+- `spacing.ts`:
+  - `visibleHalfTerms(subject)` helper (filters hidden years from the timeline sweep)
+  - `getPlacementHistory` now skips placements in `subject.config.hiddenYears`. Every downstream helper (`getSpacingProfile`, `getSpacingProfilesAll`, `getSpacingFlags`) inherits the filter — single source of truth.
+  - `getInterleavingScoresAll` uses `visibleHalfTerms` so hidden cells don't contribute to interleaving rollups.
+  - **New** `getSpacingFlagsByKeyStage(subject): ReadonlyMap<KeyStage, SpacingFlags>` — buckets flags per KS by constructing a "scoped subject view" (layering extra `hiddenYears` to mask all other KSes) and reusing `getSpacingFlags`. Reuses existing logic exactly — no duplication of threshold math.
+- `retrievalSuggestions.ts`:
+  - `SuggestRetrievalOptions.restrictToContextKeyStage?: boolean` (default `true`). When true, candidate prior placements are filtered to those in the same KS as the context cell.
+
+**UI surfaces:**
+- `SpacingPanel`:
+  - When subject's visible timeline spans >1 KS (e.g. KS3+KS4 in a Y9-Y11 spec), renders one `KeyStageGroup` per KS via `getSpacingFlagsByKeyStage`. Each group shows the four flag sections (single-touch / unplaced / blocked cells / well-spaced) for that KS only.
+  - Single-KS subjects render the existing single-section layout unchanged (no extra UI).
+  - "Combine across key stages" checkbox in the header (only shown when multi-KS) flips back to the combined view. State persisted in component-local React state per session.
+  - "why?" disclosure next to the checkbox explains the pedagogical reasoning briefly + links to PEDAGOGY.md.
+- `RetrievalSuggestionPopover`:
+  - When the subject's visible timeline spans >1 KS, adds "Include cross-KS revisits" checkbox at the top. Off by default. Toggling it passes `restrictToContextKeyStage: !includeCrossKs` to the engine.
+  - Helper text shows the context cell's KS for orientation: "Suggestions for this Y10 cell (KS4)…"
+- `SubjectTabs`:
+  - Replaced the `prompt("Set key stage (KS3/KS4/KS5)…")` flow with an inline radio-button row in the subject menu.
+  - Three KS3/KS4/KS5 buttons + a `none` clear-button. Active KS highlighted with navy/bg colour. Single-click commits + closes the menu.
+  - Removed the `handleSetKeyStage` function; new `applyKeyStage(subjectId, value)` helper.
+
+**Tests added (+13 unit):**
+- `tests/model/timeline.test.ts` (+6): `getKeyStageForYear` cases (Y7/Y8→KS3, Y9 default→KS3, Y9 with KS3 tag→KS3, Y9 with KS4 tag→KS4, Y9 with KS5 tag→KS3, Y10/Y11→KS4, Y12/Y13→KS5); `getVisibleKeyStages` (canonical order, hidden-year filtering, single-KS vs multi-KS subjects).
+- `tests/model/spacing.test.ts` (+5): hidden-year filter at `getPlacementHistory` level; `getInterleavingScoresAll` skips hidden cells; `getSpacingFlagsByKeyStage` bucketing (KS3-only subject returns a single-key map; multi-KS bucket separation; sub-topic taught once in KS3 + once in KS4 is single-touch in BOTH buckets).
+- `tests/model/retrievalSuggestions.test.ts` (+2): default `restrictToContextKeyStage` behaviour (Y10 context excludes Y9 KS3 placements when subject has no KS tag — that Y9 maps to KS3); explicit `restrictToContextKeyStage: false` override re-includes cross-KS placements.
+
+### Exit criteria check
+- [x] Spacing analytics filter hidden years end-to-end (engine, not just UI)
+- [x] Y9 disambiguated by subject KS metadata
+- [x] Spacing flags bucketed per-KS by default, with combine toggle
+- [x] Retrieval suggestions KS-restricted by default, with cross-KS opt-in
+- [x] Multi-KS UI shows toggles; single-KS UI hides them (no clutter)
+- [x] Inline KS picker replaces `prompt()`
+- [x] DEC-037 logged with full rationale + alternatives + consequences
+- [x] `npm run typecheck` clean (both renderer + electron)
+- [x] `npm test` — 260/260 (was 247/247; +13 new)
+- [x] `npm run build:renderer` clean (752 kB / 242 kB gzip — same as Session 21)
+
+### Deviations from the plan
+- **No SPEC.md edits.** The change is mechanically a refinement of existing in-scope features (DEC-036's hideable years + DEC-031's retrieval engine). Captured in DEC-037 only.
+- **No PEDAGOGY.md edits this session.** DEC-037 mentions a future PEDAGOGY.md §6 explaining KS scoping, but decided to defer until we've lived with the per-KS analytics for a session or two — that way the rationale doc reflects what the UI actually does, not what we guessed it should do.
+
+### Decisions logged
+- [DEC-037](DECISIONS.md#dec-037) — Analytics scoped by key stage; Y9 disambiguated by subject KS metadata
+
+### Surprises and gotchas
+- **`retrievalSuggestions.test.ts` fixture broke when `restrictToContextKeyStage` default flipped to `true`.** Seven tests failed because the fixture's Y9 placements (default KS3) were being filtered out for Y10/Y11 (KS4) contexts. Fix: added `keyStage: "KS4"` to the test fixture's `makeSubject()` meta so Y9 maps to KS4 in that subject. Real-world equivalent: a user teaching a 3-year GCSE will need to set the subject's KS to KS4 so Y9 placements are treated as KS4. This is the *intended* behaviour — the test fixture was just under-specified.
+- **`getSpacingFlagsByKeyStage` deliberately reuses `getSpacingFlags`** via a synthesized "scoped subject view" (a shallow copy with extra `hiddenYears` layered on). Considered duplicating the bucket math but the indirection is cleaner — single source of truth for thresholds, single source of truth for what "blocked" / "single-touch" / "well-spaced" mean.
+- **`exactOptionalPropertyTypes` again.** Spread-with-`undefined` is rejected. When `meta.keyStage` is cleared, rebuild the meta object without the field — same pattern as Sessions 19/20/21. Pattern is well-established now; future contributors should follow.
+- **`SpacingPanel` got large** (366 LOC after refactor, was ~280). Extracted `KeyStageGroup` and `SectionsGrid` sub-components within the file to keep the per-KS / combined paths readable. Could split into its own folder later if it keeps growing.
+
+### What's usable now
+1. Subjects spanning multiple key stages (e.g. a Y9-Y13 mega-spec, or a Y7-Y11 spec) get one spacing-flag section per KS by default — single-touch in KS3 doesn't pollute KS4 flags
+2. Tick "Combine across key stages" to opt back into cross-KS analysis when you actually want it
+3. Right-click any subject tab → click the inline KS3 / KS4 / KS5 / none buttons (no more typing)
+4. Open the retrieval-suggestion popover from a KS4 cell — Y8 placements no longer appear unless you tick "Include cross-KS revisits"
+5. Hide Y7/Y8 because you don't teach them → spacing analytics stop flagging those years' content as "unplaced"
+6. Sub-topic taught once in KS3 + once in KS4 now correctly appears as single-touch in *both* KS buckets (not as a 2-placement spread)
+
+### Open questions for the user
+- PEDAGOGY.md §6 (KS scoping rationale): deferred — write it after living with the UI for a session or two?
+- Cross-KS retrieval: are there subjects where Y8 → Y10 revisits are genuinely useful (cumulative concepts like number sense, scientific method)? If so, we might want a per-subject "default to cross-KS" preference instead of always defaulting to restricted.
+- DECISIONS.md is starting to feel like a substantial doc — should we add a short index/TOC at the top, or trust the file's own search affordances?
