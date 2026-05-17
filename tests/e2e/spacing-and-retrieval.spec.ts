@@ -48,9 +48,11 @@ test.describe("Spacing panel + retrieval suggestions", () => {
       .getByRole("button", { name: /Suggest sub-topics worth revisiting in Y10 Aut 1/i })
       .click();
 
-    // Popover shows ranked candidates; T2a should appear since it was placed earlier
+    // Popover shows ranked candidates. Per DEC-042 the default granularity
+    // is "topic" — switch to sub-topic to test the specific T2a flow.
     const dialog = app.page.getByRole("dialog", { name: /Suggested revisits for Y10/i });
     await expect(dialog).toBeVisible();
+    await dialog.getByRole("radio", { name: /^Sub-topic$/i }).click();
     const t2aCandidate = dialog.locator("label", { hasText: "T2a" }).first();
     await expect(t2aCandidate).toBeVisible();
 
@@ -84,6 +86,8 @@ test.describe("Spacing panel + retrieval suggestions", () => {
     // Increased timeout: the dialog has heavy initial render (candidate list +
     // weights editor) and can be slow on the first cold open in a test run.
     await expect(suggestDialog).toBeVisible({ timeout: 10_000 });
+    // Switch to sub-topic granularity (DEC-042 default is topic).
+    await suggestDialog.getByRole("radio", { name: /^Sub-topic$/i }).click();
     const t2aCandidate = suggestDialog.locator("label", { hasText: "T2a" }).first();
     await expect(t2aCandidate).toBeVisible();
     await t2aCandidate.click();
@@ -139,6 +143,10 @@ test.describe("Spacing panel + retrieval suggestions", () => {
     await app.page.getByRole("button", { name: /Plan health/i }).click();
     const details = app.page.locator("#spacing-panel-details");
     await expect(details).toBeVisible();
+    // Switch to sub-topic granularity to test blocked-cells (a sub-topic
+    // concept). Default per DEC-042 is topic granularity, which has a
+    // "Clustered topics" section instead of "Blocked cells".
+    await details.getByRole("radio", { name: /^Sub-topic$/i }).click();
     // No blocked cells at default thresholds (only 3 lessons in Y9-A1)
     await expect(details).toContainText(/No cells dominated by a single topic/i);
 
@@ -149,6 +157,28 @@ test.describe("Spacing panel + retrieval suggestions", () => {
 
     // The "Blocked cells" section now lists Y9-A1 as flagged
     await expect(details.getByRole("button", { name: /Y9-A1 · T2/i })).toBeVisible();
+  });
+
+  test("Plan health defaults to topic granularity (DEC-042) and surfaces topic-level sections", async ({ app }) => {
+    await app.loadExample();
+    await app.page.getByRole("button", { name: /Plan health/i }).click();
+    const details = app.page.locator("#spacing-panel-details");
+    await expect(details).toBeVisible();
+
+    // The granularity radiogroup is present with Topic selected by default
+    const topicRadio = details.getByRole("radio", { name: /^Topic$/ });
+    const subTopicRadio = details.getByRole("radio", { name: /^Sub-topic$/ });
+    await expect(topicRadio).toHaveAttribute("aria-checked", "true");
+    await expect(subTopicRadio).toHaveAttribute("aria-checked", "false");
+
+    // Topic-level sections render their specific copy
+    await expect(details).toContainText(/Topics appearing in only one half-term/i);
+    await expect(details).toContainText(/Clustered topics/i);
+    await expect(details).toContainText(/Topics whose every placement sits in consecutive half-terms/i);
+
+    // Flip to sub-topic — see sub-topic sections (e.g. blocked cells)
+    await subTopicRadio.click();
+    await expect(details).toContainText(/No cells dominated by a single topic/i);
   });
 
   test("SpacingPanel expanded state persists across a reload", async ({ app }) => {

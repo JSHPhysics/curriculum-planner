@@ -4,8 +4,11 @@ import {
   DEFAULT_RETRIEVAL_WEIGHTS,
   resolveRetrievalWeights,
   suggestRetrievalCandidates,
+  suggestTopicRetrievalCandidates,
   type RetrievalCandidate,
+  type TopicRetrievalCandidate,
 } from "@/model/retrievalSuggestions";
+import { getTopicPlacementHistory } from "@/model/spacing";
 import { getKeyStageForYear, getVisibleKeyStages } from "@/model/timeline";
 import type {
   CustomBlock,
@@ -23,6 +26,20 @@ export interface RetrievalSuggestionPopoverProps {
 
 const MAX_CANDIDATES = 12;
 const DEFAULT_LESSONS = 1;
+const GRANULARITY_STORAGE_KEY = "curriculum-planner-retrieval-granularity-v1";
+
+type Granularity = "topic" | "sub-topic";
+
+function readGranularityFromStorage(): Granularity {
+  if (typeof localStorage === "undefined") return "topic";
+  try {
+    return localStorage.getItem(GRANULARITY_STORAGE_KEY) === "sub-topic"
+      ? "sub-topic"
+      : "topic";
+  } catch {
+    return "topic";
+  }
+}
 
 /**
  * Modal-style popover that surfaces ranked retrieval candidates for a single
@@ -50,12 +67,27 @@ export function RetrievalSuggestionPopover({
   const contextKs = getKeyStageForYear(halfTerm.year, subject.meta.keyStage);
   const offerCrossKsToggle = visibleKs.length > 1;
 
-  const [selected, setSelected] = useState<readonly string[]>([]);
+  // Granularity (DEC-042) — default to topic. Selection state is per-granularity
+  // because the picked items mean different things (topic codes vs sub-topic codes).
+  const [granularity, setGranularity] = useState<Granularity>(readGranularityFromStorage);
+  const [selectedSub, setSelectedSub] = useState<readonly string[]>([]);
+  const [selectedTopic, setSelectedTopic] = useState<readonly string[]>([]);
   const [lessons, setLessons] = useState(DEFAULT_LESSONS);
   const [tuneOpen, setTuneOpen] = useState(false);
   const [includeCrossKs, setIncludeCrossKs] = useState(false);
 
-  const candidates = useMemo(
+  function persistGranularity(g: Granularity): void {
+    setGranularity(g);
+    if (typeof localStorage !== "undefined") {
+      try {
+        localStorage.setItem(GRANULARITY_STORAGE_KEY, g);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  const subCandidates = useMemo(
     () =>
       suggestRetrievalCandidates(subject, halfTerm.id, {
         maxCandidates: MAX_CANDIDATES,
@@ -63,19 +95,63 @@ export function RetrievalSuggestionPopover({
       }),
     [subject, halfTerm.id, includeCrossKs]
   );
+  const topicCandidates = useMemo(
+    () =>
+      suggestTopicRetrievalCandidates(subject, halfTerm.id, {
+        maxCandidates: MAX_CANDIDATES,
+        restrictToContextKeyStage: !includeCrossKs,
+      }),
+    [subject, halfTerm.id, includeCrossKs]
+  );
 
-  function toggle(code: string): void {
-    setSelected((prev) =>
+  const isTopic = granularity === "topic";
+  const noResults = isTopic ? topicCandidates.length === 0 : subCandidates.length === 0;
+  const selectedCount = isTopic ? selectedTopic.length : selectedSub.length;
+
+  function toggleSub(code: string): void {
+    setSelectedSub((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
+    );
+  }
+
+  function toggleTopic(code: string): void {
+    setSelectedTopic((prev) =>
       prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
     );
   }
 
   function createBlock(): void {
-    if (selected.length === 0) return;
-    const codes = candidates
-      .filter((c) => selected.includes(c.subTopicCode))
-      .map((c) => c.subTopicCode);
-    const labelPart = codes.length <= 3 ? codes.join(", ") : `${codes.slice(0, 2).join(", ")} +${codes.length - 2}`;
+    if (selectedCount === 0) return;
+    let codes: string[];
+    let labelPart: string;
+    if (isTopic) {
+      // Topic-level pick: expand each selected topic to the SUB-TOPIC CODES of
+      // that topic that have actually been placed before this cell. This way
+      // the saved `revisits` field still references real placement context.
+      const subCodes = new Set<string>();
+      for (const topicCode of selectedTopic) {
+        const history = getTopicPlacementHistory(subject, topicCode);
+        for (const p of history) {
+          // Only include placements strictly before context cell.
+          const contextIdx = subject.timeline.halfTerms.findIndex((h) => h.id === halfTerm.id);
+          if (p.halfTermIdx < contextIdx) subCodes.add(p.subTopicCode);
+        }
+      }
+      codes = Array.from(subCodes);
+      labelPart =
+        selectedTopic.length <= 3
+          ? selectedTopic.join(", ")
+          : `${selectedTopic.slice(0, 2).join(", ")} +${selectedTopic.length - 2}`;
+    } else {
+      codes = subCandidates
+        .filter((c) => selectedSub.includes(c.subTopicCode))
+        .map((c) => c.subTopicCode);
+      labelPart =
+        codes.length <= 3
+          ? codes.join(", ")
+          : `${codes.slice(0, 2).join(", ")} +${codes.length - 2}`;
+    }
+    if (codes.length === 0) return; // no placements found for the chosen topics
     const block: CustomBlock = {
       id: makeId(),
       name: `Recall: ${labelPart}`,
@@ -120,41 +196,88 @@ export function RetrievalSuggestionPopover({
             </h2>
           </div>
           <p className="text-[11px] text-ink-fade mt-1">
-            Ranked by spacing gap × depth × difficulty. Tick the sub-topics you'd cover in retrieval
-            (tests, homework, lesson starters) and create a retrieval block in this cell.
+            Ranked by spacing gap × depth × difficulty. Tick the {isTopic ? "topics" : "sub-topics"}{" "}
+            you'd cover in retrieval (tests, homework, lesson starters) and create a retrieval
+            block in this cell.
           </p>
-          {offerCrossKsToggle && (
-            <div className="flex items-center gap-2 mt-2 text-[11px]">
-              <label className="flex items-center gap-1.5 text-ink-dim cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={includeCrossKs}
-                  onChange={(e) => setIncludeCrossKs(e.target.checked)}
-                  className="accent-gold"
-                />
-                Include cross-KS revisits
-              </label>
-              <span className="text-ink-fade">
-                (context is {contextKs}; off = only suggest {contextKs} content)
-              </span>
+          <div className="flex items-center gap-3 mt-2 text-[11px]">
+            <div
+              role="radiogroup"
+              aria-label="Retrieval suggestion granularity"
+              className="inline-flex border border-line rounded overflow-hidden text-[10px] font-mono uppercase tracking-wider"
+            >
+              <button
+                type="button"
+                role="radio"
+                aria-checked={isTopic}
+                onClick={() => persistGranularity("topic")}
+                title="Suggest at topic level (DEC-042 default): one entry per topic, expanded to its placed sub-topics on create"
+                className={
+                  "px-2 py-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-inset " +
+                  (isTopic ? "bg-gold text-ink" : "text-ink-dim hover:bg-surface-2")
+                }
+              >
+                Topic
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={!isTopic}
+                onClick={() => persistGranularity("sub-topic")}
+                title="Suggest at sub-topic level: one entry per sub-topic, more granular control"
+                className={
+                  "px-2 py-1 transition border-l border-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-inset " +
+                  (!isTopic ? "bg-gold text-ink" : "text-ink-dim hover:bg-surface-2")
+                }
+              >
+                Sub-topic
+              </button>
             </div>
-          )}
+            {offerCrossKsToggle && (
+              <>
+                <label className="flex items-center gap-1.5 text-ink-dim cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeCrossKs}
+                    onChange={(e) => setIncludeCrossKs(e.target.checked)}
+                    className="accent-gold"
+                  />
+                  Include cross-KS revisits
+                </label>
+                <span className="text-ink-fade">
+                  (context is {contextKs})
+                </span>
+              </>
+            )}
+          </div>
         </header>
 
         <div className="px-5 py-4 overflow-y-auto flex-1">
-          {candidates.length === 0 ? (
+          {noResults ? (
             <p className="text-sm text-ink-fade italic">
-              Nothing to revisit yet — no sub-topics have been placed before this half-term. Place
-              earlier content first, then come back here.
+              Nothing to revisit yet — no {isTopic ? "topics" : "sub-topics"} have been placed
+              before this half-term. Place earlier content first, then come back here.
             </p>
+          ) : isTopic ? (
+            <ul className="flex flex-col gap-1.5">
+              {topicCandidates.map((c) => (
+                <li key={c.topicCode}>
+                  <TopicCandidateRow
+                    candidate={c}
+                    selected={selectedTopic.includes(c.topicCode)}
+                    onToggle={() => toggleTopic(c.topicCode)}
+                  />
+                </li>
+              ))}
+            </ul>
           ) : (
             <ul className="flex flex-col gap-1.5">
-              {candidates.map((c) => (
+              {subCandidates.map((c) => (
                 <li key={c.subTopicCode}>
                   <CandidateRow
                     candidate={c}
-                    selected={selected.includes(c.subTopicCode)}
-                    onToggle={() => toggle(c.subTopicCode)}
+                    selected={selectedSub.includes(c.subTopicCode)}
+                    onToggle={() => toggleSub(c.subTopicCode)}
                   />
                 </li>
               ))}
@@ -194,7 +317,9 @@ export function RetrievalSuggestionPopover({
             />
           </label>
           <span className="text-xs text-ink-fade">
-            {selected.length === 0 ? "Pick at least one" : `${selected.length} selected`}
+            {selectedCount === 0
+              ? "Pick at least one"
+              : `${selectedCount} selected`}
           </span>
           <div className="flex-1" />
           <button
@@ -205,7 +330,7 @@ export function RetrievalSuggestionPopover({
           </button>
           <button
             onClick={createBlock}
-            disabled={selected.length === 0}
+            disabled={selectedCount === 0}
             className="px-3 py-1.5 text-sm bg-gold text-ink rounded hover:bg-gold/80 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Create retrieval block
@@ -243,6 +368,50 @@ function CandidateRow({ candidate, selected, onToggle }: CandidateRowProps): JSX
         <div className="flex items-baseline gap-2">
           <span className="font-mono text-[11px] text-ink-fade">{candidate.subTopicCode}</span>
           <span className="text-sm text-ink truncate">{candidate.subTopicName}</span>
+          <span className="text-[10px] font-mono text-ink-fade ml-auto">
+            score {scorePct}
+          </span>
+        </div>
+        <div className="text-[11px] text-ink-dim mt-0.5">{candidate.reason}</div>
+        <div className="mt-1 h-1 bg-line rounded overflow-hidden" aria-hidden>
+          <div className="h-full bg-gold" style={{ width: `${scorePct}%` }} />
+        </div>
+      </div>
+    </label>
+  );
+}
+
+interface TopicCandidateRowProps {
+  readonly candidate: TopicRetrievalCandidate;
+  readonly selected: boolean;
+  readonly onToggle: () => void;
+}
+
+function TopicCandidateRow({
+  candidate,
+  selected,
+  onToggle,
+}: TopicCandidateRowProps): JSX.Element {
+  const scorePct = Math.round(candidate.score * 100);
+  return (
+    <label
+      className={
+        "flex items-start gap-3 px-3 py-2 border rounded cursor-pointer transition " +
+        (selected
+          ? "border-gold bg-gold/10"
+          : "border-line hover:border-line-2 hover:bg-surface-2")
+      }
+    >
+      <input
+        type="checkbox"
+        checked={selected}
+        onChange={onToggle}
+        className="accent-gold mt-0.5"
+      />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-baseline gap-2">
+          <span className="font-mono text-[11px] text-ink-fade">{candidate.topicCode}</span>
+          <span className="text-sm text-ink truncate">{candidate.topicName}</span>
           <span className="text-[10px] font-mono text-ink-fade ml-auto">
             score {scorePct}
           </span>

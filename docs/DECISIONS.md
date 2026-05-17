@@ -1671,3 +1671,90 @@ Two user requests landed together as Session 24 polish:
 - `package.json` (1.0.0 → 1.1.0; +jszip dep), `src/model/workspace.ts` (`APP_VERSION` bump)
 - `.github/workflows/release.yml` (already in place, no changes)
 - [DEC-039](#dec-039) (folder exports — this DEC extends the output formats)
+
+## DEC-042 — Topic-first presets and topic-level spacing/retrieval analytics
+**Date:** 2026-05-17
+**Session:** 25
+**Status:** Accepted, supersedes the sub-topic-chunking algorithm in DEC-038
+
+### Context
+User feedback after running the Session 22 presets against the expanded 66-lesson demo:
+
+> "the preset curriculums from the demo physics are awful, they were much better in the prototype, it significantly underestimates the numbers of lessons, calls everything single-pass because it is judging on sub-topic and not on topics, If my teachers hit the same mechanics topic (but a different sub-topic) this should be part of spacing/retrieval/interleaving accordingly"
+
+Two separate bugs in one observation:
+
+1. **Three-spiral was sub-topic-chunking, not topic-distributing.** A 1-lesson sub-topic split into 3 passes became `(1, 0, 0)` — one placement total, indistinguishable from frontloaded. With many short sub-topics in the demo spec (each spec row = one lesson), spiral degenerated to "place each sub-topic once" for most of the spec. The prototype (`reference/sow_planner_v1.html`) did the right thing: each TOPIC's sub-topics were distributed across timeline segments — so the topic appeared in multiple segments via *different* sub-topics, even though each sub-topic was placed only once.
+
+2. **Spacing/retrieval analytics had no topic-level view.** A teacher revisiting "Mechanics" via a different sub-topic 8 weeks later IS retrieval at the topic level — but at sub-topic granularity each is single-touch. The panel's "single-touch" flag was pedagogically misleading: it counted as a warning what was actually a well-spaced topic.
+
+User's clarification (mid-session) on the *interleaving* boundary: "stop, two sub-topics is not interleaving if they are adjacent, they still need to be properly spaced, it is retrieval however." So:
+- Interleaving = mixing different TOPICS within a cell. Two sub-topics of the same topic = not interleaving. (Current code is correct.)
+- Spacing/retrieval need both granularities; topic level should be default because that's where most planning thinking lives.
+
+### Decision
+
+**(1) Topic-first three-spiral algorithm.**
+- Each sub-topic placed ONCE with its full lesson count (no fractional chunking).
+- Per topic, sub-topics distributed across 3 passes: `n=1 → (1)`; `n=2 → (1,1)`; `n=3 → (1,1,1)`; `n>3 → (ceil(n/3), ceil((n-p1)/2), rest)`.
+- Within each topic, foundation sub-topics ordered first, depth sub-topics last — pushes depth content towards pass 3.
+- Emission order: pass-1 placements first (all topics that have pass-1 content, in spec order), then pass-2, then pass-3. The placement engine packs each pass into its third of the timeline.
+- "Spiral" effect: each topic with 2+ foundation sub-topics appears in multiple timeline segments via different sub-topics — that IS the spiral.
+
+`frontloaded` and `interleaved` were already single-placement-per-sub-topic algorithms; no algorithmic changes needed there.
+
+**(2) Topic-level analytics module (extension of `src/model/spacing.ts`).**
+- `getTopicPlacementHistory(subject, topicCode): readonly TopicPlacement[]` — calendar-ordered placements aggregating across every sub-topic of the topic.
+- `getTopicSpacingProfile(subject, topicCode): TopicSpacingProfile` — distinct-half-terms-based touches (not raw placement count), gaps computed between distinct HTs only.
+- `getTopicSpacingProfilesAll(subject)`, `getTopicSpacingFlags(subject): TopicSpacingFlags` — rolled-up version with four flags: `singleTouch`, `unplaced`, `wellSpaced`, **`clustered`** (new: every gap ≤ 1 = topic taught in one continuous run despite having multiple sub-topics).
+- `getTopicSpacingFlagsByKeyStage(subject)` — per-KS bucketing mirrors the sub-topic-level helper.
+
+**(3) Topic-level retrieval suggestions.**
+- `suggestTopicRetrievalCandidates(subject, contextHalfTermId, options?): readonly TopicRetrievalCandidate[]` — same scoring philosophy as the sub-topic engine but operating on topics.
+- Difficulty + depth aggregate across the topic's sub-topics (max difficulty; any-depth).
+- `totalDistinctTouchesToDate` = distinct half-terms (not raw placement count), so two sub-topics of the same topic in one cell don't double-count.
+
+**(4) UI granularity toggle, default = Topic.**
+- `SpacingPanel` adds a Topic/Sub-topic radio pair near the top of the expanded panel. Default = Topic. Persists in `localStorage`. Renders different `SectionsGrid` variants depending on granularity.
+- Topic-level summary shows four flags too — but "blocked cells" becomes "clustered topics" (the topic-level analogue: every-gap-≤-1).
+- `RetrievalSuggestionPopover` adds a Topic/Sub-topic radio pair in the header. Default = Topic. When user picks topic candidates and clicks "Create retrieval block", the topics are expanded to ALL sub-topic codes of those topics that were placed before the context cell — so the saved `revisits` field still references real prior placements.
+
+### Alternatives considered
+
+- **Keep the sub-topic-chunking spiral and add topic-level analytics on top.** Would have left the demo presets visually broken. Rejected — the user explicitly called the presets "awful".
+
+- **Port the prototype's hand-coded layouts verbatim** (was option A in the AskUserQuestion). Would have worked perfectly for the demo physics spec but degenerated to nothing for any other imported spec. User picked the algorithmic option.
+
+- **Replace sub-topic-level analytics entirely with topic-level** (was option C in the AskUserQuestion). Cleaner UI but loses signal (e.g. "Snell's law specifically is never revisited"). User picked the toggle approach.
+
+- **Make presets honor topic vs sub-topic counting in their own internal heuristics.** Considered but unnecessary — the topic-first algorithm naturally produces well-spaced topics; the analytics just need to evaluate them correctly.
+
+- **Auto-detect the better granularity per spec shape.** Too magical. The toggle is explicit and remembered per-user.
+
+### Consequences
+
+- **Demo presets now look meaningfully different from each other.** Three-spiral distributes each multi-sub-topic topic across segments; frontloaded packs topics consecutively; interleaved round-robins. Visible distinction restored.
+
+- **Three-spiral lesson totals match the spec exactly.** Was previously the case that sub-topic 1-lesson splits would silently drop the lesson (pass2/3 got 0). Each sub-topic now placed once with full count.
+
+- **Single-touch flags drop substantially** in the topic-level view of a multi-sub-topic spec. A frontloaded plan that previously flagged 30+ single-touch sub-topics now flags ~5 single-touch *topics* (the ones with only 1 sub-topic in the spec). Plan health summary feels accurate.
+
+- **Topic-level retrieval suggestions consolidate the recommendations.** A teacher in Y11-A1 used to see one suggestion per old sub-topic (T2a, T2b, T2c, T2d as four chips); now sees "T2 — Motion and forces" as one suggestion that, when ticked, expands to all of T2's previously-placed sub-topics.
+
+- **Existing preset tests had to flip.** The "each sub-topic placed 3 times" invariant became "each sub-topic placed ONCE" + a new "topic distributed across passes" invariant.
+
+- **`isSubTopicDepth` (DEC-040) is preserved** — depth filtering is orthogonal to topic-vs-sub-topic granularity. Both views honour the depth toggle identically.
+
+- **The "clustered topics" flag** is a new signal with no sub-topic-level analogue. Topics whose every gap is 0 or 1 (i.e. taught in a single continuous run despite having multiple sub-topics) get this flag — captures the "we taught all of mechanics in October" anti-pattern that sub-topic-level analysis couldn't see.
+
+- **Granularity preference is persisted per browser** (localStorage), not per workspace. So the same user reopening a different `.curriculum` file will see their preferred granularity. Considered persisting per-subject — rejected as overkill.
+
+### Related
+- `SPEC.md` §1.1 (in-scope) — will fold "Topic-level analytics" into the §1.1 bullet list at next consolidation
+- `docs/PEDAGOGY.md` — should grow a §6 or §7 explaining the topic-vs-sub-topic distinction (deferred per user's preference to live with the change first)
+- `src/model/presets.ts` (`planThreeSpiral` rewritten)
+- `src/model/spacing.ts` (`getTopicPlacementHistory`, `getTopicSpacingProfile`, `getTopicSpacingFlags`, `getTopicSpacingFlagsByKeyStage`, +`TopicSpacingFlags.clustered`)
+- `src/model/retrievalSuggestions.ts` (`suggestTopicRetrievalCandidates`, `TopicRetrievalCandidate`)
+- `src/components/SpacingPanel.tsx` (granularity toggle + topic-level `TopicSectionsGrid` + `TopicChip` + summary adaptation)
+- `src/components/RetrievalSuggestionPopover.tsx` (granularity toggle + `TopicCandidateRow` + topic-to-sub-topic-codes expansion at create time)
+- [DEC-038](#dec-038) (preset layouts — sub-topic-chunking algorithm superseded), [DEC-031](#dec-031) (retrieval engine — extended), [DEC-033](#dec-033) (spacing thresholds — same thresholds apply at topic level)

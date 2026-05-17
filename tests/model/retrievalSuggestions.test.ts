@@ -5,6 +5,7 @@ import {
   DEFAULT_RETRIEVAL_WEIGHTS,
   resolveRetrievalWeights,
   suggestRetrievalCandidates,
+  suggestTopicRetrievalCandidates,
 } from "@/model/retrievalSuggestions";
 import { createDefaultTimeline } from "@/model/timeline";
 import type { Spec, Subject } from "@/model/types";
@@ -277,5 +278,81 @@ describe("resolveRetrievalWeights", () => {
       difficultyBonusPerLevel: DEFAULT_RETRIEVAL_WEIGHTS.difficultyBonusPerLevel,
       repeatedPlacementPenalty: DEFAULT_RETRIEVAL_WEIGHTS.repeatedPlacementPenalty,
     });
+  });
+});
+
+// ============================================================
+// suggestTopicRetrievalCandidates (DEC-042)
+// ============================================================
+
+describe("suggestTopicRetrievalCandidates", () => {
+  it("returns one candidate per topic with placements before the context cell", () => {
+    const subject = makeSubject();
+    // Place T1a in Y9-A1 (ahead of the Y10-A1 context cell)
+    const placed: Subject = {
+      ...subject,
+      timeline: placeBlock(
+        subject.timeline,
+        { kind: "sub-topic", subTopicCode: "T1a" },
+        "Y9-A1",
+        1
+      ),
+    };
+    const candidates = suggestTopicRetrievalCandidates(placed, "Y10-A1");
+    expect(candidates.map((c) => c.topicCode)).toContain("T1");
+    expect(candidates.map((c) => c.topicCode)).not.toContain("T2"); // T2 unplaced
+  });
+
+  it("treats two sub-topics of the same topic as ONE topic touch", () => {
+    const subject = makeSubject();
+    // Place T1a and T1b both in Y9-A1 → topic T1 was touched once (one HT)
+    let tl = placeBlock(subject.timeline, { kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 1);
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T1b" }, "Y9-A1", 1);
+    const placed: Subject = { ...subject, timeline: tl };
+
+    const candidates = suggestTopicRetrievalCandidates(placed, "Y11-A1");
+    const t1 = candidates.find((c) => c.topicCode === "T1");
+    expect(t1?.totalDistinctTouchesToDate).toBe(1);
+    expect(t1?.distinctSubTopicsPlacedToDate).toBe(2);
+    expect(t1?.totalSubTopicsInSpec).toBe(2);
+  });
+
+  it("reports halfTermsSinceLastTouch based on the LATEST distinct HT", () => {
+    const subject = makeSubject();
+    let tl = placeBlock(subject.timeline, { kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 1);
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T1b" }, "Y10-A1", 1);
+    const placed: Subject = { ...subject, timeline: tl };
+
+    // Default LEHS timeline: Y10-A1 is index 6; Y11-A1 is index 12 → gap = 6.
+    const candidates = suggestTopicRetrievalCandidates(placed, "Y11-A1");
+    const t1 = candidates.find((c) => c.topicCode === "T1");
+    expect(t1?.halfTermsSinceLastTouch).toBe(6);
+    expect(t1?.lastPlacementHalfTermId).toBe("Y10-A1");
+  });
+
+  it("aggregates depth/difficulty across the topic's sub-topics", () => {
+    const subject = makeSubject();
+    // T1b is depth in the fixture; T1a is foundation. Any-depth aggregation.
+    const tl = placeBlock(subject.timeline, { kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 1);
+    const placed: Subject = { ...subject, timeline: tl };
+    const candidates = suggestTopicRetrievalCandidates(placed, "Y10-A1");
+    const t1 = candidates.find((c) => c.topicCode === "T1");
+    expect(t1?.hasDepthContent).toBe(true); // T1b is depth
+    expect(t1?.difficulty).toBe(3); // max(T1a=2, T1b=3)
+  });
+
+  it("reason mentions the topic-level distinct touches", () => {
+    const subject = makeSubject();
+    const tl = placeBlock(subject.timeline, { kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 1);
+    const placed: Subject = { ...subject, timeline: tl };
+    const candidates = suggestTopicRetrievalCandidates(placed, "Y10-A1");
+    const t1 = candidates.find((c) => c.topicCode === "T1");
+    expect(t1?.reason).toMatch(/topic last touched/i);
+    expect(t1?.reason).toMatch(/never revisited/i); // 1 distinct touch
+  });
+
+  it("returns empty when no topic was placed before context cell", () => {
+    const subject = makeSubject();
+    expect(suggestTopicRetrievalCandidates(subject, "Y10-A1")).toEqual([]);
   });
 });

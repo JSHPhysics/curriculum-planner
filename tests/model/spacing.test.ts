@@ -10,6 +10,11 @@ import {
   getSpacingFlagsByKeyStage,
   getSpacingProfile,
   getSpacingProfilesAll,
+  getTopicPlacementHistory,
+  getTopicSpacingFlags,
+  getTopicSpacingFlagsByKeyStage,
+  getTopicSpacingProfile,
+  getTopicSpacingProfilesAll,
   resolveSpacingThresholds,
 } from "@/model/spacing";
 import { createDefaultTimeline, createEoHTBlocks } from "@/model/timeline";
@@ -368,5 +373,148 @@ describe("getSpacingFlagsByKeyStage", () => {
     };
     const byKs = getSpacingFlagsByKeyStage(ks4Subject);
     expect([...byKs.keys()]).toEqual(["KS4"]);
+  });
+});
+
+// ============================================================
+// Topic-level analytics (DEC-042)
+// ============================================================
+
+describe("getTopicPlacementHistory", () => {
+  it("aggregates placements across every sub-topic of the topic", () => {
+    const subject = makeSubject();
+    // T1 has T1a + T1b. Place T1a in Y9-A1 and T1b in Y10-A2 — two distinct
+    // sub-topics, two distinct touches of topic T1.
+    let tl = placeBlock(subject.timeline, { kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 2);
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T1b" }, "Y10-A2", 1);
+    const placed: Subject = { ...subject, timeline: tl };
+
+    const history = getTopicPlacementHistory(placed, "T1");
+    expect(history.length).toBe(2);
+    expect(history[0]?.subTopicCode).toBe("T1a");
+    expect(history[1]?.subTopicCode).toBe("T1b");
+    expect(history[0]?.halfTerm.id).toBe("Y9-A1");
+    expect(history[1]?.halfTerm.id).toBe("Y10-A2");
+  });
+
+  it("returns empty for a topic with no placements", () => {
+    const subject = makeSubject();
+    expect(getTopicPlacementHistory(subject, "T2")).toEqual([]);
+  });
+
+  it("ignores placements in hidden years", () => {
+    const subject = makeSubject();
+    const tl = placeBlock(subject.timeline, { kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 2);
+    const hidden: Subject = {
+      ...subject,
+      timeline: tl,
+      config: { ...subject.config, hiddenYears: ["Y9"] },
+    };
+    expect(getTopicPlacementHistory(hidden, "T1")).toEqual([]);
+  });
+});
+
+describe("getTopicSpacingProfile", () => {
+  it("counts DISTINCT half-terms as touches, not raw placement count", () => {
+    // Two sub-topics of T1 placed in the same half-term = one topic touch.
+    const subject = makeSubject();
+    let tl = placeBlock(subject.timeline, { kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 2);
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T1b" }, "Y9-A1", 1);
+    const placed: Subject = { ...subject, timeline: tl };
+
+    const profile = getTopicSpacingProfile(placed, "T1");
+    expect(profile.placements.length).toBe(2); // two sub-topic placements
+    expect(profile.distinctHalfTermsCount).toBe(1); // one topic touch
+    expect(profile.isSingleTouch).toBe(true);
+    expect(profile.distinctSubTopicsPlaced).toBe(2);
+    expect(profile.totalSubTopicsInSpec).toBe(2);
+  });
+
+  it("computes gaps between distinct half-terms (not between every placement pair)", () => {
+    const subject = makeSubject();
+    let tl = placeBlock(subject.timeline, { kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 1);
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 1); // same HT
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T1b" }, "Y10-A1", 1); // gap = 6 from Y9-A1
+    const placed: Subject = { ...subject, timeline: tl };
+
+    const profile = getTopicSpacingProfile(placed, "T1");
+    expect(profile.distinctHalfTermsCount).toBe(2);
+    expect(profile.gapsInHalfTerms).toEqual([6]);
+    expect(profile.meanGap).toBe(6);
+    expect(profile.isSingleTouch).toBe(false);
+  });
+
+  it("reports unplaced when nothing was placed", () => {
+    const subject = makeSubject();
+    const profile = getTopicSpacingProfile(subject, "T2");
+    expect(profile.isUnplaced).toBe(true);
+    expect(profile.isSingleTouch).toBe(false);
+    expect(profile.distinctHalfTermsCount).toBe(0);
+    expect(profile.lastPlacementHalfTermIdx).toBe(null);
+  });
+});
+
+describe("getTopicSpacingProfilesAll", () => {
+  it("returns one profile per topic in spec order", () => {
+    const subject = makeSubject();
+    const profiles = getTopicSpacingProfilesAll(subject);
+    expect(profiles.map((p) => p.topicCode)).toEqual(["T1", "T2"]);
+  });
+});
+
+describe("getTopicSpacingFlags", () => {
+  it("flags a topic as single-touch when all sub-topics are in one half-term", () => {
+    const subject = makeSubject();
+    let tl = placeBlock(subject.timeline, { kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 2);
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T1b" }, "Y9-A1", 1);
+    const placed: Subject = { ...subject, timeline: tl };
+
+    const flags = getTopicSpacingFlags(placed);
+    expect(flags.singleTouch).toContain("T1");
+    expect(flags.unplaced).toContain("T2");
+  });
+
+  it("flags a topic as well-spaced when distinct halfterms ≥ threshold and mean gap ≥ threshold", () => {
+    // 3+ distinct half-terms with mean gap >= 4 (default thresholds).
+    // Default Y9-Y11 timeline: Y9-A1 (idx 0), Y10-A1 (idx 6), Y11-A1 (idx 12).
+    // Gaps = [6, 6] → mean 6 ≥ 4. distinctHts = 3 ≥ wellSpacedMinPlacements.
+    const subject = makeSubject();
+    let tl = placeBlock(subject.timeline, { kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 1);
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T1b" }, "Y10-A1", 1);
+    // We need a third distinct half-term for T1 — but the fixture only has 2 sub-topics.
+    // Place T1a again in Y11-A1 (same sub-topic, different half-term).
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T1a" }, "Y11-A1", 1);
+    const placed: Subject = { ...subject, timeline: tl };
+
+    const flags = getTopicSpacingFlags(placed);
+    expect(flags.wellSpaced).toContain("T1");
+  });
+
+  it("flags a topic as 'clustered' when every gap is 0 or 1", () => {
+    // Two sub-topics in adjacent half-terms — clustered, not well-spaced.
+    const subject = makeSubject();
+    let tl = placeBlock(subject.timeline, { kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 1);
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T1b" }, "Y9-A2", 1);
+    const placed: Subject = { ...subject, timeline: tl };
+
+    const flags = getTopicSpacingFlags(placed);
+    expect(flags.clustered).toContain("T1");
+    expect(flags.singleTouch).not.toContain("T1");
+    expect(flags.wellSpaced).not.toContain("T1");
+  });
+});
+
+describe("getTopicSpacingFlagsByKeyStage", () => {
+  it("buckets per-KS and reports the topic separately in each KS", () => {
+    const subject = makeSubject();
+    let tl = placeBlock(subject.timeline, { kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 1);
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T1a" }, "Y10-A1", 1);
+    const placed: Subject = { ...subject, timeline: tl };
+
+    const byKs = getTopicSpacingFlagsByKeyStage(placed);
+    // Default subject (no keyStage tag) → Y9 is KS3, Y10/Y11 are KS4.
+    // T1 is single-touch in each KS (one half-term per KS).
+    expect(byKs.get("KS3")?.singleTouch).toContain("T1");
+    expect(byKs.get("KS4")?.singleTouch).toContain("T1");
   });
 });

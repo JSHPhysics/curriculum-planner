@@ -5,8 +5,11 @@ import {
   DEFAULT_SPACING_THRESHOLDS,
   getSpacingFlags,
   getSpacingFlagsByKeyStage,
+  getTopicSpacingFlags,
+  getTopicSpacingFlagsByKeyStage,
   resolveSpacingThresholds,
   type SpacingFlags,
+  type TopicSpacingFlags,
 } from "@/model/spacing";
 import { getVisibleKeyStages } from "@/model/timeline";
 import type { KeyStage, SpacingThresholds, Subject } from "@/model/types";
@@ -17,6 +20,9 @@ export interface SpacingPanelProps {
 }
 
 const EXPANDED_STORAGE_KEY = "curriculum-planner-spacing-panel-expanded-v1";
+const GRANULARITY_STORAGE_KEY = "curriculum-planner-spacing-panel-granularity-v1";
+
+type Granularity = "topic" | "sub-topic";
 
 function readExpandedFromStorage(): boolean {
   if (typeof localStorage === "undefined") return false;
@@ -24,6 +30,17 @@ function readExpandedFromStorage(): boolean {
     return localStorage.getItem(EXPANDED_STORAGE_KEY) === "1";
   } catch {
     return false;
+  }
+}
+
+function readGranularityFromStorage(): Granularity {
+  if (typeof localStorage === "undefined") return "topic";
+  try {
+    return localStorage.getItem(GRANULARITY_STORAGE_KEY) === "sub-topic"
+      ? "sub-topic"
+      : "topic";
+  } catch {
+    return "topic";
   }
 }
 
@@ -44,6 +61,10 @@ export function SpacingPanel({ subject }: SpacingPanelProps): JSX.Element | null
   // (DEC-037). This toggle lets the user collapse to a single combined view
   // for cross-KS spacing analysis when they actively want it.
   const [combineKS, setCombineKS] = useState(false);
+  // Granularity toggle (DEC-042): default "topic" since most planning thinking
+  // happens at the topic level. "sub-topic" reveals the more granular flags
+  // for users who want to drill into specific sub-topics.
+  const [granularity, setGranularity] = useState<Granularity>(readGranularityFromStorage);
 
   useEffect(() => {
     if (typeof localStorage === "undefined") return;
@@ -54,12 +75,29 @@ export function SpacingPanel({ subject }: SpacingPanelProps): JSX.Element | null
     }
   }, [expanded]);
 
-  const flagsByKs = useMemo(
+  useEffect(() => {
+    if (typeof localStorage === "undefined") return;
+    try {
+      localStorage.setItem(GRANULARITY_STORAGE_KEY, granularity);
+    } catch {
+      /* ignore */
+    }
+  }, [granularity]);
+
+  const subFlagsByKs = useMemo(
     () => (subject ? getSpacingFlagsByKeyStage(subject) : null),
     [subject]
   );
-  const combinedFlags = useMemo(
+  const subCombinedFlags = useMemo(
     () => (subject ? getSpacingFlags(subject) : null),
+    [subject]
+  );
+  const topicFlagsByKs = useMemo(
+    () => (subject ? getTopicSpacingFlagsByKeyStage(subject) : null),
+    [subject]
+  );
+  const topicCombinedFlags = useMemo(
+    () => (subject ? getTopicSpacingFlags(subject) : null),
     [subject]
   );
   const visibleKs = useMemo(
@@ -71,12 +109,23 @@ export function SpacingPanel({ subject }: SpacingPanelProps): JSX.Element | null
     [subject]
   );
 
-  if (!subject || !combinedFlags || !flagsByKs || !thresholds) return null;
+  if (
+    !subject ||
+    !subCombinedFlags ||
+    !subFlagsByKs ||
+    !topicCombinedFlags ||
+    !topicFlagsByKs ||
+    !thresholds
+  ) {
+    return null;
+  }
 
   const showPerKs = visibleKs.length > 1 && !combineKS;
-  // For the collapsed-row summary we always show the combined totals so the
-  // user gets the big picture at a glance, regardless of grouping toggle.
-  const flags = combinedFlags;
+  // For the collapsed-row summary: show the granularity-selected totals so
+  // the user sees the headline at the level they're currently thinking in.
+  const isSubTopicGranularity = granularity === "sub-topic";
+  const flags = isSubTopicGranularity ? subCombinedFlags : null;
+  const topicFlags = isSubTopicGranularity ? null : topicCombinedFlags;
 
   function patchThresholds(patch: Partial<SpacingThresholds>): void {
     updateActiveSubjectConfig({
@@ -92,15 +141,38 @@ export function SpacingPanel({ subject }: SpacingPanelProps): JSX.Element | null
     subject.config.spacingThresholds !== undefined &&
     Object.keys(subject.config.spacingThresholds).length > 0;
 
+  // Summary counts — use the granularity-selected flags. Topic-level
+  // exposes a "clustered" flag (every gap ≤ 1, indicating one-block teaching)
+  // instead of "blocked cells".
+  const summary = isSubTopicGranularity
+    ? {
+        singleTouch: flags!.singleTouch.length,
+        unplaced: flags!.unplaced.length,
+        blockedOrClustered: flags!.blockedCells.length,
+        wellSpaced: flags!.wellSpaced.length,
+        blockedLabel: "blocked cells",
+        blockedTitle: "Half-terms dominated by a single topic — consider interleaving",
+        singleTouchTitle: "Sub-topics placed exactly once — no spaced retrieval",
+        unplacedTitle: "Sub-topics with no placements anywhere in the timeline",
+        wellSpacedTitle: "Sub-topics with 3+ placements and mean gap ≥ 4 half-terms",
+      }
+    : {
+        singleTouch: topicFlags!.singleTouch.length,
+        unplaced: topicFlags!.unplaced.length,
+        blockedOrClustered: topicFlags!.clustered.length,
+        wellSpaced: topicFlags!.wellSpaced.length,
+        blockedLabel: "clustered topics",
+        blockedTitle:
+          "Topics whose every placement is in consecutive half-terms — taught in one block, not spaced",
+        singleTouchTitle:
+          "Topics touched in exactly one half-term — no spacing benefit at topic level",
+        unplacedTitle: "Topics with no placements anywhere in the timeline",
+        wellSpacedTitle: "Topics touched in 3+ half-terms with mean gap ≥ 4 half-terms",
+      };
   const total =
-    flags.singleTouch.length +
-    flags.unplaced.length +
-    flags.blockedCells.length +
-    flags.wellSpaced.length;
+    summary.singleTouch + summary.unplaced + summary.blockedOrClustered + summary.wellSpaced;
   const allGood =
-    flags.singleTouch.length === 0 &&
-    flags.unplaced.length === 0 &&
-    flags.blockedCells.length === 0;
+    summary.singleTouch === 0 && summary.unplaced === 0 && summary.blockedOrClustered === 0;
 
   return (
     <div className="border-b border-line bg-surface text-xs">
@@ -114,6 +186,16 @@ export function SpacingPanel({ subject }: SpacingPanelProps): JSX.Element | null
           {expanded ? "▾" : "▸"}
         </span>
         <span className="font-display text-ink">Plan health</span>
+        <span
+          className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border border-line text-ink-fade"
+          title={
+            isSubTopicGranularity
+              ? "Reading flags at sub-topic granularity"
+              : "Reading flags at topic granularity (DEC-042). Toggle in the expanded panel."
+          }
+        >
+          {isSubTopicGranularity ? "sub-topic" : "topic"}
+        </span>
         {total === 0 ? (
           <span className="text-ink-fade italic">
             No placements yet — drop blocks into the calendar to see spacing analysis.
@@ -121,24 +203,24 @@ export function SpacingPanel({ subject }: SpacingPanelProps): JSX.Element | null
         ) : (
           <div className="flex items-center gap-2 flex-wrap">
             <Pill
-              label={`${flags.singleTouch.length} single-touch`}
-              tone={flags.singleTouch.length > 0 ? "warn" : "muted"}
-              title="Sub-topics placed exactly once across the year — no spaced retrieval"
+              label={`${summary.singleTouch} single-touch`}
+              tone={summary.singleTouch > 0 ? "warn" : "muted"}
+              title={summary.singleTouchTitle}
             />
             <Pill
-              label={`${flags.unplaced.length} unplaced`}
-              tone={flags.unplaced.length > 0 ? "warn" : "muted"}
-              title="Sub-topics with no placements anywhere in the timeline"
+              label={`${summary.unplaced} unplaced`}
+              tone={summary.unplaced > 0 ? "warn" : "muted"}
+              title={summary.unplacedTitle}
             />
             <Pill
-              label={`${flags.blockedCells.length} blocked cells`}
-              tone={flags.blockedCells.length > 0 ? "warn" : "muted"}
-              title="Half-terms dominated by a single topic — consider interleaving"
+              label={`${summary.blockedOrClustered} ${summary.blockedLabel}`}
+              tone={summary.blockedOrClustered > 0 ? "warn" : "muted"}
+              title={summary.blockedTitle}
             />
             <Pill
-              label={`${flags.wellSpaced.length} well-spaced`}
-              tone={flags.wellSpaced.length > 0 ? "good" : "muted"}
-              title="Sub-topics with 3+ placements and mean gap ≥ 4 half-terms"
+              label={`${summary.wellSpaced} well-spaced`}
+              tone={summary.wellSpaced > 0 ? "good" : "muted"}
+              title={summary.wellSpacedTitle}
             />
             {allGood && (
               <span className="text-good text-[11px]">✓ no spacing warnings</span>
@@ -152,46 +234,91 @@ export function SpacingPanel({ subject }: SpacingPanelProps): JSX.Element | null
 
       {expanded && (
         <div id="spacing-panel-details" className="px-6 py-3 border-t border-line space-y-3">
-          {visibleKs.length > 1 && (
-            <div className="flex items-center justify-end gap-2 text-[11px]">
-              <label className="flex items-center gap-1.5 text-ink-dim cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={combineKS}
-                  onChange={(e) => setCombineKS(e.target.checked)}
-                  className="accent-navy"
-                />
-                Combine across key stages
-              </label>
-              <details className="text-ink-fade">
-                <summary className="cursor-pointer hover:text-ink">why?</summary>
-                <p className="mt-1 max-w-md text-right leading-snug">
-                  Key stages are treated as separate learning contexts by default — a
-                  sub-topic taught once in KS3 and once in KS4 is single-touch in BOTH,
-                  not a 2-placement spread. Tick this box if you want spacing computed
-                  across the whole timeline regardless of KS.
-                </p>
-              </details>
+          <div className="flex items-center justify-end gap-4 text-[11px]">
+            <div
+              role="radiogroup"
+              aria-label="Analysis granularity"
+              className="inline-flex border border-line rounded overflow-hidden text-[10px] font-mono uppercase tracking-wider"
+            >
+              <button
+                type="button"
+                role="radio"
+                aria-checked={!isSubTopicGranularity}
+                onClick={() => setGranularity("topic")}
+                title="Analyse spacing at topic level (default per DEC-042): two sub-topics of the same topic in different half-terms count as one well-spaced topic"
+                className={
+                  "px-2 py-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy focus-visible:ring-inset " +
+                  (!isSubTopicGranularity ? "bg-navy text-bg" : "text-ink-dim hover:bg-surface-2")
+                }
+              >
+                Topic
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={isSubTopicGranularity}
+                onClick={() => setGranularity("sub-topic")}
+                title="Analyse spacing at sub-topic level: each sub-topic evaluated independently"
+                className={
+                  "px-2 py-1 transition border-l border-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy focus-visible:ring-inset " +
+                  (isSubTopicGranularity ? "bg-navy text-bg" : "text-ink-dim hover:bg-surface-2")
+                }
+              >
+                Sub-topic
+              </button>
             </div>
-          )}
+            {visibleKs.length > 1 && (
+              <>
+                <label className="flex items-center gap-1.5 text-ink-dim cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={combineKS}
+                    onChange={(e) => setCombineKS(e.target.checked)}
+                    className="accent-navy"
+                  />
+                  Combine across key stages
+                </label>
+                <details className="text-ink-fade">
+                  <summary className="cursor-pointer hover:text-ink">why?</summary>
+                  <p className="mt-1 max-w-md text-right leading-snug">
+                    Key stages are treated as separate learning contexts by default — a
+                    topic taught once in KS3 and once in KS4 is single-touch in BOTH,
+                    not a 2-touch spread. Tick this box if you want spacing computed
+                    across the whole timeline regardless of KS.
+                  </p>
+                </details>
+              </>
+            )}
+          </div>
 
-          {showPerKs ? (
-            visibleKs.map((ks) => (
-              <KeyStageGroup
-                key={ks}
-                keyStage={ks}
-                flags={flagsByKs.get(ks) ?? EMPTY_FLAGS}
-                subject={subject}
-                onCellClick={setCurrentTermId}
-              />
-            ))
-          ) : (
-            <SectionsGrid
-              flags={combinedFlags}
-              subject={subject}
-              onCellClick={setCurrentTermId}
-            />
-          )}
+          {showPerKs
+            ? visibleKs.map((ks) =>
+                isSubTopicGranularity ? (
+                  <KeyStageGroup
+                    key={ks}
+                    keyStage={ks}
+                    flags={subFlagsByKs.get(ks) ?? EMPTY_FLAGS}
+                    subject={subject}
+                    onCellClick={setCurrentTermId}
+                  />
+                ) : (
+                  <TopicKeyStageGroup
+                    key={ks}
+                    keyStage={ks}
+                    flags={topicFlagsByKs.get(ks) ?? EMPTY_TOPIC_FLAGS}
+                    subject={subject}
+                  />
+                )
+              )
+            : isSubTopicGranularity ? (
+                <SectionsGrid
+                  flags={subCombinedFlags}
+                  subject={subject}
+                  onCellClick={setCurrentTermId}
+                />
+              ) : (
+                <TopicSectionsGrid flags={topicCombinedFlags} subject={subject} />
+              )}
 
           <details className="border-t border-line pt-2 mt-1">
             <summary className="cursor-pointer text-xs text-ink-dim hover:text-ink select-none">
@@ -217,6 +344,13 @@ const EMPTY_FLAGS: SpacingFlags = {
   wellSpaced: [],
 };
 
+const EMPTY_TOPIC_FLAGS: TopicSpacingFlags = {
+  singleTouch: [],
+  unplaced: [],
+  wellSpaced: [],
+  clustered: [],
+};
+
 interface KeyStageGroupProps {
   readonly keyStage: KeyStage;
   readonly flags: SpacingFlags;
@@ -232,6 +366,145 @@ function KeyStageGroup({ keyStage, flags, subject, onCellClick }: KeyStageGroupP
       </legend>
       <SectionsGrid flags={flags} subject={subject} onCellClick={onCellClick} />
     </fieldset>
+  );
+}
+
+interface TopicKeyStageGroupProps {
+  readonly keyStage: KeyStage;
+  readonly flags: TopicSpacingFlags;
+  readonly subject: Subject;
+}
+
+function TopicKeyStageGroup({ keyStage, flags, subject }: TopicKeyStageGroupProps): JSX.Element {
+  return (
+    <fieldset className="border border-line rounded p-3">
+      <legend className="px-1.5 font-mono text-[10px] tracking-wider uppercase text-ink-dim">
+        {keyStage}
+      </legend>
+      <TopicSectionsGrid flags={flags} subject={subject} />
+    </fieldset>
+  );
+}
+
+interface TopicSectionsGridProps {
+  readonly flags: TopicSpacingFlags;
+  readonly subject: Subject;
+}
+
+function TopicSectionsGrid({ flags, subject }: TopicSectionsGridProps): JSX.Element {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <Section
+        title="Single-touch"
+        description="Topics appearing in only one half-term — no topic-level spacing."
+        rationale={
+          <>
+            <p>
+              A topic touched in exactly one half-term has no spacing benefit at the
+              topic level, even if it consists of multiple sub-topics taught back-to-back.
+              The whole topic is a single teaching block; students get no opportunity
+              to forget and re-retrieve before exams.
+            </p>
+            <p>
+              This is the most important spacing signal for most planners — at sub-topic
+              granularity, every sub-topic-placed-once looks single-touch; at topic
+              granularity you see which TOPICS have been compressed into one window.
+            </p>
+            <p className="text-[10px] text-ink-fade">
+              See <code>docs/PEDAGOGY.md</code> §3 and DEC-042 for rationale.
+            </p>
+          </>
+        }
+        empty="None"
+      >
+        {flags.singleTouch.map((code) => (
+          <TopicChip key={code} code={code} subject={subject} />
+        ))}
+      </Section>
+
+      <Section
+        title="Unplaced"
+        description="Topics with no placements anywhere in the calendar."
+        rationale={
+          <>
+            <p>
+              No sub-topic of this topic has been placed. Could be deliberate (you're
+              skipping the topic for this cohort) or an oversight. Topic-level lets you
+              spot whole-topic gaps quickly, where sub-topic level would surface one
+              chip per missing sub-topic.
+            </p>
+          </>
+        }
+        empty="Every topic is placed"
+      >
+        {flags.unplaced.map((code) => (
+          <TopicChip key={code} code={code} subject={subject} />
+        ))}
+      </Section>
+
+      <Section
+        title="Clustered topics"
+        description="Topics whose every placement sits in consecutive half-terms."
+        rationale={
+          <>
+            <p>
+              Every placement of the topic is in immediately-adjacent half-terms (gap ≤ 1),
+              meaning even though the topic has multiple sub-topics they're all taught
+              in one tight block. No spacing benefit — the topic is taught and then
+              never revisited. Consider moving one sub-topic to a later position to
+              break the cluster.
+            </p>
+          </>
+        }
+        empty="No clustered topics"
+      >
+        {flags.clustered.map((code) => (
+          <TopicChip key={code} code={code} subject={subject} />
+        ))}
+      </Section>
+
+      <Section
+        title="Well-spaced"
+        description="3+ distinct half-terms with mean gap ≥4 half-terms."
+        rationale={
+          <>
+            <p>
+              A positive flag: this topic appears in multiple half-terms with enough
+              gap between them to read as intentional spaced retrieval. Multiple
+              sub-topics of the same topic spread across the year is exactly the
+              "revisit via a different angle" pattern Bjork and Rohrer describe.
+            </p>
+          </>
+        }
+        empty="No well-spaced topics yet"
+      >
+        {flags.wellSpaced.map((code) => (
+          <TopicChip key={code} code={code} subject={subject} tone="good" />
+        ))}
+      </Section>
+    </div>
+  );
+}
+
+interface TopicChipProps {
+  readonly code: string;
+  readonly subject: Subject;
+  readonly tone?: "warn" | "good";
+}
+
+function TopicChip({ code, subject, tone = "warn" }: TopicChipProps): JSX.Element {
+  const topic = subject.workingSpec.topics.find((t) => t.code === code);
+  const tonal =
+    tone === "good"
+      ? "border-good/30 text-good bg-good/5"
+      : "border-line text-ink-dim bg-bg";
+  return (
+    <span
+      title={topic ? `${topic.name} (${topic.subTopics.length} sub-topics)` : code}
+      className={"text-[11px] font-mono px-1.5 py-0.5 rounded border " + tonal}
+    >
+      {code}
+    </span>
   );
 }
 

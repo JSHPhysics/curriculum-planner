@@ -1,4 +1,4 @@
-import { getPlacementHistory } from "./spacing";
+import { getPlacementHistory, getTopicPlacementHistory } from "./spacing";
 import { getKeyStageForYear } from "./timeline";
 import type { RetrievalWeights, Subject } from "./types";
 
@@ -261,4 +261,198 @@ function buildReason(args: ReasonArgs): string {
 
 function clamp(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
+}
+
+// ============================================================
+// TOPIC-level retrieval suggestions (DEC-042)
+//
+// Same scoring philosophy as sub-topic candidates, but the unit of analysis
+// is the TOPIC. A topic that was touched in Y9-A1 via T1a and Y10-A2 via
+// T1c was "last seen" at Y10-A2; retrieval suggestions consider the gap
+// from there.
+//
+// Difficulty / depth at the topic level: aggregate from the topic's
+// sub-topics (max difficulty, any depth content).
+// ============================================================
+
+export interface TopicRetrievalCandidate {
+  readonly topicCode: string;
+  readonly topicName: string;
+  readonly lastPlacementHalfTermId: string;
+  readonly halfTermsSinceLastTouch: number;
+  /** Distinct half-terms the topic was touched in before the context cell. */
+  readonly totalDistinctTouchesToDate: number;
+  /** Distinct sub-topics of this topic placed before the context cell. */
+  readonly distinctSubTopicsPlacedToDate: number;
+  /** Total sub-topics in the topic spec. */
+  readonly totalSubTopicsInSpec: number;
+  readonly hasDepthContent: boolean;
+  /** Max difficulty across the topic's sub-topics. */
+  readonly difficulty: 1 | 2 | 3;
+  readonly score: number;
+  readonly reason: string;
+}
+
+export function suggestTopicRetrievalCandidates(
+  subject: Subject,
+  contextHalfTermId: string,
+  options: SuggestRetrievalOptions = {}
+): readonly TopicRetrievalCandidate[] {
+  const max = options.maxCandidates ?? DEFAULT_MAX_CANDIDATES;
+  const minHTs = options.minHalfTermsSinceTouch ?? DEFAULT_MIN_HALF_TERMS_SINCE_TOUCH;
+  const includeUnplaced = options.includeUnplaced ?? false;
+  const restrictToKs = options.restrictToContextKeyStage ?? true;
+  const weights = resolveRetrievalWeights(subject, options.weights);
+
+  const contextIdx = subject.timeline.halfTerms.findIndex((ht) => ht.id === contextHalfTermId);
+  if (contextIdx === -1) return [];
+  const contextHalfTerm = subject.timeline.halfTerms[contextIdx]!;
+  const contextKs = getKeyStageForYear(contextHalfTerm.year, subject.meta.keyStage);
+
+  const candidates: TopicRetrievalCandidate[] = [];
+
+  for (const topic of subject.workingSpec.topics) {
+    const history = getTopicPlacementHistory(subject, topic.code);
+    let before = history.filter((p) => p.halfTermIdx < contextIdx);
+    if (restrictToKs) {
+      before = before.filter(
+        (p) => getKeyStageForYear(p.halfTerm.year, subject.meta.keyStage) === contextKs
+      );
+    }
+
+    // Distinct half-terms (the "touches"); distinct sub-topics already placed.
+    const distinctHts = Array.from(new Set(before.map((p) => p.halfTermIdx))).sort(
+      (a, b) => a - b
+    );
+    const distinctSubs = new Set(before.map((p) => p.subTopicCode)).size;
+
+    if (distinctHts.length === 0) {
+      if (!includeUnplaced) continue;
+      candidates.push(
+        buildTopicCandidate({
+          topic,
+          lastPlacementHalfTermId: "—",
+          halfTermsSinceLastTouch: weights.peakGapHalfTerms,
+          totalDistinctTouchesToDate: 0,
+          distinctSubTopicsPlacedToDate: 0,
+          weights,
+        })
+      );
+      continue;
+    }
+
+    const lastHtIdx = distinctHts[distinctHts.length - 1]!;
+    const lastHt = subject.timeline.halfTerms[lastHtIdx]!;
+    const halfTermsSinceLastTouch = contextIdx - lastHtIdx;
+    if (halfTermsSinceLastTouch < minHTs) continue;
+
+    candidates.push(
+      buildTopicCandidate({
+        topic,
+        lastPlacementHalfTermId: lastHt.id,
+        halfTermsSinceLastTouch,
+        totalDistinctTouchesToDate: distinctHts.length,
+        distinctSubTopicsPlacedToDate: distinctSubs,
+        weights,
+      })
+    );
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates.slice(0, max);
+}
+
+interface BuildTopicCandidateArgs {
+  readonly topic: {
+    readonly code: string;
+    readonly name: string;
+    readonly subTopics: readonly {
+      readonly difficulty: 1 | 2 | 3;
+      readonly isDepth: boolean;
+      readonly lessons: readonly { readonly isDepth: boolean }[];
+    }[];
+  };
+  readonly lastPlacementHalfTermId: string;
+  readonly halfTermsSinceLastTouch: number;
+  readonly totalDistinctTouchesToDate: number;
+  readonly distinctSubTopicsPlacedToDate: number;
+  readonly weights: Required<RetrievalWeights>;
+}
+
+function buildTopicCandidate(args: BuildTopicCandidateArgs): TopicRetrievalCandidate {
+  const { topic, halfTermsSinceLastTouch, totalDistinctTouchesToDate, weights } = args;
+  // Aggregate difficulty + depth across the topic's sub-topics.
+  const difficulty = (topic.subTopics.length === 0
+    ? 2
+    : Math.max(...topic.subTopics.map((st) => st.difficulty))) as 1 | 2 | 3;
+  const hasDepthContent = topic.subTopics.some(
+    (st) => st.isDepth || st.lessons.some((l) => l.isDepth)
+  );
+  const gapScore = clamp(halfTermsSinceLastTouch / weights.peakGapHalfTerms, 0, 1);
+  const depthBonus = hasDepthContent ? weights.depthBonus : 0;
+  const difficultyBonus = (difficulty - 1) * weights.difficultyBonusPerLevel;
+  const recentnessPenalty =
+    totalDistinctTouchesToDate > 1 ? weights.repeatedPlacementPenalty : 0;
+  const score = clamp(gapScore + depthBonus + difficultyBonus + recentnessPenalty, 0, 1);
+
+  return {
+    topicCode: topic.code,
+    topicName: topic.name,
+    lastPlacementHalfTermId: args.lastPlacementHalfTermId,
+    halfTermsSinceLastTouch,
+    totalDistinctTouchesToDate,
+    distinctSubTopicsPlacedToDate: args.distinctSubTopicsPlacedToDate,
+    totalSubTopicsInSpec: topic.subTopics.length,
+    hasDepthContent,
+    difficulty,
+    score,
+    reason: buildTopicReason({
+      lastPlacementHalfTermId: args.lastPlacementHalfTermId,
+      halfTermsSinceLastTouch,
+      totalDistinctTouchesToDate,
+      distinctSubTopicsPlacedToDate: args.distinctSubTopicsPlacedToDate,
+      totalSubTopicsInSpec: topic.subTopics.length,
+      hasDepthContent,
+      difficulty,
+    }),
+  };
+}
+
+interface TopicReasonArgs {
+  readonly lastPlacementHalfTermId: string;
+  readonly halfTermsSinceLastTouch: number;
+  readonly totalDistinctTouchesToDate: number;
+  readonly distinctSubTopicsPlacedToDate: number;
+  readonly totalSubTopicsInSpec: number;
+  readonly hasDepthContent: boolean;
+  readonly difficulty: 1 | 2 | 3;
+}
+
+function buildTopicReason(args: TopicReasonArgs): string {
+  const parts: string[] = [];
+  if (args.totalDistinctTouchesToDate === 0) {
+    parts.push("Topic not yet placed");
+  } else {
+    const htWord = args.halfTermsSinceLastTouch === 1 ? "half-term" : "half-terms";
+    parts.push(
+      `Topic last touched ${args.halfTermsSinceLastTouch} ${htWord} ago in ${args.lastPlacementHalfTermId}`
+    );
+  }
+  if (args.totalDistinctTouchesToDate === 1) {
+    parts.push("never revisited");
+  } else if (args.totalDistinctTouchesToDate > 1) {
+    parts.push(`touched in ${args.totalDistinctTouchesToDate} half-terms so far`);
+  }
+  if (args.totalSubTopicsInSpec > 0) {
+    parts.push(
+      `${args.distinctSubTopicsPlacedToDate}/${args.totalSubTopicsInSpec} sub-topics covered`
+    );
+  }
+  if (args.hasDepthContent) {
+    parts.push("includes depth content");
+  }
+  if (args.difficulty === 3) {
+    parts.push("high difficulty");
+  }
+  return parts.join("; ");
 }

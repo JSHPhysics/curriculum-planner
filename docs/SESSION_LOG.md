@@ -1767,3 +1767,75 @@ User direction:
 - Fixed by restructuring the zip-test fixture to build the seeded timeline first, then construct the Subject in one shot.
 - Deleted the broken `v1.1.0` tag (no release was created — the workflow failed before the release step, so no user-facing artefacts existed) and re-tagged at the fix commit. New build in flight.
 - **Lesson**: trust CI's typecheck over local. The local `tsc --noEmit` can be silently wrong if `tsbuildinfo` cache state is inconsistent with the source. CI's clean install is the ground truth.
+
+---
+
+## Session 25 — Topic-first presets + topic-level spacing/retrieval analytics
+**Date:** 2026-05-17
+**Status:** Complete
+**Commit:** *(pending — see git log)*
+
+Direct response to user feedback after using the v1.1.0 release:
+> "the preset curriculums from the demo physics are awful, they were much better in the prototype, it significantly underestimates the numbers of lessons, calls everything single-pass because it is judging on sub-topic and not on topics, If my teachers hit the same mechanics topic (but a different sub-topic) this should be part of spacing/retrieval/interleaving accordingly"
+
+Mid-session clarification:
+> "stop, two sub-topics is not interleaving if they are adjacent, they still need to be properly spaced, it is retrieval however"
+
+So: interleaving stays topic-level-in-cell (correct already); spacing/retrieval need topic-level views.
+
+### What was built
+
+**Engine layer:**
+- **`src/model/presets.ts`** — `planThreeSpiral` rewritten as topic-first algorithm. Each sub-topic placed ONCE with its full lesson count; the "spiral" comes from distributing each topic's sub-topics across 3 passes (`n=1→(1)`, `n=2→(1,1)`, `n=3→(1,1,1)`, `n>3→(ceil/mid/rest)`). Foundation first within each topic, depth pushed to later passes. Frontloaded + interleaved unchanged (they were already single-placement-per-sub-topic).
+- **`src/model/spacing.ts`** — gained ~190 LOC of topic-level analytics: `getTopicPlacementHistory`, `getTopicSpacingProfile` (+ `TopicPlacement` / `TopicSpacingProfile` types), `getTopicSpacingProfilesAll`, `getTopicSpacingFlags` (+ `TopicSpacingFlags` with a NEW `clustered` flag: every gap ≤ 1), `getTopicSpacingFlagsByKeyStage`.
+- **`src/model/retrievalSuggestions.ts`** — gained `suggestTopicRetrievalCandidates` + `TopicRetrievalCandidate` shape. Same scoring formula, but units of analysis are topics; difficulty + depth aggregate across the topic's sub-topics.
+
+**UI layer:**
+- **`SpacingPanel`** — Topic/Sub-topic radio toggle near the top of the expanded panel; default Topic; persisted in localStorage. New `TopicSectionsGrid` + `TopicKeyStageGroup` + `TopicChip`. Topic-level summary shows "clustered topics" instead of "blocked cells" (no per-cell concept at topic level). Granularity label appears in the collapsed pill row so the user knows which lens they're looking through.
+- **`RetrievalSuggestionPopover`** — Topic/Sub-topic radio toggle in the header; default Topic; persisted in localStorage. New `TopicCandidateRow` shows the topic code + name + distinct touches summary in the reason. When the user picks topic candidates and clicks "Create retrieval block", the topics are expanded to all sub-topic codes of those topics that were previously placed before the context cell — so the saved `revisits` field still references real placements.
+
+**Tests added (+17 unit, +1 E2E, several flipped):**
+- `tests/model/spacing.test.ts` +9: topic placement history (aggregation, hidden-year filter, empty); topic spacing profile (distinct half-terms vs raw placements, gap math, unplaced semantics); topic spacing flags (single-touch, well-spaced, clustered); topic flags by KS.
+- `tests/model/retrievalSuggestions.test.ts` +6: topic candidates per-topic; two sub-topics in one HT = one topic touch; last-touch index based on latest distinct HT; difficulty/depth aggregation; reason text mentions topic-level info; empty when nothing placed.
+- `tests/model/presets.test.ts`: flipped 3 spiral tests from "placed 3 times" → "placed once + topic distributed across passes"; updated `summarisePreset` expected count from 12 → 4 (4 foundation sub-topics, each placed once not 3×).
+- `tests/e2e/spacing-and-retrieval.spec.ts`: +1 new test for default topic granularity + flip to sub-topic; updated 3 existing tests to switch granularity to "Sub-topic" before asserting sub-topic-level text (retrieval-block flow, blocked-cell flow).
+- `tests/e2e/preset-layouts.spec.ts`: dropped the "spiralCount > frontCount" assertion — under topic-first all presets place each sub-topic once, so total counts are roughly equal. Differentiation is WHERE blocks land, not HOW MANY.
+
+### Exit criteria check
+- [x] Three-spiral rewritten as topic-first; demo plans now visibly different
+- [x] Lesson count math correct (each sub-topic placed once with its full count)
+- [x] Topic-level analytics: placement history / spacing profile / spacing flags / KS bucketing
+- [x] Topic-level retrieval suggestions with sub-topic expansion at create time
+- [x] SpacingPanel + RetrievalSuggestionPopover Topic/Sub-topic toggle, default Topic
+- [x] `npm run typecheck` clean
+- [x] `npm test` — 340/340 (was 323/323; +17)
+- [x] `npm run test:e2e` — 31/31 (was 30/30; +1, plus 4 updated for new defaults)
+- [x] `npm run build:renderer` clean
+- [x] DEC-042 logged with full rationale + alternatives + consequences
+
+### Deviations from the plan
+- **No PEDAGOGY.md update.** The DEC mentions a future §6/§7 explaining topic-vs-sub-topic distinction; deferred per the user's earlier "live with it for a session first" preference.
+- **No version bump.** v1.1.0 was just cut; this session's changes are substantive enough for a v1.2.0 but the user didn't ask for one. Deferring to a future session unless flagged.
+
+### Decisions logged
+- [DEC-042](DECISIONS.md#dec-042) — Topic-first presets and topic-level spacing/retrieval analytics
+
+### Surprises and gotchas
+- **The "single-touch" sub-topic flag was loud-but-mostly-noise** for any plan with single-sub-topic topics (T8, T11, T15 in the demo each have only 1 sub-topic, so they're inherently single-touch under any preset). The topic-level view collapses these into "T11 single-touch" which is true regardless of preset choice — same warning, much less noise.
+- **`distinctHalfTermsCount` vs raw `placements.length` matters a lot.** A topic with T1a + T1b both in Y9-A1 has `placements.length === 2` but `distinctHalfTermsCount === 1` — that's "one topic touch" pedagogically. Critical that gap math operates on distinct HTs only (otherwise two sub-topics in the same cell would compute as a 0-gap "well-spaced" topic, which is wrong).
+- **`TopicSpacingFlags.clustered` is a new signal with no sub-topic-level analogue.** At sub-topic level there's no equivalent of "every gap is 0 or 1 = clustered" because a single sub-topic only has one placement (usually). At topic level it's the most actionable signal: tells you "this topic is multi-sub-topic but you taught it all in one go".
+- **Expanding topic candidates → sub-topic codes at create time** preserves the existing `revisits: string[]` shape (which is sub-topic codes per DEC-031). Means the BlockEditModal RevisitsPicker works unchanged. The popover does the topic → sub-topic expansion silently.
+- **E2E test fragility around granularity defaults.** Four E2E tests broke when the default flipped to Topic because they implicitly relied on seeing sub-topic-level UI text. Fixed by adding explicit `.click()` on the Sub-topic radio at the start of those tests. Lesson: tests asserting specific UI text against a defaulted state are fragile when defaults change; explicit setup is safer.
+
+### What's usable now
+1. Apply Three-spiral on the demo → see TOPIC-level spacing (e.g. mechanics spread across 3 timeline thirds via different sub-topics), not the previous single-placement-per-sub-topic degeneration
+2. Open Plan Health → see topic-level flags as the default headline: "T11 single-touch" (the topic with only 1 sub-topic) instead of "T11a single-touch" (which was always true and never actionable)
+3. Switch to Sub-topic granularity for the deep dive
+4. Open a retrieval popover → see topic-level candidates ranked by topic-level gap, with reasons like "Topic last touched 6 half-terms ago in Y10-A1; 2/4 sub-topics covered"
+5. Pick a topic candidate → behind the scenes, the saved retrieval block references the previously-placed sub-topics of that topic
+
+### Open questions for the user
+- **Topic-level "clustered" threshold**: currently flags topics where EVERY gap ≤ 1. Could be relaxed to "majority of gaps ≤ 1" if too strict; could be tightened to "every gap == 0" if too loose. Worth tuning after some real use.
+- **Should the granularity toggle be per-subject** (saved in `.curriculum`) instead of per-browser? Currently `localStorage`. Per-subject would let "this physics spec is best viewed at sub-topic level" survive across machines.
+- **PEDAGOGY.md** — still on the deferred list. Worth scheduling its own short session for documentation polish?
+- Next per the roadmap: **#1 from the post-v1.1 feedback** — remove EoHTs as a first-class concept; expand CustomBlock with category (test/lesson/unit/assessment). This is a substantive data model change deserving a fresh session with up-front design discussion.

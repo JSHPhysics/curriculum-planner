@@ -296,56 +296,76 @@ describe.each(PRESET_DESCRIPTORS.map((p) => p.id))(
 // three-spiral
 // ============================================================
 
-describe("applyPreset — three-spiral", () => {
-  it("places each foundation sub-topic exactly THREE times across the timeline", () => {
+describe("applyPreset — three-spiral (topic-first, DEC-042)", () => {
+  it("places each sub-topic exactly ONCE with its full lesson count", () => {
+    // Topic-first design: sub-topics aren't chunked across passes. Each
+    // sub-topic gets one placement; the spiral comes from each TOPIC's
+    // sub-topics being distributed across passes.
     const subject = makeFixtureSubject({ includeDepth: false });
     const after = applyPreset(subject, "three-spiral");
     const map = placementsBySubTopic(after);
-    expect(map.get("T1a")?.count).toBe(3);
-    expect(map.get("T1b")?.count).toBe(3);
-    expect(map.get("T2a")?.count).toBe(3);
-    expect(map.get("T3a")?.count).toBe(3);
-  });
-
-  it("total lessons placed for a foundation sub-topic equals its lesson count", () => {
-    const subject = makeFixtureSubject({ includeDepth: false });
-    const after = applyPreset(subject, "three-spiral");
-    const map = placementsBySubTopic(after);
-    // T1a has 4 lessons; 3 passes should sum to 4 (e.g. 2+1+1)
+    expect(map.get("T1a")?.count).toBe(1);
+    expect(map.get("T1b")?.count).toBe(1);
+    expect(map.get("T2a")?.count).toBe(1);
+    expect(map.get("T3a")?.count).toBe(1);
+    // Lesson totals match the spec (no fractional splitting).
     expect(map.get("T1a")?.totalLessons).toBe(4);
-    // T1b has 3 lessons; 3 passes should sum to 3 (1+1+1)
     expect(map.get("T1b")?.totalLessons).toBe(3);
   });
 
-  it("spreads the three passes across distinct calendar segments", () => {
+  it("distributes a topic's sub-topics across distinct passes (the spiral effect)", () => {
+    // T1 has 2 foundation sub-topics (T1a, T1b). They should land in
+    // different passes — T1a in pass 1, T1b in pass 2.
     const subject = makeFixtureSubject({ includeDepth: false });
     const after = applyPreset(subject, "three-spiral");
     const map = placementsBySubTopic(after);
-    const t1aHts = (map.get("T1a")?.halfTermIds ?? []).map((id) =>
-      subject.timeline.halfTerms.findIndex((ht) => ht.id === id)
+    const t1aIdx = subject.timeline.halfTerms.findIndex(
+      (ht) => ht.id === (map.get("T1a")?.halfTermIds[0] ?? "")
     );
-    expect(t1aHts.length).toBe(3);
-    // Three passes should be in increasing calendar order
-    expect(t1aHts).toEqual([...t1aHts].sort((a, b) => a - b));
-    // First pass should land in the first third of the timeline
+    const t1bIdx = subject.timeline.halfTerms.findIndex(
+      (ht) => ht.id === (map.get("T1b")?.halfTermIds[0] ?? "")
+    );
     const cellCount = subject.timeline.halfTerms.length;
-    expect(t1aHts[0]!).toBeLessThan(Math.ceil(cellCount / 3));
-    // Last pass should land in the back third
-    expect(t1aHts[2]!).toBeGreaterThanOrEqual(Math.floor((2 * cellCount) / 3));
+    const seg2Start = Math.floor(cellCount / 3);
+    expect(t1aIdx).toBeLessThan(seg2Start);
+    expect(t1bIdx).toBeGreaterThanOrEqual(seg2Start);
   });
 
-  it("depth sub-topics only appear in passes 2 and 3 (not pass 1)", () => {
+  it("a topic with only ONE sub-topic gets a single placement in pass 1", () => {
+    // Single-sub-topic topics can't spiral — they just land in pass 1.
+    const subject = makeFixtureSubject({ includeDepth: false });
+    const singleTopicSubject: Subject = {
+      ...subject,
+      workingSpec: {
+        topics: [
+          makeTopic("X", "Solo topic", [makeSubTopic("Xa", "Only", 3)]),
+        ],
+      },
+    };
+    const after = applyPreset(singleTopicSubject, "three-spiral");
+    const map = placementsBySubTopic(after);
+    expect(map.get("Xa")?.count).toBe(1);
+    const xaIdx = singleTopicSubject.timeline.halfTerms.findIndex(
+      (ht) => ht.id === (map.get("Xa")?.halfTermIds[0] ?? "")
+    );
+    const cellCount = singleTopicSubject.timeline.halfTerms.length;
+    expect(xaIdx).toBeLessThan(Math.floor(cellCount / 3));
+  });
+
+  it("depth sub-topics land in later passes (foundation-first within each topic)", () => {
+    // T2 has T2a (foundation) + T2b (depth). With includeDepth=true the
+    // depth one should land at or after the foundation one's pass.
     const subject = makeFixtureSubject({ includeDepth: true });
     const after = applyPreset(subject, "three-spiral");
     const map = placementsBySubTopic(after);
-    const cellCount = subject.timeline.halfTerms.length;
-    const firstThirdEnd = Math.floor(cellCount / 3);
-    const t2bHts = (map.get("T2b")?.halfTermIds ?? []).map((id) =>
-      subject.timeline.halfTerms.findIndex((ht) => ht.id === id)
+    const t2aIdx = subject.timeline.halfTerms.findIndex(
+      (ht) => ht.id === (map.get("T2a")?.halfTermIds[0] ?? "")
     );
-    // T2b is depth — should have no placement in the first third
-    expect(t2bHts.length).toBeGreaterThan(0);
-    expect(t2bHts.every((idx) => idx >= firstThirdEnd)).toBe(true);
+    const t2bIdx = subject.timeline.halfTerms.findIndex(
+      (ht) => ht.id === (map.get("T2b")?.halfTermIds[0] ?? "")
+    );
+    expect(t2aIdx).toBeGreaterThanOrEqual(0);
+    expect(t2bIdx).toBeGreaterThanOrEqual(t2aIdx);
   });
 });
 
@@ -479,14 +499,13 @@ describe("applyPreset — interleaved", () => {
 // ============================================================
 
 describe("summarisePreset", () => {
-  it("returns the placement count and total lessons for three-spiral", () => {
+  it("returns the placement count and total lessons for three-spiral (topic-first per DEC-042)", () => {
     const subject = makeFixtureSubject({ includeDepth: false });
     const summary = summarisePreset(subject, "three-spiral");
-    // 4 foundation sub-topics × 3 passes = 12 placements (1-lesson sub-topics
-    // emit only 1 pass; 2-lesson sub-topics 2 passes; 3+ lesson all 3).
-    // T1a=4 → 3 passes, T1b=3 → 3 passes, T2a=3 → 3 passes, T3a=3 → 3 passes
-    expect(summary.placementCount).toBe(12);
-    expect(summary.totalLessonsPlaced).toBe(13); // 4+3+3+3
+    // Topic-first design: each sub-topic placed ONCE. 4 foundation
+    // sub-topics → 4 placements. (Was 12 under the v1 chunked design.)
+    expect(summary.placementCount).toBe(4);
+    expect(summary.totalLessonsPlaced).toBe(13); // 4+3+3+3 (lesson sums unchanged)
     expect(summary.distinctSubTopics).toBe(4);
     expect(summary.skippedDepthSubTopics).toEqual(["T2b", "T3b"]);
   });

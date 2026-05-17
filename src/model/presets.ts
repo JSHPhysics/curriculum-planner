@@ -222,20 +222,32 @@ function isSubTopicDepth(subTopic: SubTopic): boolean {
 }
 
 // ============================================================
-// Preset: three-spiral
-//   Visit each sub-topic THREE times across thirds of the timeline.
-//   Pass 1: cells [0, n/3)
-//   Pass 2: cells [n/3, 2n/3)
-//   Pass 3: cells [2n/3, n)
+// Preset: three-spiral (topic-first, DEC-042)
 //
-//   Foundation sub-topics: pass 1 + pass 2 + pass 3.
-//   Depth sub-topics (when includeDepth): pass 2 + pass 3 only (build up
-//   the foundation before stretching into depth).
+// Each sub-topic is placed ONCE with its full lesson count. The "spiral"
+// comes from each TOPIC's sub-topics being distributed across three
+// segments of the timeline — so a teacher revisits a topic via DIFFERENT
+// sub-topics across the year, building on prior knowledge.
 //
-//   Per-pass lesson counts: divide N lessons among 3 passes as
-//   (ceil, mid, floor) so the first/largest pass always gets the
-//   extra lesson when N isn't divisible by 3. Each pass gets at
-//   least 1 lesson (if N >= 1).
+// Algorithm per topic:
+//   1. Order the topic's sub-topics: foundation first (source order), then
+//      depth (source order). Skip depth entries entirely when
+//      `config.includeDepth=false`.
+//   2. Distribute them across 3 passes as evenly as possible. A topic with
+//      N sub-topics produces:
+//        - N=1 → pass 1 only (single placement, no spiral possible)
+//        - N=2 → passes 1, 2
+//        - N=3 → passes 1, 2, 3
+//        - N>3 → ceil(N/3), N-2*floor(N/3), floor(N/3) (front-weighted)
+//      Depth sub-topics get pushed towards pass 3 within their bucket.
+//   3. Each placement consumes the sub-topic's FULL lesson count — no
+//      fractional pass-splitting (that was the v1 bug — DEC-038).
+//
+// Emit order: all pass-1 placements first (in topic source order, so
+// foundation sub-topics from every topic land in segment 1), then pass-2,
+// then pass-3. The placement engine packs each pass into its segment via
+// spillover. Result: each segment becomes a topic-interleaved block of
+// foundation content, with the third segment also picking up depth.
 // ============================================================
 
 function planThreeSpiral(
@@ -245,40 +257,80 @@ function planThreeSpiral(
   const seg1Start = 0;
   const seg2Start = Math.floor(cellCount / 3);
   const seg3Start = Math.floor((2 * cellCount) / 3);
+  const segStarts = [seg1Start, seg2Start, seg3Start] as const;
 
-  // Build per-sub-topic per-pass lesson counts.
-  type PerPass = { readonly pass1: number; readonly pass2: number; readonly pass3: number };
-  function splitThree(n: number): PerPass {
-    if (n <= 0) return { pass1: 0, pass2: 0, pass3: 0 };
-    if (n === 1) return { pass1: 1, pass2: 0, pass3: 0 };
-    if (n === 2) return { pass1: 1, pass2: 1, pass3: 0 };
-    const base = Math.floor(n / 3);
-    const rem = n - base * 3;
-    // rem ∈ {0,1,2}; bias to earlier passes when uneven.
-    const pass1 = base + (rem >= 1 ? 1 : 0);
-    const pass2 = base + (rem >= 2 ? 1 : 0);
-    const pass3 = base;
-    return { pass1, pass2, pass3 };
+  // Group by topic, preserving spec source order.
+  const byTopic = new Map<string, SubTopicWithTopic[]>();
+  const topicOrder: Topic[] = [];
+  for (const entry of all) {
+    const existing = byTopic.get(entry.topic.id);
+    if (existing) {
+      existing.push(entry);
+    } else {
+      byTopic.set(entry.topic.id, [entry]);
+      topicOrder.push(entry.topic);
+    }
   }
 
-  // Emit passes grouped by pass index then source order, so all pass-1
-  // placements try to land in segment 1, all pass-2 in segment 2, etc.
+  // For each topic, decide which pass each sub-topic lands in.
+  // Returns Map<subTopicId, passIdx (0|1|2)>.
+  const passAssignment = new Map<string, 0 | 1 | 2>();
+  for (const topic of topicOrder) {
+    const subs = byTopic.get(topic.id) ?? [];
+    // Within a topic: foundation sub-topics first (preserve source order),
+    // then depth sub-topics (also source order). Pushes depth content
+    // towards later passes naturally.
+    const ordered = [
+      ...subs.filter((s) => !isSubTopicDepth(s.subTopic)),
+      ...subs.filter((s) => isSubTopicDepth(s.subTopic)),
+    ];
+    const n = ordered.length;
+    if (n === 0) continue;
+
+    // Distribute n items across 3 passes (1 | 2 | 3-or-more cases).
+    // For n>3, front-weight: ceil(n/3) in pass 1, then ceil((n - p1) / 2),
+    // remainder in pass 3. This keeps the foundation-heavy early passes.
+    let p1: number, p2: number;
+    if (n === 1) {
+      p1 = 1; p2 = 0;
+    } else if (n === 2) {
+      p1 = 1; p2 = 1;
+    } else if (n === 3) {
+      p1 = 1; p2 = 1;
+    } else {
+      p1 = Math.ceil(n / 3);
+      p2 = Math.ceil((n - p1) / 2);
+    }
+    const p3 = n - p1 - p2;
+
+    let idx = 0;
+    for (let k = 0; k < p1; k++) {
+      const entry = ordered[idx++];
+      if (entry) passAssignment.set(entry.subTopic.id, 0);
+    }
+    for (let k = 0; k < p2; k++) {
+      const entry = ordered[idx++];
+      if (entry) passAssignment.set(entry.subTopic.id, 1);
+    }
+    for (let k = 0; k < p3; k++) {
+      const entry = ordered[idx++];
+      if (entry) passAssignment.set(entry.subTopic.id, 2);
+    }
+  }
+
+  // Emit pass-by-pass in topic source order — this interleaves topics
+  // within each pass's segment (T1.sub from pass1 → T2.sub from pass1 →
+  // T3.sub from pass1 → … → T1.sub from pass2 → T2.sub from pass2 → …).
   const out: PlannedPlacement[] = [];
   for (const passIdx of [0, 1, 2] as const) {
-    const segStart = passIdx === 0 ? seg1Start : passIdx === 1 ? seg2Start : seg3Start;
     for (const entry of all) {
-      const split = splitThree(entry.subTopic.lessons.length);
-      const isDepth = isSubTopicDepth(entry.subTopic);
-      const lessons =
-        passIdx === 0 ? (isDepth ? 0 : split.pass1)
-        : passIdx === 1 ? (isDepth ? Math.ceil(entry.subTopic.lessons.length / 2) : split.pass2)
-        : (isDepth ? Math.floor(entry.subTopic.lessons.length / 2) : split.pass3);
-      if (lessons <= 0) continue;
+      const assigned = passAssignment.get(entry.subTopic.id);
+      if (assigned !== passIdx) continue;
       out.push({
         topic: entry.topic,
         subTopic: entry.subTopic,
-        lessons,
-        preferredCellIdx: segStart,
+        lessons: entry.subTopic.lessons.length,
+        preferredCellIdx: segStarts[passIdx]!,
       });
     }
   }
