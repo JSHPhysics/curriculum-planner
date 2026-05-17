@@ -1761,3 +1761,9 @@ User direction:
 - **Updating PEDAGOGY.md** to explain "depth lessons as buffer content" — write now or defer until you've used the new toggle for a session?
 - The new `Output as: Zip | Folder` toggle defaults to Zip. Want it remembered across sessions, or always reset to Zip on each Export modal open?
 - Next per the roadmap: **Session 25** — your #1 from this session's feedback: remove EoHTs as a first-class concept, add CustomBlock categories (test / lesson / unit / assessment / …). Will need a few design questions up front (auto-migration for existing files? how do EoHTs in saved `.curriculum` files map to the new category model?).
+
+### Post-commit fix (CI typecheck)
+- The first `v1.1.0` build failed on Typecheck across all three platforms — `tests/model/folderExport.test.ts` had a `placed.timeline = placeBlock(...)` mutation that violated `Subject.timeline`'s `readonly` declaration. Local typecheck passed but CI's clean `npm ci` install caught it (the local TS cache had elided the error).
+- Fixed by restructuring the zip-test fixture to build the seeded timeline first, then construct the Subject in one shot.
+- Deleted the broken `v1.1.0` tag (no release was created — the workflow failed before the release step, so no user-facing artefacts existed) and re-tagged at the fix commit. New build in flight.
+- **Lesson**: trust CI's typecheck over local. The local `tsc --noEmit` can be silently wrong if `tsbuildinfo` cache state is inconsistent with the source. CI's clean install is the ground truth.
