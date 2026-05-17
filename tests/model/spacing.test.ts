@@ -32,7 +32,12 @@ function makeSubject(): Subject {
             isDepth: false,
             separateOnly: false,
             notes: null,
-            lessons: makeLessons("T1a", 3, false),
+            // 5 lessons so the "T1a placed with 5 lessons → blocked cell"
+            // test still triggers the blockedCellMinLessons=4 threshold.
+            // Pre-DEC-040 the analytics used raw lessonsClaimed=5 even when
+            // the spec only defined 3; now the effective count is clamped to
+            // the slice, so the fixture has to provide the full set.
+            lessons: makeLessons("T1a", 5, false),
           },
           {
             id: "st-t1b",

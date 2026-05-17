@@ -357,13 +357,19 @@ function buildSpec(
 
       const lessons: Lesson[] = [];
       const subDifficulties = new Set<1 | 2 | 3>();
-      let subIsDepth = false;
+      // subIsDepth means "EVERY lesson in this sub-topic is a depth lesson"
+      // (DEC-040). A sub-topic with even one foundation lesson is treated as
+      // foundation; the `includeDepth=false` toggle filters individual depth
+      // lessons (not whole sub-topics) at render/analytics/export time.
+      // Start true and AND with each lesson — degenerates to true iff every
+      // lesson is depth, false otherwise (incl. empty-lesson case below).
+      let subIsDepth = sg.lessons.size > 0;
       let subIsSeparate = false;
 
       for (const [lessonNo, lg] of sg.lessons) {
         const merged = mergeLessonRows(lg.rows);
         for (const d of merged.difficulties) subDifficulties.add(d);
-        subIsDepth = subIsDepth || merged.isDepth;
+        subIsDepth = subIsDepth && merged.isDepth;
         subIsSeparate = subIsSeparate || merged.isSeparateOnly;
 
         const firstRow = lg.rows[0];

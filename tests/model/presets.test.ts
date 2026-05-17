@@ -37,6 +37,11 @@ function makeSubTopic(
   lessonsCount: number,
   opts: { depth?: boolean; lessonsDepth?: boolean } = {}
 ): SubTopic {
+  // Per DEC-040 "exclusively depth": a sub-topic is depth only when EVERY
+  // lesson is depth. So if the test asks for a depth sub-topic, propagate to
+  // the lessons automatically — `opts.lessonsDepth` is still honoured for
+  // mixed-content fixtures.
+  const lessonsDepth = opts.lessonsDepth ?? opts.depth ?? false;
   return {
     id: `st-${code}`,
     code,
@@ -45,7 +50,7 @@ function makeSubTopic(
     isDepth: opts.depth ?? false,
     separateOnly: false,
     notes: null,
-    lessons: makeLessons(code, lessonsCount, opts.lessonsDepth ?? false),
+    lessons: makeLessons(code, lessonsCount, lessonsDepth),
   };
 }
 

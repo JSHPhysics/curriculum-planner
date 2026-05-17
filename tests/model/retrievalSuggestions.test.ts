@@ -24,7 +24,11 @@ function makeSubject(overrides?: Partial<Spec>): Subject {
     workingSpec: spec,
     timeline: createDefaultTimeline(),
     customBlocks: [],
-    config: { includeDepth: false, lostLessonBuffer: false, autoSpillover: true },
+    // includeDepth: true so the depth sub-topic T1b appears in analytics.
+    // Tests explicitly assert depth-related scoring/ordering, so we need
+    // depth content to be visible to the engine (per DEC-040, includeDepth=false
+    // would filter T1b's placements out of the placement history entirely).
+    config: { includeDepth: true, lostLessonBuffer: false, autoSpillover: true },
   };
 }
 

@@ -1,5 +1,7 @@
+import JSZip from "jszip";
 import * as XLSX from "xlsx";
 
+import { effectiveLessonsInPlacement } from "./depth";
 import { findTopicAndSubTopic } from "./queries";
 import type {
   CalendarHalfTerm,
@@ -54,6 +56,40 @@ export interface FolderExportResult {
   readonly files: readonly FolderExportFile[];
 }
 
+/**
+ * Result of packing a folder bundle into a single .zip. Suggested filename
+ * mirrors the folder name (without the trailing slash) plus `.zip`. The
+ * buffer is the compressed archive ready to be handed to a saveSpreadsheet-
+ * style IPC call.
+ */
+export interface ZipBundleResult {
+  readonly suggestedFilename: string;
+  readonly buffer: Uint8Array;
+}
+
+/**
+ * Pack a folder-export result into a single ZIP archive. Files inside the
+ * archive sit at the root (no nested folder); the suggested folder name
+ * becomes the filename of the .zip itself. Standard deflate compression.
+ */
+export async function packBundleAsZip(
+  result: FolderExportResult
+): Promise<ZipBundleResult> {
+  const zip = new JSZip();
+  for (const file of result.files) {
+    zip.file(file.name, file.buffer);
+  }
+  const buffer = await zip.generateAsync({
+    type: "uint8array",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 },
+  });
+  return {
+    suggestedFilename: `${result.suggestedFolderName}.zip`,
+    buffer,
+  };
+}
+
 export interface FolderExportOptions {
   /** Override the now-timestamp shown in workbook footers (tests). */
   readonly now?: Date;
@@ -95,6 +131,12 @@ export function exportByTopicFolder(
   for (const topic of subject.workingSpec.topics) {
     const placements = grouped.get(topic.code) ?? [];
     if (placements.length === 0) continue;
+    // Skip the topic if every placement reduces to zero effective lessons under
+    // the current depth toggle (e.g. an entirely-depth topic with toggle off).
+    const hasContent = placements.some(
+      (p) => effectiveLessonsInPlacement(subject, p.pb).length > 0
+    );
+    if (!hasContent) continue;
     const buffer = buildTopicWorkbook(subject, topic, placements, now);
     files.push({
       name: `${String(order).padStart(2, "0")} — ${safeFileSegment(topic.code)} — ${safeFileSegment(topic.name)}.xlsx`,
@@ -165,18 +207,21 @@ function lessonsInHalfTerm(
   const out: LessonWithMeta[] = [];
   // Sub-topic placements only; EoHTs and customs are scaffolding, not spec content.
   const placements = ht.placedBlocks.filter((pb) => pb.source.kind === "sub-topic");
-  const totalLessons = placements.reduce((s, pb) => s + pb.lessonsClaimed, 0);
+  // Lesson totals reflect the depth toggle (DEC-040): when `includeDepth=false`,
+  // depth lessons are excluded from both the total and the weekly distribution.
+  // This means a colleague handed the export sees only foundation content.
+  const sliced = placements.map((pb) => ({ pb, lessons: effectiveLessonsInPlacement(subject, pb) }));
+  const totalLessons = sliced.reduce((s, x) => s + x.lessons.length, 0);
   // Lessons-per-week is fractional; rounding so an "8 lessons over 6 weeks" HT
   // distributes as 2/1/2/1/2/0 isn't useful. We use ceil so the early weeks fill
   // first; trailing weeks empty out gracefully.
   const lessonsPerWeek = weeks > 0 ? Math.max(1, Math.ceil(totalLessons / weeks)) : totalLessons;
   let lessonNo = 0;
-  for (const pb of placements) {
+  for (const { pb, lessons } of sliced) {
     if (pb.source.kind !== "sub-topic") continue;
     const found = findTopicAndSubTopic(subject.workingSpec, pb.source.subTopicCode);
     if (!found) continue;
-    const slice = sliceLessons(found.subTopic, pb);
-    for (const lesson of slice) {
+    for (const lesson of lessons) {
       lessonNo++;
       const weekIndex = Math.min(weeks, Math.ceil(lessonNo / lessonsPerWeek));
       out.push({
@@ -329,7 +374,9 @@ function buildTopicWorkbook(
       placement.pb.source.kind === "sub-topic" ? placement.pb.source.subTopicCode : ""
     );
     if (!found) continue;
-    const slice = sliceLessons(found.subTopic, placement.pb);
+    // Effective slice honours the depth toggle (DEC-040): when `includeDepth=false`,
+    // depth lessons disappear from the topic export too.
+    const slice = effectiveLessonsInPlacement(subject, placement.pb);
     for (const lesson of slice) {
       rows.push([
         placement.ht.year,
@@ -360,13 +407,6 @@ function distinctHalfTerms(placements: readonly TopicPlacement[]): number {
 function visibleHalfTerms(subject: Subject): readonly HalfTerm[] {
   const hidden = new Set<YearId>(subject.config.hiddenYears ?? []);
   return subject.timeline.halfTerms.filter((ht) => !hidden.has(ht.year));
-}
-
-function sliceLessons(subTopic: SubTopic, placed: PlacedBlock): readonly Lesson[] {
-  const [start, end] = placed.lessonRange;
-  const clampedStart = Math.max(0, Math.min(start, subTopic.lessons.length));
-  const clampedEnd = Math.max(clampedStart, Math.min(end, subTopic.lessons.length));
-  return subTopic.lessons.slice(clampedStart, clampedEnd);
 }
 
 // Filename-safe: strip characters that Windows/macOS file systems object to,

@@ -33,12 +33,14 @@ test.describe("Export modal", () => {
     expect(files.some((f) => f.endsWith(".xlsx") && !f.includes("by half-term") && !f.includes("by topic"))).toBe(true);
   });
 
-  test("Folder-by-half-term export writes 17 files via the mocked folder dialog", async ({ app }) => {
+  test("Folder-by-half-term export (output: folder) writes 17 files via the mocked folder dialog", async ({ app }) => {
     await app.loadExample();
 
     await app.page.getByRole("button", { name: "Export", exact: true }).click();
     const dialog = app.page.getByRole("dialog", { name: /Export/i });
     await dialog.getByRole("radio", { name: /Folder by half-term/i }).click();
+    // Switch the output radio to "Folder of .xlsx" (default is zip).
+    await dialog.getByRole("radio", { name: /Folder of \.xlsx/i }).click();
     await dialog.getByRole("button", { name: /Choose folder…/i }).click();
     await expect(dialog).not.toBeVisible();
 
@@ -48,5 +50,24 @@ test.describe("Export modal", () => {
     expect(folderFiles.length).toBe(17);
     expect(folderFiles.some((f) => f.endsWith("/Y9-A1.xlsx"))).toBe(true);
     expect(folderFiles.some((f) => f.endsWith("/Y11-U1.xlsx"))).toBe(true);
+  });
+
+  test("Folder-by-half-term export (output: zip) writes a single .zip via the mocked save dialog", async ({ app }) => {
+    await app.loadExample();
+
+    await app.page.getByRole("button", { name: "Export", exact: true }).click();
+    const dialog = app.page.getByRole("dialog", { name: /Export/i });
+    await dialog.getByRole("radio", { name: /Folder by half-term/i }).click();
+    // Zip is the default output for folder modes — primary button label flips.
+    await dialog.getByRole("button", { name: /Save zip…/i }).click();
+    await expect(dialog).not.toBeVisible();
+
+    const files = await app.listMockFiles();
+    const zipFiles = files.filter((f) => f.endsWith(".zip"));
+    // One zip written. (The suggestedFilename pattern "<subject> — by half-term.zip"
+    // is asserted in the unit test `packBundleAsZip — works with the per-topic
+    // bundle too`; here we just confirm the renderer routed the bundle to the
+    // saveSpreadsheet IPC with a .zip default name.)
+    expect(zipFiles.length).toBe(1);
   });
 });

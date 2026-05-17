@@ -1,5 +1,10 @@
 import * as XLSX from "xlsx";
 
+import {
+  effectiveLessonCountForPlacement,
+  effectiveLessonsInPlacement,
+  effectiveSpecLessonCount,
+} from "./depth";
 import type {
   HalfTerm,
   PlacedBlock,
@@ -71,10 +76,10 @@ export function computeCoverageStats(
   subject: Subject,
   options: CoverageStatsOptions = {}
 ): CoverageStats {
-  let totalSpecLessons = 0;
-  for (const t of subject.workingSpec.topics) {
-    for (const st of t.subTopics) totalSpecLessons += st.lessons.length;
-  }
+  // Numerator + denominator both honour the depth toggle (DEC-040). When
+  // `includeDepth=false`, "coverage" describes how much of the FOUNDATION
+  // syllabus is placed — depth lessons are out of scope on both sides.
+  const totalSpecLessons = effectiveSpecLessonCount(subject);
 
   const hidden = options.respectHiddenYears
     ? new Set(subject.config.hiddenYears ?? [])
@@ -88,8 +93,9 @@ export function computeCoverageStats(
     slot.budget += ht.budget;
     for (const pb of ht.placedBlocks) {
       if (pb.source.kind !== "sub-topic") continue;
-      slot.placed += pb.lessonsClaimed;
-      placedLessons += pb.lessonsClaimed;
+      const effective = effectiveLessonCountForPlacement(subject, pb);
+      slot.placed += effective;
+      placedLessons += effective;
     }
     perYear.set(ht.year, slot);
   }
@@ -144,7 +150,13 @@ function buildTopicSheet(subject: Subject): unknown[][] {
   for (const ht of visibleHalfTerms(subject)) {
     const byTopic = groupByTopic(ht, subject.workingSpec);
     for (const { topic, blocks } of byTopic) {
-      const totalLessons = blocks.reduce((s, b) => s + b.lessonsClaimed, 0);
+      // Effective lesson counts honour the depth toggle (DEC-040). Drop
+      // topic rows whose every block was depth-only.
+      const totalLessons = blocks.reduce(
+        (s, b) => s + effectiveLessonCountForPlacement(subject, b),
+        0
+      );
+      if (totalLessons === 0) continue;
       const subCodes = uniqueSubTopicCodes(blocks).join(", ");
       rows.push([
         ht.year,
@@ -179,7 +191,9 @@ function buildSubTopicSheet(subject: Subject): unknown[][] {
       const found = findTopicAndSubTopic(subject.workingSpec, pb.source.subTopicCode);
       if (!found) continue;
       const { topic, subTopic } = found;
-      const sliced = sliceLessons(subTopic, pb);
+      // Effective slice — honours `includeDepth=false` by hiding depth lessons.
+      const sliced = effectiveLessonsInPlacement(subject, pb);
+      if (sliced.length === 0) continue; // Entire placement was depth — hide the row.
       const practicals = uniquePracticals(sliced);
       rows.push([
         ht.year,
@@ -187,7 +201,7 @@ function buildSubTopicSheet(subject: Subject): unknown[][] {
         topic.code,
         subTopic.code,
         subTopic.name,
-        pb.lessonsClaimed,
+        sliced.length,
         subTopic.difficulty,
         subTopic.isDepth ? "Yes" : "",
         practicals.join("; "),
@@ -217,7 +231,9 @@ function buildLessonSheet(subject: Subject): unknown[][] {
       const found = findTopicAndSubTopic(subject.workingSpec, pb.source.subTopicCode);
       if (!found) continue;
       const { topic, subTopic } = found;
-      for (const lesson of sliceLessons(subTopic, pb)) {
+      // Effective slice — depth lessons disappear from the row stream when
+      // `includeDepth=false` (DEC-040).
+      for (const lesson of effectiveLessonsInPlacement(subject, pb)) {
         rows.push([
           ht.year,
           ht.label,
@@ -254,7 +270,7 @@ function buildObjectiveSheet(subject: Subject): unknown[][] {
       const found = findTopicAndSubTopic(subject.workingSpec, pb.source.subTopicCode);
       if (!found) continue;
       const { topic, subTopic } = found;
-      for (const lesson of sliceLessons(subTopic, pb)) {
+      for (const lesson of effectiveLessonsInPlacement(subject, pb)) {
         for (const obj of lesson.objectives) {
           rows.push([
             ht.year,
@@ -316,13 +332,6 @@ function uniquePracticals(lessons: readonly { practical: string | null }[]): str
     }
   }
   return out;
-}
-
-function sliceLessons(subTopic: SubTopic, placed: PlacedBlock) {
-  const [start, end] = placed.lessonRange;
-  const clampedStart = Math.max(0, Math.min(start, subTopic.lessons.length));
-  const clampedEnd = Math.max(clampedStart, Math.min(end, subTopic.lessons.length));
-  return subTopic.lessons.slice(clampedStart, clampedEnd);
 }
 
 function findTopicAndSubTopic(

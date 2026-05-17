@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { CalendarOverview } from "@/components/CalendarOverview";
 import { CalendarSettingsModal } from "@/components/CalendarSettingsModal";
-import { ExportModal, type ExportMode } from "@/components/ExportModal";
+import { ExportModal, type ExportMode, type ExportOutput } from "@/components/ExportModal";
 import { Header } from "@/components/Header";
 import { LessonView } from "@/components/LessonView";
 import { ObjectiveView } from "@/components/ObjectiveView";
@@ -14,7 +14,11 @@ import { SubTopicView } from "@/components/SubTopicView";
 import { TopicView } from "@/components/TopicView";
 import { ViewPlaceholder } from "@/components/ViewPlaceholder";
 import { exportSubjectToXlsx } from "@/model/export";
-import { exportByHalfTermFolder, exportByTopicFolder } from "@/model/folderExport";
+import {
+  exportByHalfTermFolder,
+  exportByTopicFolder,
+  packBundleAsZip,
+} from "@/model/folderExport";
 import { importSpec } from "@/model/import";
 import {
   applyCalendarTemplate,
@@ -185,7 +189,7 @@ export function App(): JSX.Element {
   }, [activeSubject]);
 
   const handleExportConfirm = useCallback(
-    async (mode: ExportMode): Promise<void> => {
+    async (mode: ExportMode, output: ExportOutput): Promise<void> => {
       if (!activeSubject) {
         setExportModalOpen(false);
         return;
@@ -202,27 +206,32 @@ export function App(): JSX.Element {
             defaultName: `${activeSubject.meta.name}.xlsx`,
           });
           if (result) console.info(`[export] wrote ${result.path}`);
-        } else if (mode === "by-half-term") {
-          const bundle = exportByHalfTermFolder(activeSubject);
-          const result = await window.api.saveFolderOfXlsx(
-            bundle.files.map((f) => ({ name: f.name, buffer: f.buffer })),
-            { suggestedFolderName: bundle.suggestedFolderName }
-          );
-          if (result) {
-            console.info(
-              `[export] wrote ${result.fileCount} files to ${result.folderPath}`
+        } else {
+          // Folder modes — first build the in-memory bundle, then either
+          // hand it to the folder-write IPC OR zip it and reuse the
+          // saveSpreadsheetFile IPC (which already handles single-file saves).
+          const bundle =
+            mode === "by-half-term"
+              ? exportByHalfTermFolder(activeSubject)
+              : exportByTopicFolder(activeSubject);
+          if (output === "zip") {
+            const zipped = await packBundleAsZip(bundle);
+            const result = await window.api.saveSpreadsheetFile(zipped.buffer, {
+              defaultName: zipped.suggestedFilename,
+            });
+            if (result) {
+              console.info(`[export] wrote zip ${result.path}`);
+            }
+          } else {
+            const result = await window.api.saveFolderOfXlsx(
+              bundle.files.map((f) => ({ name: f.name, buffer: f.buffer })),
+              { suggestedFolderName: bundle.suggestedFolderName }
             );
-          }
-        } else if (mode === "by-topic") {
-          const bundle = exportByTopicFolder(activeSubject);
-          const result = await window.api.saveFolderOfXlsx(
-            bundle.files.map((f) => ({ name: f.name, buffer: f.buffer })),
-            { suggestedFolderName: bundle.suggestedFolderName }
-          );
-          if (result) {
-            console.info(
-              `[export] wrote ${result.fileCount} files to ${result.folderPath}`
-            );
+            if (result) {
+              console.info(
+                `[export] wrote ${result.fileCount} files to ${result.folderPath}`
+              );
+            }
           }
         }
       } catch (e) {
@@ -324,7 +333,7 @@ export function App(): JSX.Element {
         <ExportModal
           subject={activeSubject}
           onCancel={() => setExportModalOpen(false)}
-          onConfirm={(mode) => void handleExportConfirm(mode)}
+          onConfirm={(mode, output) => void handleExportConfirm(mode, output)}
         />
       )}
       {calendarTarget && (() => {

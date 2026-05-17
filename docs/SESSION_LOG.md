@@ -1674,3 +1674,90 @@ The original "Export" button wrote a single 5-sheet workbook (DEC original / SPE
 - **Zip support**: not in v1 of this. Worth adding for "email this to a colleague" or are folders fine since macOS/Windows file managers zip with two clicks?
 - **`isSubTopicDepth` semantics**: currently a sub-topic with any depth lesson is treated as depth-only when `includeDepth=false`. Should it instead be "include the foundation lessons of a partially-depth sub-topic, skip the depth ones"? Affects presets and folder-export topic counts.
 - Next per the roadmap: **Session 24** — first-startup wizard (consumes the calendar machinery from Sessions 19-20 and the preset machinery from Session 22).
+
+---
+
+## Session 24 — Polish pack: v1.1.0 release, depth toggle semantics, zip exports
+**Date:** 2026-05-17
+**Status:** Complete
+**Commit:** *(pending — see git log)*
+
+Three of four user-raised issues from after Session 23 addressed together (the fourth — EoHT removal + custom-block expansion — deferred to Session 25 because it needs a design discussion).
+
+User direction:
+> 2. Don't defer this, its key to the export feature.
+> 3. Change to exclusively depth. Depth lessons should exist and be possible to place on the curriculum, however, when toggling they should be hidden and discounted from analytics.
+> 4. Where can I install the most up to date version from? Can you update the github page to have an installer?
+
+### What was built
+
+**#4 — v1.1.0 release scaffolding:**
+- `package.json` 1.0.0 → 1.1.0; `src/model/workspace.ts` `APP_VERSION` matches.
+- New top-level `README.md` (replaces the per-project `docs/README.md` which was Claude-build-only). Includes download links, per-platform installer notes (SmartScreen / Gatekeeper / AppImage chmod), feature highlights, maintainer release workflow.
+- Tagging `v1.1.0` triggers the existing `.github/workflows/release.yml` matrix build (Windows/macOS/Linux), which uploads installers to the GitHub Release.
+
+**#3 — Depth toggle semantics (DEC-040):**
+- **`subTopic.isDepth` now means "EVERY lesson is depth"** (was "any lesson is depth"). Import aggregation flipped from OR to AND. Mixed sub-topics (foundation + depth lessons) treated as foundation.
+- **Lesson-level depth filtering at consumer boundaries.** New `src/model/depth.ts` exports four pure helpers: `effectiveLessonsForSubTopic`, `effectiveLessonsInPlacement`, `effectiveLessonCountForPlacement`, `effectiveSpecLessonCount`. All consumers route through these instead of raw `lessons` / `lessonsClaimed`:
+  - `export.ts`: coverage stats + Cover / Topic / Sub-topic / Lesson / Objective sheets
+  - `folderExport.ts`: weekly schedule + lesson list + per-topic emit gate
+  - `spacing.ts`: placement history (zero-effective filtered) + interleaving lesson counts
+- **Placement data unchanged.** The toggle is a read-time filter, not a mutation. Toggling on/off doesn't move blocks; consumers just see different "effective" lesson sets.
+- **Coverage % uses matching num + denom.** When toggle off, both the placed count and the spec total shrink to foundation only — 100% = every foundation lesson placed.
+
+**#2 — Zip output for folder exports (DEC-041):**
+- Added `jszip@^3.10.1` dependency.
+- `src/model/folderExport.ts` `packBundleAsZip(folderResult): Promise<ZipBundleResult>` packs a folder bundle into a single DEFLATE-compressed `.zip` named `{folder}.zip`.
+- `ExportModal` gains an `"Output as: Zip | Folder of .xlsx"` radio pair, shown only when a folder mode is selected. **Zip is the default** (was deferred → now primary, per user direction).
+- Renderer routes zip output through existing `window.api.saveSpreadsheetFile` IPC (one-file save), so no new Electron IPC.
+- Test fixture's mock `saveSpreadsheetFile` updated to honour the `defaultName`'s extension so tests can distinguish `.zip` vs `.xlsx` outputs.
+
+**Tests added/updated (+5 unit, +1 E2E, several updated):**
+- `tests/model/folderExport.test.ts` +5: `packBundleAsZip` returns named-zip / contains all files / preserves bytes / actually compresses / works with per-topic bundle.
+- `tests/e2e/export-modal.spec.ts` +1: folder-by-half-term with zip output writes a single `.zip`. Existing folder test renamed to `(output: folder)` for clarity, with explicit click on the "Folder of .xlsx" radio (since zip is now the default).
+- `tests/model/import.test.ts` updated: previous test asserted `subTopic.isDepth === true` for mixed-content sub-topics under the OR aggregation; now asserts `false` for mixed sub-topics + `true` for the genuinely all-depth Pressure sub-topic (T9).
+- `tests/model/export.test.ts` updated: depth-aware coverage stats (`8 placed / 53 total = 15.1%` was `9 / 66 = 13.6%`); Lesson view sheet emits 8 rows not 9 under default includeDepth=false; new test covers includeDepth=true path.
+- `tests/model/presets.test.ts` fixture's `makeSubTopic({ depth: true })` now propagates depth to ALL lessons automatically (was inconsistent with new "exclusively depth" semantic).
+- `tests/model/spacing.test.ts` fixture's T1a grown from 3 → 5 lessons so the "5-lesson placement → blocked cell" test still triggers the threshold (pre-DEC-040 the analytics used raw `lessonsClaimed=5` even when the spec only defined 3; now effective count is clamped to slice length).
+- `tests/model/retrievalSuggestions.test.ts` fixture flipped to `includeDepth: true` so depth sub-topics still participate in the scoring tests (those tests explicitly assert depth-related ordering).
+
+### Exit criteria check
+- [x] #2 — Zip output ships as default for folder modes; folder option preserved
+- [x] #3 — Sub-topic depth means "exclusively depth"; lesson-level depth filtering across presets / analytics / exports / coverage
+- [x] #4 — v1.1.0 tag + README with download links (will publish on push)
+- [x] `npm run typecheck` clean (renderer + electron)
+- [x] `npm test` — 323/323 (was 316/316; +5 zip tests + 2 reshaped existing)
+- [x] `npm run test:e2e` — 30/30 (was 29/29; +1 zip flow + 1 renamed)
+- [x] `npm run build:renderer` clean
+- [x] DEC-040 + DEC-041 logged with full rationale + alternatives + consequences
+
+### Deferred (with reason)
+- **#1 (EoHT removal + custom block expansion)** — deferred to Session 25. User wants EoHTs to be a special-case of custom blocks alongside test/lesson/unit/assessment categories. That's a substantive data-model change (CustomBlock.category field, render-time discrimination, possibly a save-file migration for existing `.curriculum` files with auto-seeded EoHTs). Worth a focused session with design questions answered up front.
+
+### Deviations from the plan
+- **Zip vs folder default flipped during the session.** Original DEC-039 had folder-only; user's "key to the export feature" pushed zip to default. The reverse from "default folder, opt-in zip".
+- **No SPEC.md edits.** All three changes captured in DECs. SPEC §6 will fold zip + depth-aware coverage at next consolidation pass.
+- **Replaced `docs/README.md`'s role.** It stays in place as the Claude-build planner README; the new top-level `README.md` is what GitHub viewers see.
+
+### Decisions logged
+- [DEC-040](DECISIONS.md#dec-040) — Depth toggle is a consumer-side filter; sub-topic is "depth" only when EVERY lesson is depth
+- [DEC-041](DECISIONS.md#dec-041) — Zip support for folder-exports; v1.1.0 release with GitHub-hosted installers
+
+### Surprises and gotchas
+- **The OR-aggregation bug for `subTopic.isDepth` had been silently corrupting the model for many sessions.** Anything reading `subTopic.isDepth` would treat a mixed-content sub-topic as depth-only. Caught only because preset behaviour exposed it via the demo. Lesson: be suspicious of "any → whole" aggregations in flag bubbling.
+- **Effective lesson counts clamp to slice length**, which broke an existing spacing test that placed `lessonsClaimed=5` of a 3-lesson sub-topic. Pre-DEC-040 the analytics happily used the over-claimed count; the new helper grounds in the actual spec. Fixed by growing the fixture sub-topic to 5 lessons.
+- **JSZip's `toEqual` against XLSX-write output failed** because `XLSX.write({ type: "array" })` returns `ArrayBuffer` but our type signature declares `Uint8Array`. The cast was structural-lie; the unit test had to compare `Array.from(buf)` instead of the raw objects.
+- **The folder-mode E2E mock had to mirror Electron's `save-dialog`-uses-default-extension behaviour** so the test could filter by `.zip` vs `.xlsx` extensions on the resulting mock path.
+- **README.md vs docs/README.md naming.** GitHub displays `README.md` at the repo root; the existing `docs/README.md` (a build-planner doc for Claude) wasn't visible from the GitHub front page. Kept both: top-level is end-user-facing, `docs/README.md` is for the build process.
+
+### What's usable now
+1. Push `v1.1.0` tag → installers appear on the GitHub Releases page for Windows / macOS / Linux
+2. Visit the repo on GitHub → see the new README with download links + per-platform notes
+3. Export → pick a folder mode → zip is the default → choose where to save the `.zip`
+4. Toggle "Show depth" off → all four views, the StatusBar, the Spacing Panel, all four export modes, coverage % — every consumer hides depth lessons
+5. Sub-topics like T11 "Static electricity" / T15 "Forces and matter" (mixed foundation + depth) now appear correctly in per-topic exports
+
+### Open questions for the user
+- **Updating PEDAGOGY.md** to explain "depth lessons as buffer content" — write now or defer until you've used the new toggle for a session?
+- The new `Output as: Zip | Folder` toggle defaults to Zip. Want it remembered across sessions, or always reset to Zip on each Export modal open?
+- Next per the roadmap: **Session 25** — your #1 from this session's feedback: remove EoHTs as a first-class concept, add CustomBlock categories (test / lesson / unit / assessment / …). Will need a few design questions up front (auto-migration for existing files? how do EoHTs in saved `.curriculum` files map to the new category model?).

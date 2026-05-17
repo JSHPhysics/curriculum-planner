@@ -1,12 +1,14 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
 
 import {
   exportByHalfTermFolder,
   exportByTopicFolder,
+  packBundleAsZip,
 } from "@/model/folderExport";
 import { importSpec } from "@/model/import";
 import { placeBlock } from "@/model/placement";
@@ -181,18 +183,16 @@ describe("exportByTopicFolder", () => {
   });
 
   it("produces one file per topic that has at least one placement (includeDepth=false default)", () => {
-    // With the import's default `includeDepth: false`, sub-topics whose
-    // every lesson is depth-flagged AND sub-topics flagged at the sub-topic
-    // level (which the importer sets when ANY contained lesson is depth)
-    // get skipped. In the demo spec, T11 ("Static electricity") and T15
-    // ("Forces and matter") each have a single sub-topic that contains a
-    // depth lesson — so the importer marks the whole sub-topic as depth and
-    // frontloaded skips it. Result: 13 of 15 topics get files. This is the
-    // documented current behaviour of the import → preset pipeline.
+    // DEC-040: a sub-topic is "depth" only when EVERY lesson is depth. The
+    // demo spec's T11a "Electrostatics" and T15a "Elastic behaviour" mix
+    // foundation + depth lessons; they're now treated as foundation, so
+    // frontloaded places them and we get all 15 topic files.
+    // (Pre-DEC-040, T11 and T15 were skipped entirely because the importer
+    // bubbled any-depth → sub-topic-isDepth; bug fixed in this session.)
     const subject = loadExample();
     const placed: Subject = { ...subject, timeline: applyPreset(subject, "frontloaded") };
     const result = exportByTopicFolder(placed);
-    expect(result.files).toHaveLength(13);
+    expect(result.files).toHaveLength(15);
   });
 
   it("produces one file per topic for all 15 when includeDepth is true", () => {
@@ -337,5 +337,78 @@ describe("folder export — filename safety", () => {
     }
     expect(result.suggestedFolderName).not.toContain("/");
     expect(result.suggestedFolderName).not.toContain('"');
+  });
+});
+
+// ============================================================
+// packBundleAsZip
+// ============================================================
+
+describe("packBundleAsZip", () => {
+  it("returns a single zip buffer named after the suggested folder + .zip", async () => {
+    const subject = loadExample();
+    const bundle = exportByHalfTermFolder(subject);
+    const zipped = await packBundleAsZip(bundle);
+    expect(zipped.suggestedFilename).toBe(`${bundle.suggestedFolderName}.zip`);
+    expect(zipped.buffer.byteLength).toBeGreaterThan(0);
+  });
+
+  it("contains every file from the bundle at the archive root", async () => {
+    const subject = loadExample();
+    const bundle = exportByHalfTermFolder(subject);
+    const zipped = await packBundleAsZip(bundle);
+    const reopened = await JSZip.loadAsync(zipped.buffer);
+    const filenames = Object.keys(reopened.files).sort();
+    const expected = bundle.files.map((f) => f.name).sort();
+    expect(filenames).toEqual(expected);
+  });
+
+  it("preserves file content byte-for-byte through the round trip", async () => {
+    const subject = loadExample();
+    const bundle = exportByHalfTermFolder(subject);
+    const zipped = await packBundleAsZip(bundle);
+    const reopened = await JSZip.loadAsync(zipped.buffer);
+    const firstName = bundle.files[0]!.name;
+    const fromZip = await reopened.files[firstName]!.async("uint8array");
+    // Convert both to plain byte arrays for comparison (XLSX.write returns an
+    // ArrayBuffer that we cast to Uint8Array; the cast isn't physical so
+    // structural equality fails. Compare byte content explicitly).
+    const orig = new Uint8Array(bundle.files[0]!.buffer);
+    expect(fromZip.byteLength).toBe(orig.byteLength);
+    expect(Array.from(fromZip)).toEqual(Array.from(orig));
+  });
+
+  it("compresses (zip < total raw byte count)", async () => {
+    const subject = loadExample();
+    const bundle = exportByHalfTermFolder(subject);
+    const rawTotal = bundle.files.reduce((s, f) => s + f.buffer.byteLength, 0);
+    const zipped = await packBundleAsZip(bundle);
+    // .xlsx files are already deflate-compressed internally, so re-zipping
+    // only saves a few percent. Asserting strictly < raw is enough to confirm
+    // we're actually compressing rather than storing.
+    expect(zipped.buffer.byteLength).toBeLessThan(rawTotal);
+  });
+
+  it("works with the per-topic bundle too", async () => {
+    const subject = loadExample();
+    // Need placements for per-topic to emit any files.
+    const placed: Subject = {
+      ...subject,
+      timeline: createDefaultTimeline(),
+      config: { ...subject.config, includeDepth: true },
+    };
+    // Manually place T1a so per-topic has something to emit.
+    placed.timeline = placeBlock(
+      placed.timeline,
+      { kind: "sub-topic", subTopicCode: "T1a" } as PlacedBlockSource,
+      "Y9-A1",
+      2,
+      { idGen: counterIdGen() }
+    );
+    const bundle = exportByTopicFolder(placed);
+    const zipped = await packBundleAsZip(bundle);
+    expect(zipped.suggestedFilename).toContain("by topic");
+    expect(zipped.suggestedFilename.endsWith(".zip")).toBe(true);
+    expect(zipped.buffer.byteLength).toBeGreaterThan(0);
   });
 });

@@ -66,9 +66,16 @@ async function installApiMock(page: Page): Promise<void> {
         return null;
       },
       async saveSpreadsheetFile(buffer, opts) {
-        const path = newPath("xlsx");
+        // Honour the requested extension if defaultName supplies one (e.g.
+        // .zip from the folder-as-zip export path). Real Electron defaults
+        // to the suggested name; the mock mirrors that so tests can filter
+        // by extension.
+        const defaultName = opts?.defaultName ?? "export.xlsx";
+        const extMatch = /\.([a-z0-9]+)$/i.exec(defaultName);
+        const ext = extMatch ? extMatch[1]! : "xlsx";
+        const path = newPath(ext);
         memory.set(path, {
-          name: opts?.defaultName ?? "export.xlsx",
+          name: defaultName,
           data: new Uint8Array(buffer),
         });
         return { path };

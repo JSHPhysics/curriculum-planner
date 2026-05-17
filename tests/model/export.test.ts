@@ -91,8 +91,13 @@ describe("Cover sheet", () => {
     expect(find("Subject name")?.[1]).toBe("GCSE Physics 1PH0");
     expect(find("Source spec file")?.[1]).toBe("example_physics_spec.xlsx");
     expect(find("Exported")?.[1]).toBe("2026-05-15T10:00:00.000Z");
-    expect(find("Total spec lessons")?.[1]).toBe(66);
-    expect(find("Lessons placed")?.[1]).toBe(9);
+    // DEC-040: coverage stats honour the depth toggle. Default includeDepth=false
+    // means depth lessons drop out of both numerator and denominator. Demo has
+    // 66 lessons total but 13 are depth-flagged → 53 foundation lessons.
+    expect(find("Total spec lessons")?.[1]).toBe(53);
+    // Of 9 raw placed lessons (T1a 2L + T2a 2L + T2b 5L), T2b's last lesson
+    // is "Terminal velocity (depth)" → effective placed = 8.
+    expect(find("Lessons placed")?.[1]).toBe(8);
   });
 
   it("emits per-year placement rows for Y9, Y10, Y11 in order", () => {
@@ -101,9 +106,9 @@ describe("Cover sheet", () => {
     const cover = rows(readBack(buf), "Cover");
     const yearRows = cover.filter((r) => r[0] === "Y9" || r[0] === "Y10" || r[0] === "Y11");
     expect(yearRows.map((r) => r[0])).toEqual(["Y9", "Y10", "Y11"]);
-    // Y9 placed = 9 (2 + 2 + 5)
-    expect(yearRows[0]?.[1]).toBe(9);
-    // Y9 budget = 12 + 12 + 11 + 9 + 13 + 9 = 66
+    // Y9 placed = 8 effective (2 + 2 + 4, depth-filtered per DEC-040)
+    expect(yearRows[0]?.[1]).toBe(8);
+    // Y9 budget = 12 + 12 + 11 + 9 + 13 + 9 = 66 (budget is unaffected by depth toggle)
     expect(yearRows[0]?.[2]).toBe(66);
     // Y10 and Y11 had no placement
     expect(yearRows[1]?.[1]).toBe(0);
@@ -112,13 +117,27 @@ describe("Cover sheet", () => {
 });
 
 describe("computeCoverageStats", () => {
-  it("computes coverage % as placed / total, rounded to 1 decimal place", () => {
+  it("computes coverage % as effective-placed / effective-total when includeDepth=false (DEC-040)", () => {
     const subj = placeSomeBlocks(loadExample());
+    const stats = computeCoverageStats(subj);
+    expect(stats.totalSpecLessons).toBe(53);
+    expect(stats.placedLessons).toBe(8);
+    // 8 / 53 ≈ 15.094… → 15.1 (1 dp)
+    expect(stats.coveragePercent).toBe(15.1);
+  });
+
+  it("includes depth lessons in both numerator and denominator when includeDepth=true", () => {
+    const subj: Subject = {
+      ...placeSomeBlocks(loadExample()),
+      config: {
+        includeDepth: true,
+        lostLessonBuffer: false,
+        autoSpillover: true,
+      },
+    };
     const stats = computeCoverageStats(subj);
     expect(stats.totalSpecLessons).toBe(66);
     expect(stats.placedLessons).toBe(9);
-    // 9 / 66 ≈ 13.636… → 13.6 (1 dp). Was 36 (= 9/25) before the demo spec expanded.
-    expect(stats.coveragePercent).toBe(13.6);
   });
 
   it("returns 0% when there are no spec lessons", () => {
@@ -138,8 +157,9 @@ describe("computeCoverageStats", () => {
     let subj = placeSomeBlocks(loadExample());
     subj = { ...subj, timeline: createEoHTBlocks(subj.timeline, { idGen: counterIdGen() }) };
     const stats = computeCoverageStats(subj);
-    // EoHT adds 17 lessons of placement, but shouldn't count
-    expect(stats.placedLessons).toBe(9);
+    // EoHT adds 17 lessons of placement, but shouldn't count.
+    // Effective placed = 8 (per DEC-040; T2b's last lesson is depth and filtered).
+    expect(stats.placedLessons).toBe(8);
   });
 
   it("respectHiddenYears excludes placements + budget for hidden years", () => {
@@ -199,9 +219,10 @@ describe("Topic view sheet", () => {
     const t2Row = a1Rows.find((r) => r[2] === "T2");
     expect(t2Row?.[4]).toBe(2);
     expect(t2Row?.[5]).toBe("T2a");
-    // Y9-A2: T2 (5 lessons)
+    // Y9-A2: T2 (5 lessons claimed, but 1 is depth-flagged "Terminal velocity"
+    // → effective = 4 under default includeDepth=false per DEC-040)
     const a2 = dataRows.find((r) => r[0] === "Y9" && r[1] === "Aut 2");
-    expect(a2?.[4]).toBe(5);
+    expect(a2?.[4]).toBe(4);
     expect(a2?.[5]).toBe("T2b");
   });
 });
@@ -278,12 +299,13 @@ describe("Lesson view sheet", () => {
     ]);
   });
 
-  it("emits one row per lesson within the placed range", () => {
+  it("emits one row per lesson within the placed range (depth-filtered per DEC-040)", () => {
     const subj = placeSomeBlocks(loadExample());
     const buf = exportSubjectToXlsx(subj, { now: new Date("2026-05-15T10:00:00Z") });
     const data = rows(readBack(buf), "Lesson view");
-    // T1a has 2 lessons, T2a has 2, T2b has 5 → 9 rows total
-    expect(data.slice(1)).toHaveLength(9);
+    // T1a has 2 lessons, T2a has 2, T2b has 5 (1 depth) → 8 rows under
+    // the default includeDepth=false.
+    expect(data.slice(1)).toHaveLength(8);
     const t1aLessons = data.slice(1).filter((r) => r[3] === "T1a");
     expect(t1aLessons.map((r) => r[5])).toEqual([
       "SI units and prefixes",
@@ -291,7 +313,7 @@ describe("Lesson view sheet", () => {
     ]);
   });
 
-  it("respects lessonRange so split pieces only emit their own slice", () => {
+  it("respects lessonRange and the depth toggle when slicing (DEC-040)", () => {
     let subj = placeSomeBlocks(loadExample());
     // Place T2b separately and split it manually mid-way
     let tl = createDefaultTimeline();
@@ -300,8 +322,21 @@ describe("Lesson view sheet", () => {
     const buf = exportSubjectToXlsx(subj, { now: new Date("2026-05-15T10:00:00Z") });
     const data = rows(readBack(buf), "Lesson view");
     const t2bLessons = data.slice(1).filter((r) => r[3] === "T2b");
-    // Lesson No. column = lesson.number, which for T2b is 3..7 per the example file
-    expect(t2bLessons.map((r) => r[4])).toEqual([3, 4, 5, 6, 7]);
+    // Lesson No. = lesson.number; T2b is lessons 3..7 in spec. With
+    // includeDepth=false (default), lesson 7 "Terminal velocity (depth)" is
+    // filtered → expect 3..6 only.
+    expect(t2bLessons.map((r) => r[4])).toEqual([3, 4, 5, 6]);
+  });
+
+  it("emits all lessons (incl. depth) when includeDepth=true", () => {
+    let subj = placeSomeBlocks(loadExample());
+    subj = {
+      ...subj,
+      config: { ...subj.config, includeDepth: true },
+    };
+    const buf = exportSubjectToXlsx(subj, { now: new Date("2026-05-15T10:00:00Z") });
+    const data = rows(readBack(buf), "Lesson view");
+    expect(data.slice(1)).toHaveLength(9);
   });
 });
 

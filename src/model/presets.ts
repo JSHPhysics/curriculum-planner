@@ -207,13 +207,16 @@ function getVisibleCells(subject: Subject): readonly HalfTerm[] {
 }
 
 /**
- * A sub-topic is considered "depth" if it's flagged at the sub-topic level
- * OR every lesson inside it is depth-tagged. The mid-case (some lessons are
- * depth) is treated as foundation — the typical pattern is a foundation
- * sub-topic with one optional depth lesson at the end.
+ * A sub-topic is "exclusively depth" only when EVERY lesson inside it is
+ * flagged depth (DEC-040). Mixed sub-topics (some foundation + some depth
+ * lessons) are treated as foundation — they still get placed by presets,
+ * and the `includeDepth=false` toggle filters individual depth lessons at
+ * the consumer level (analytics, exports, renderer).
+ *
+ * Relies on the importer setting `subTopic.isDepth` correctly (every lesson
+ * is depth) — see `import.ts` `subIsDepth` aggregation.
  */
 function isSubTopicDepth(subTopic: SubTopic): boolean {
-  if (subTopic.isDepth) return true;
   if (subTopic.lessons.length === 0) return false;
   return subTopic.lessons.every((l) => l.isDepth);
 }

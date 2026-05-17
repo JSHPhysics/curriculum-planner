@@ -1544,3 +1544,130 @@ Two new exporters added to `src/model/folderExport.ts` produce a MAP of `{ filen
 - `src/App.tsx` (`handleExport` + `handleExportConfirm`) — modal state + mode dispatch
 - `electron/main.ts` (`file:saveFolderXlsx`) + `electron/preload.ts` (`saveFolderOfXlsx`) + `src/types/api.d.ts`
 - [DEC-036](#dec-036) (hidden-years filtering — consistent with single-workbook exporter); original SPEC §6.1 (single-workbook semantics — unchanged, still the default modal selection)
+
+## DEC-040 — Depth toggle is a consumer-side filter; sub-topic is "depth" only when EVERY lesson is depth
+**Date:** 2026-05-17
+**Session:** 24
+**Status:** Accepted, supersedes the depth aggregation in DEC-031/preset code
+
+### Context
+Two related complaints surfaced during Session 23 use:
+
+1. **Per-topic exports were dropping topics that shouldn't be dropped.** With the demo spec the topic export emitted 13 files instead of 15 because T11 ("Static electricity") and T15 ("Forces and matter") each have a single sub-topic with mixed foundation+depth lessons. The importer had been aggregating "any lesson is depth → whole sub-topic is depth", which combined with the preset's "skip depth sub-topics when includeDepth=false" rule excluded those topics entirely from the layout.
+
+2. **The "Show depth" toggle didn't reach everywhere it should.** Coverage stats, weekly schedules, lesson-list exports, and spacing analytics all counted depth lessons regardless of the toggle — confusing for a teacher whose depth lessons are buffer content that gets dropped to a school trip.
+
+User's framing: "Change to exclusively depth. Depth lessons should exist and be possible to place on the curriculum, however, when toggling they should be hidden and discounted from analytics. Typically planners will plan in a depth lesson, but those would get lost to student trips etc where needed."
+
+### Decision
+
+**(1) "Exclusively depth" semantics for the sub-topic depth flag.**
+- A sub-topic is now considered depth only when EVERY lesson is depth-flagged. Mixed sub-topics (some foundation + some depth lessons) are treated as foundation.
+- `import.ts` `subIsDepth` aggregation flipped from OR to AND: `subIsDepth = sg.lessons.size > 0; for (...) subIsDepth = subIsDepth && merged.isDepth`.
+- `presets.ts` `isSubTopicDepth(subTopic)` simplified to `subTopic.lessons.every((l) => l.isDepth)` — no more OR-with-sub-topic-flag fallback.
+- Consequence: T11a / T15a / similar mixed-content sub-topics no longer get skipped by the preset's depth-skip rule. The demo now emits 15 per-topic files instead of 13 under default config.
+
+**(2) Lesson-level depth filtering at consumer boundaries.**
+- New `src/model/depth.ts` module exports four pure helpers:
+  - `effectiveLessonsForSubTopic(subject, subTopic)` — sub-topic lessons minus depth when toggle off
+  - `effectiveLessonsInPlacement(subject, block)` — placement's lesson slice minus depth
+  - `effectiveLessonCountForPlacement(subject, block)` — count form of the above
+  - `effectiveSpecLessonCount(subject)` — total spec lesson denominator
+- All consumers route through these helpers:
+  - `export.ts` (`computeCoverageStats`, Topic / Sub-topic / Lesson / Objective sheets)
+  - `folderExport.ts` (weekly schedule, lesson list, topic workbook, per-topic emit gate)
+  - `spacing.ts` (`getPlacementHistory` filters zero-effective placements; `getInterleavingScore` uses effective lesson counts; spacing flags + interleaving rollups inherit naturally)
+- Placement data structure is UNCHANGED. The toggle is a read-time filter, not a mutation. Toggling on/off doesn't move blocks; it just changes what consumers see.
+- Depth lessons remain placeable manually — the toggle hides them from views and discounts them from analytics, but they exist in the underlying timeline and re-appear when the toggle flips back on.
+
+**(3) Coverage % uses matching numerator + denominator.**
+- When `includeDepth=false`, "100% coverage" means every foundation lesson placed. Depth lessons drop out of both placed-count and total-spec-count.
+- When `includeDepth=true`, both include depth.
+
+### Alternatives considered
+
+- **Keep the OR aggregation at import, fix the preset only.** Considered — minimally invasive. Rejected because the wrong semantic was hiding in the imported data, fooling any future consumer that read `subTopic.isDepth`. Better to fix the source.
+
+- **Make the toggle change underlying placements** (place a sub-topic without its depth lessons when toggle off, re-place when toggle on). Way too much state mutation for a toggle that's meant to be a view filter. Rejected.
+
+- **Apply depth filtering inside `placeBlockWithSpillover`** so the placement engine itself respects the toggle. Tangled the placement engine with depth-aware logic; ground zero for accidental complexity. Kept the engine pure, filtered at consumer edges.
+
+- **Depth-aware `lessonsClaimed`**: re-write `block.lessonsClaimed` to be net of depth. Rejected — the placement engine uses `lessonsClaimed` for cell budget math; changing it would break the layout (depth-lesson-only blocks would visually shrink to zero width). The "effective" count is a consumer concept, not a placement concept.
+
+### Consequences
+
+- **Per-topic exports now produce 15 files for the demo spec** under default config (was 13). T11 + T15 reappear because their mixed-content sub-topics are no longer marked depth.
+
+- **Coverage % decreases significantly when toggle is off** if the placed content was heavy on depth. Example: in the export test fixture, placing 9 raw lessons (one of which is depth) under `includeDepth=false` shows as `8 placed / 53 total = 15.1%` — was `9 / 66 = 13.6%` before. Both numerator and denominator shrink.
+
+- **Spacing analytics now ignore depth-only placements.** A sub-topic placed only via a depth-only block doesn't count as a "touch" under `includeDepth=false`. Single-touch / well-spaced flags adjust accordingly.
+
+- **Weekly schedule + lesson list exports no longer include depth rows** under `includeDepth=false`. A colleague handed an export sees only foundation lessons.
+
+- **Test fixture impact**: presets test fixture's `makeSubTopic({ depth: true })` was relying on the OR aggregation; updated to propagate depth to ALL lessons automatically when the sub-topic is flagged depth, preserving test intent. Spacing test fixture's T1a needed to grow from 3 → 5 lessons because effective lesson count is now clamped to the sub-topic's actual lesson array (pre-DEC-040 placements with lessonsClaimed > spec.lessons.length silently passed; the new effective-count machinery surfaces the mismatch).
+
+### Related
+- `SPEC.md` §5 (import format — semantics of Extra-depth column unchanged; aggregation rule changed)
+- `docs/PEDAGOGY.md` — needs a "Depth content as buffer" section at next polish; doesn't change existing rationale for analytics defaults
+- `src/model/depth.ts` (new — central helpers)
+- `src/model/import.ts` (subIsDepth aggregation: OR → AND)
+- `src/model/presets.ts` (`isSubTopicDepth` simplified)
+- `src/model/export.ts`, `src/model/folderExport.ts`, `src/model/spacing.ts` (all consumers updated)
+- [DEC-031](#dec-031) (retrieval engine), [DEC-038](#dec-038) (preset layouts — original depth-skip semantics superseded), [DEC-039](#dec-039) (folder exports — per-topic emit gate now also checks effective lesson count)
+
+## DEC-041 — Zip support for folder-exports; v1.1.0 release with GitHub-hosted installers
+**Date:** 2026-05-17
+**Session:** 24
+**Status:** Accepted
+
+### Context
+Two user requests landed together as Session 24 polish:
+
+1. **Zip output for folder-mode exports.** Originally deferred in DEC-039 ("user can zip the folder themselves in two clicks"). User pushed back: "Don't defer this, its key to the export feature." A teacher emailing a half-term plan or attaching to a Google Drive folder needs a single deliverable artefact, not 17 loose xlsx files.
+
+2. **Discoverable installer download.** The Session 14 packaging pipeline (electron-builder + GitHub Actions release workflow) was in place but no end-user-facing surface advertised it. User question: "Where can I install the most up to date version from? Can you update the github page to have an installer?"
+
+### Decision
+
+**(1) Zip output is now the DEFAULT for folder modes.**
+- `src/model/folderExport.ts` gains `packBundleAsZip(folderResult): Promise<ZipBundleResult>` using JSZip (new dep, ^3.10.1). Standard DEFLATE compression at level 6.
+- `ExportModal` gains an `"Output as: Zip | Folder"` radio pair shown only when a folder mode is selected. Zip is the default (was deferred → now primary).
+- The renderer routes zip output through the existing `window.api.saveSpreadsheetFile` IPC (treats the .zip as a single-file save), so no new Electron IPC needed.
+- Filename: `{subject name} — by half-term.zip` / `… by topic.zip` — mirrors the suggested folder name.
+
+**(2) v1.1.0 release cut + root README front page.**
+- `package.json` version bump 1.0.0 → 1.1.0. `src/model/workspace.ts` `APP_VERSION` constant bumped in lockstep so `.curriculum` files stamp the new version on save.
+- New top-level `README.md` (replacing the per-project blank slot — `docs/README.md` was for the build planner, not GitHub viewers). Includes:
+  - Download links pointing to the GitHub Releases page
+  - Per-platform installer notes (SmartScreen, Gatekeeper, AppImage chmod)
+  - Feature highlights post-v1.0 (presets, depth, spacing, KS, calendar, exports)
+  - Maintainer release workflow (push a `v*` tag → CI builds + publishes)
+- Tagging `v1.1.0` triggers the existing `release.yml` workflow, which builds Windows/macOS/Linux installers and publishes them to the release. README links resolve at release time.
+
+### Alternatives considered
+
+- **Zip as additional radio choices ("ZIP by half-term" / "ZIP by topic")** — 5 radio options total. Rejected as cluttered; the orthogonal "Output as" toggle is cleaner.
+
+- **Always zip, drop the folder option** — simpler UI but loses the direct-folder workflow for users who want to edit individual xlsx files immediately after export. Kept both.
+
+- **JSZip vs hand-rolled DEFLATE / archiver alternatives** — JSZip is the de facto standard for browser+Node zip, well-tested, no native dependencies. archiver requires Node streams which don't run in the renderer. Hand-roll would add maintenance burden for ~75kB saved. Pragmatic call.
+
+- **Folder as default, zip as opt-in** — was the V1 plan. Reversed based on user request: most teachers will want the zip (it's the universal share format).
+
+### Consequences
+
+- **Bundle size increases by ~75kB** for JSZip. Already past the Vite 500kB warn threshold; one more dep doesn't change the picture meaningfully.
+
+- **Folder-mode test fixture had to mirror real Electron's save-dialog behaviour more closely** — the mock `saveSpreadsheetFile` now honours the `defaultName`'s file extension so tests can filter by `.zip` vs `.xlsx`.
+
+- **`v1.1.0` installers will be built by GitHub Actions when the tag is pushed.** Existing CI machinery covers the build; no new infra. SmartScreen + Gatekeeper warnings persist (no code-signing certs in this v1.x cycle).
+
+### Related
+- `SPEC.md` §6 (Export — will fold the zip-as-default into §6.2 at next consolidation)
+- `src/model/folderExport.ts` (`packBundleAsZip`, JSZip integration)
+- `src/components/ExportModal.tsx` (Output toggle)
+- `src/App.tsx` (`handleExportConfirm` routes zip through `saveSpreadsheetFile`)
+- New top-level `README.md`
+- `package.json` (1.0.0 → 1.1.0; +jszip dep), `src/model/workspace.ts` (`APP_VERSION` bump)
+- `.github/workflows/release.yml` (already in place, no changes)
+- [DEC-039](#dec-039) (folder exports — this DEC extends the output formats)

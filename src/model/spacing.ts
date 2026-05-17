@@ -1,3 +1,4 @@
+import { effectiveLessonCountForPlacement } from "./depth";
 import { findTopicAndSubTopic } from "./queries";
 import {
   getKeyStageForYear,
@@ -93,11 +94,16 @@ export function getPlacementHistory(
     for (const placedBlock of halfTerm.placedBlocks) {
       if (placedBlock.source.kind !== "sub-topic") continue;
       if (placedBlock.source.subTopicCode !== subTopicCode) continue;
+      // Honour the depth toggle (DEC-040): a placement consisting entirely
+      // of depth lessons is invisible to analytics when `includeDepth=false`,
+      // so it shouldn't count as a "touch" for spacing/retrieval purposes.
+      const effective = effectiveLessonCountForPlacement(subject, placedBlock);
+      if (effective === 0) continue;
       out.push({
         halfTerm,
         halfTermIdx,
         placedBlock,
-        lessonsClaimed: placedBlock.lessonsClaimed,
+        lessonsClaimed: effective,
       });
     }
   });
@@ -185,10 +191,15 @@ export function getInterleavingScore(
     if (placedBlock.source.kind !== "sub-topic") continue;
     const found = findTopicAndSubTopic(subject.workingSpec, placedBlock.source.subTopicCode);
     if (!found) continue;
+    // Honour the depth toggle (DEC-040). When `includeDepth=false`, depth
+    // lessons don't contribute to the cell's interleaving lesson totals or
+    // its blocked-cell detection.
+    const effective = effectiveLessonCountForPlacement(subject, placedBlock);
+    if (effective === 0) continue;
     const prev = lessonsPerTopic.get(found.topic.code) ?? 0;
-    lessonsPerTopic.set(found.topic.code, prev + placedBlock.lessonsClaimed);
+    lessonsPerTopic.set(found.topic.code, prev + effective);
     subTopicCodes.add(found.subTopic.code);
-    totalLessons += placedBlock.lessonsClaimed;
+    totalLessons += effective;
   }
   let dominantTopicCode: string | null = null;
   let dominantLessons = 0;

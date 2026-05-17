@@ -111,12 +111,14 @@ describe("importSpec — happy path against example_physics_spec.xlsx", () => {
     expect(units?.lessons[0]?.objectives[0]?.text).toContain("SI base units");
   });
 
-  it("propagates the depth flag onto sub-topic, lesson, and objectives", () => {
+  it("propagates the depth flag onto lesson + objectives; sub-topic depth means EVERY lesson depth (DEC-040)", () => {
     if (!result.ok) throw new Error("import failed");
     const motion = result.subject.importedSpec.topics[1];
     const accel = motion?.subTopics[1];
     expect(accel?.name).toBe("Acceleration and Newton's laws");
-    expect(accel?.isDepth).toBe(true);
+    // Sub-topic isDepth is now "every lesson is depth". Acceleration has
+    // 5 foundation lessons + 1 depth lesson, so the sub-topic is NOT depth.
+    expect(accel?.isDepth).toBe(false);
     const terminal = accel?.lessons.find(
       (l) => l.title === "Terminal velocity (depth)"
     );
@@ -126,6 +128,14 @@ describe("importSpec — happy path against example_physics_spec.xlsx", () => {
       (l) => l.title === "Newton's first and second laws"
     );
     expect(newton1?.isDepth).toBe(false);
+    // A sub-topic whose every lesson is depth-flagged DOES get isDepth=true.
+    // Find one: "Pressure" in Forces-and-their-effects has only "Pressure in fluids (depth)".
+    const forcesEffects = result.subject.importedSpec.topics.find(
+      (t) => t.code === "T9"
+    );
+    const pressure = forcesEffects?.subTopics.find((st) => st.name === "Pressure");
+    expect(pressure?.isDepth).toBe(true);
+    expect(pressure?.lessons.every((l) => l.isDepth)).toBe(true);
   });
 
   it("propagates the separate-only flag onto sub-topic, lesson", () => {

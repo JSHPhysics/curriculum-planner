@@ -8,11 +8,18 @@ import { getVisibleTimelineYears } from "@/model/timeline";
 import type { Subject } from "@/model/types";
 
 export type ExportMode = "single" | "by-half-term" | "by-topic";
+/**
+ * Whether folder-mode exports are delivered as a loose folder of .xlsx files
+ * (chosen via the OS folder picker, written into a new sub-folder) or as a
+ * single .zip archive (chosen via the OS save-file picker). The `single`
+ * mode ignores this — always one .xlsx.
+ */
+export type ExportOutput = "folder" | "zip";
 
 export interface ExportModalProps {
   readonly subject: Subject;
   readonly onCancel: () => void;
-  readonly onConfirm: (mode: ExportMode) => void;
+  readonly onConfirm: (mode: ExportMode, output: ExportOutput) => void;
 }
 
 interface ChoiceDescriptor {
@@ -61,6 +68,8 @@ const CHOICES: readonly ChoiceDescriptor[] = [
  */
 export function ExportModal({ subject, onCancel, onConfirm }: ExportModalProps): JSX.Element {
   const [selected, setSelected] = useState<ExportMode>("single");
+  const [output, setOutput] = useState<ExportOutput>("zip");
+  const isFolderMode = selected !== "single";
 
   // Lightweight previews — same engine as the actual exports, throw away the
   // workbook buffers (we only care about file counts and folder names for UI).
@@ -144,9 +153,12 @@ export function ExportModal({ subject, onCancel, onConfirm }: ExportModalProps):
                     {preview && (
                       <p className="text-[11px] text-ink-fade mt-1.5 font-mono">
                         Will write {preview.files.length} file
-                        {preview.files.length === 1 ? "" : "s"} into{" "}
+                        {preview.files.length === 1 ? "" : "s"}
+                        {output === "zip" ? " into " : " into "}
                         <span className="text-ink-dim">
-                          {preview.suggestedFolderName}/
+                          {output === "zip"
+                            ? `${preview.suggestedFolderName}.zip`
+                            : `${preview.suggestedFolderName}/`}
                         </span>
                       </p>
                     )}
@@ -157,6 +169,33 @@ export function ExportModal({ subject, onCancel, onConfirm }: ExportModalProps):
           })}
         </div>
 
+        {isFolderMode && (
+          <div className="px-5 py-3 border-t border-line flex items-center gap-3 text-xs text-ink-dim">
+            <span className="font-semibold">Output as:</span>
+            <label className="flex items-center gap-1.5 cursor-pointer" title="A single .zip archive — easy to email or attach.">
+              <input
+                type="radio"
+                name="export-output"
+                value="zip"
+                checked={output === "zip"}
+                onChange={() => setOutput("zip")}
+                className="accent-navy"
+              />
+              <span>Zip file</span>
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer" title="A loose folder of .xlsx files — direct access on disk.">
+              <input
+                type="radio"
+                name="export-output"
+                value="folder"
+                checked={output === "folder"}
+                onChange={() => setOutput("folder")}
+                className="accent-navy"
+              />
+              <span>Folder of .xlsx</span>
+            </label>
+          </div>
+        )}
         <footer className="px-5 py-3 border-t border-line flex items-center gap-2 justify-end">
           <button
             onClick={onCancel}
@@ -165,10 +204,14 @@ export function ExportModal({ subject, onCancel, onConfirm }: ExportModalProps):
             Cancel
           </button>
           <button
-            onClick={() => onConfirm(selected)}
+            onClick={() => onConfirm(selected, output)}
             className="px-3 py-1.5 text-sm bg-navy text-bg rounded hover:bg-navy-dim focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
           >
-            {selected === "single" ? "Export…" : "Choose folder…"}
+            {selected === "single"
+              ? "Export…"
+              : output === "zip"
+              ? "Save zip…"
+              : "Choose folder…"}
           </button>
         </footer>
       </div>
