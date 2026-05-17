@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 
 const DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
@@ -154,6 +154,52 @@ ipcMain.handle(
     if (result.canceled || !result.filePath) return null;
     await writeFile(result.filePath, Buffer.from(args.buffer));
     return { path: result.filePath };
+  }
+);
+
+interface SaveFolderXlsxArgs {
+  /**
+   * Default folder name suggested when the user is prompted to choose where
+   * the output folder should be created. The IPC layer creates `<chosen>/<name>`
+   * and writes every file from `files` into it.
+   */
+  readonly suggestedFolderName: string;
+  /**
+   * Map of filename (e.g. "Y9-A1.xlsx") to file contents as a Uint8Array.
+   * Filenames are written verbatim; the renderer is responsible for any
+   * cross-platform path-safety scrubbing.
+   */
+  readonly files: ReadonlyArray<{ readonly name: string; readonly buffer: Uint8Array }>;
+}
+
+interface SaveFolderXlsxResult {
+  readonly folderPath: string;
+  readonly fileCount: number;
+}
+
+ipcMain.handle(
+  "file:saveFolderXlsx",
+  async (event, args: SaveFolderXlsxArgs): Promise<SaveFolderXlsxResult | null> => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    // Pick the PARENT directory; we then create `suggestedFolderName` inside it.
+    // `createDirectory` lets the user make a new parent folder mid-dialog if
+    // they want a fresh location.
+    const dialogOpts = {
+      properties: ["openDirectory", "createDirectory"] as const,
+      title: "Choose where to create the export folder",
+    };
+    const result = await (win
+      ? dialog.showOpenDialog(win, { ...dialogOpts, properties: [...dialogOpts.properties] })
+      : dialog.showOpenDialog({ ...dialogOpts, properties: [...dialogOpts.properties] }));
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const parent = result.filePaths[0]!;
+    const folderPath = path.join(parent, args.suggestedFolderName);
+    await mkdir(folderPath, { recursive: true });
+    for (const file of args.files) {
+      const out = path.join(folderPath, file.name);
+      await writeFile(out, Buffer.from(file.buffer));
+    }
+    return { folderPath, fileCount: args.files.length };
   }
 );
 

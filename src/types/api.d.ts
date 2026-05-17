@@ -14,6 +14,10 @@ export interface CurriculumPlannerApi {
     buffer: Uint8Array,
     options?: { defaultName?: string }
   ): Promise<{ path: string } | null>;
+  saveFolderOfXlsx(
+    files: ReadonlyArray<{ name: string; buffer: Uint8Array }>,
+    options: { suggestedFolderName: string }
+  ): Promise<{ folderPath: string; fileCount: number } | null>;
   getAppVersion(): Promise<string>;
   setDirty(dirty: boolean): Promise<void>;
 }

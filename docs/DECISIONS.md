@@ -1472,3 +1472,75 @@ Three presets ship under `src/model/presets.ts`:
 - `src/store/useWorkspaceStore.ts` (`applyPresetLayout` action)
 - `scripts/build-example-spec.mjs` (cross-platform demo-spec generator; replaces `examples/build_example.py`)
 - [DEC-031](#dec-031) (retrieval engine — shares the "deterministic, no AI" philosophy), [DEC-033](#dec-033) (spacing thresholds — same "weights in one file" pattern)
+
+## DEC-039 — Two new folder-based export modes (by-half-term + by-topic) sit alongside the original single-workbook export
+**Date:** 2026-05-17
+**Session:** 23
+**Status:** Accepted
+
+### Context
+The single-workbook export (Cover / Topic / Sub-topic / Lesson / Objective sheets — DEC original / SPEC §6.1) is great for archiving a snapshot but awkward in practice for the two most common share-this scenarios:
+
+1. *"I'm covering Year 9 Autumn 1, what's the plan?"* — the colleague wants one tidy sheet for that half-term, not a 17-half-term workbook with 5 view tabs.
+2. *"How does the Forces topic spread across the timeline?"* — the senior leadership reviewer wants a per-topic timeline, not to filter the Sub-topic sheet by topic code.
+
+Both are real "deliverable" formats the original export couldn't produce in one click.
+
+### Decision
+Two new exporters added to `src/model/folderExport.ts` produce a MAP of `{ filename → ArrayBuffer }`. A new IPC handler `file:saveFolderXlsx` writes that map to a folder the user picks via `dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })`. The model layer stays pure (the IPC call is the renderer's job).
+
+**`exportByHalfTermFolder(subject)`:**
+- One `.xlsx` per visible half-term, named with the canonical HalfTerm id (`Y9-A1.xlsx`, `Y10-S2.xlsx`).
+- Each workbook has TWO sheets:
+  - **"Weekly schedule"** — compact: row per week, with columns Week / Topic / Sub-topic / Lesson / Practical / Objectives. Empty weeks render as "(no lessons placed)". The week-assignment heuristic is `ceil(N / lessonsPerWeek)` where `lessonsPerWeek = ceil(totalLessons / weeks)` — front-loads when fractional, trailing weeks empty out gracefully. The exact week distribution is approximate; teachers tune via their actual diary.
+  - **"Lesson list"** — long-form: row per lesson with Week / Lesson# / Topic codes+names / Sub-topic / Lesson title / Practical / Depth / Separate / Objectives. Easier to filter/sort in Excel.
+- Suggested folder name: `"<subject name> — by half-term"`.
+
+**`exportByTopicFolder(subject)`:**
+- One `.xlsx` per topic that has at least one placement (skips topics with zero placements — useful for the includeDepth:false default that produces empty topics for spec sections that are entirely depth-flagged).
+- Filename `01 — T1 — Key concepts.xlsx` (sortable padded prefix + topic code + name).
+- Single sheet `"<code> lessons"` listing every placed lesson in calendar order with Year / Half-term / Dates / Sub-topic / Lesson / Practical / Depth / Separate / Objectives.
+- Suggested folder name: `"<subject name> — by topic"`.
+
+**Both formats:**
+- Honour `subject.config.hiddenYears` (DEC-036 consistency).
+- Skip EoHT and custom-block placements (scaffolding, not spec content). Could be added if a teacher asks.
+- Are pure functions; `window.api.saveFolderOfXlsx(files, opts)` is the IPC layer.
+- Are filename-safe: `[\\/:*?"<>|]` stripped from any topic/subject name segments; trailing dots trimmed (Windows-hostile).
+
+**UI surface:** a new `ExportModal` replaces the old direct-save behaviour of the Export button. Radio picker of the three modes, each with a description, "best for" copy, and a live file-count preview ("Will write 17 files into …/by half-term"). User picks → primary action either "Export…" (single mode) or "Choose folder…" (folder modes). Per user choice, this is **one modal with radio choices** rather than three Header buttons or a dropdown.
+
+### Alternatives considered
+
+- **Zip file instead of folder.** Self-contained, easy to share. Rejected: adds a dependency (no zip lib in scope; the project's only data lib is `xlsx`); the user can `Send To → Compressed folder` in Windows Explorer or `Zip` in macOS Finder if they need to ship the bundle, which is one extra click but no extra code. The IPC `saveFolderOfXlsx` could trivially be wrapped with a zip variant if requested.
+
+- **One xlsx per topic with multiple tabs (one tab per HT)** for the topic mode. Considered but rejected — Excel readers struggle once a single file has >30 tabs, and per-tab-per-HT × 15 topics = potentially hundreds. Calendar-order rows in one sheet beats tab proliferation.
+
+- **Hardcoded weekly distribution** (e.g. always 2 lessons/week). Less accurate than the per-cell `lessons-per-week = ceil(totalLessons / weeks)` heuristic, but more predictable. Kept the heuristic; documented in code as approximate.
+
+- **Single tab per HT export instead of two.** Asked the user explicitly; user picked "Both — two tabs per workbook" for the readability vs filterability trade-off. The compact schedule is the "tear-it-off-and-print" version; the lesson list is the "filter in Excel" version.
+
+- **Three separate Header buttons** instead of one Export → modal. Asked the user; user picked the modal. Keeps Header tidy.
+
+### Consequences
+
+- **The Export button is now a two-click operation in all cases.** Previously: Export → save dialog. Now: Export → modal → confirm → save dialog. For the single-workbook case this adds one click; the modal's default selection is "Single workbook" so the modal can be dismissed with Enter if the user is power-using.
+
+- **The existing persistence E2E test needed updating** — its single-click Export → file-written expectation no longer holds. Updated to navigate through the modal.
+
+- **EoHTs and customs are absent from folder exports.** A teacher who has manually added retrieval-block customs and wants them in the weekly schedule will be confused. Easy to flip if it becomes a complaint. Documented in `folderExport.ts` source.
+
+- **The week distribution in the Weekly schedule sheet is approximate.** A teacher whose week-2 actually has 4 lessons (cycle weeks) will see a lesson assigned to week 1 that they actually teach in week 2. Acceptable as a starting point; teachers tune by hand.
+
+- **`exportByTopicFolder` emits zero files for a subject with no placements** (rather than 15 empty per-topic files). Felt like the right call; "empty topic" files would clutter and confuse.
+
+- **The IPC `saveFolderOfXlsx` creates a folder INSIDE the user's chosen directory** (named `suggestedFolderName`). Considered "write directly into the picked directory" but rejected — the user might pick `~/Documents` and not want 17 random `Y9-A1.xlsx` files dropped at the root. The intermediate folder makes the export self-contained.
+
+### Related
+
+- `SPEC.md` §6 (Export) — implicitly extended; will fold the new modes into §6.2/6.3 at next consolidation pass
+- `src/model/folderExport.ts` — `exportByHalfTermFolder` + `exportByTopicFolder` + filename safety helpers
+- `src/components/ExportModal.tsx` — radio picker
+- `src/App.tsx` (`handleExport` + `handleExportConfirm`) — modal state + mode dispatch
+- `electron/main.ts` (`file:saveFolderXlsx`) + `electron/preload.ts` (`saveFolderOfXlsx`) + `src/types/api.d.ts`
+- [DEC-036](#dec-036) (hidden-years filtering — consistent with single-workbook exporter); original SPEC §6.1 (single-workbook semantics — unchanged, still the default modal selection)

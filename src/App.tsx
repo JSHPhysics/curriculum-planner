@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { CalendarOverview } from "@/components/CalendarOverview";
 import { CalendarSettingsModal } from "@/components/CalendarSettingsModal";
+import { ExportModal, type ExportMode } from "@/components/ExportModal";
 import { Header } from "@/components/Header";
 import { LessonView } from "@/components/LessonView";
 import { ObjectiveView } from "@/components/ObjectiveView";
@@ -13,6 +14,7 @@ import { SubTopicView } from "@/components/SubTopicView";
 import { TopicView } from "@/components/TopicView";
 import { ViewPlaceholder } from "@/components/ViewPlaceholder";
 import { exportSubjectToXlsx } from "@/model/export";
+import { exportByHalfTermFolder, exportByTopicFolder } from "@/model/folderExport";
 import { importSpec } from "@/model/import";
 import {
   applyCalendarTemplate,
@@ -68,6 +70,7 @@ export function App(): JSX.Element {
     | null
   >(null);
   const [presetPickerOpen, setPresetPickerOpen] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
 
   useEffect(() => {
     loadAutosaved();
@@ -176,16 +179,60 @@ export function App(): JSX.Element {
     }
   }, [workspace, setSavePath, markClean]);
 
-  const handleExport = useCallback(async () => {
-    if (typeof window.api === "undefined" || !activeSubject) return;
-    const buf = exportSubjectToXlsx(activeSubject);
-    const result = await window.api.saveSpreadsheetFile(new Uint8Array(buf), {
-      defaultName: `${activeSubject.meta.name}.xlsx`,
-    });
-    if (result) {
-      console.info(`[export] wrote ${result.path}`);
-    }
+  const handleExport = useCallback(() => {
+    if (!activeSubject) return;
+    setExportModalOpen(true);
   }, [activeSubject]);
+
+  const handleExportConfirm = useCallback(
+    async (mode: ExportMode): Promise<void> => {
+      if (!activeSubject) {
+        setExportModalOpen(false);
+        return;
+      }
+      if (typeof window.api === "undefined") {
+        alert("File dialogs require the Electron shell.");
+        setExportModalOpen(false);
+        return;
+      }
+      try {
+        if (mode === "single") {
+          const buf = exportSubjectToXlsx(activeSubject);
+          const result = await window.api.saveSpreadsheetFile(new Uint8Array(buf), {
+            defaultName: `${activeSubject.meta.name}.xlsx`,
+          });
+          if (result) console.info(`[export] wrote ${result.path}`);
+        } else if (mode === "by-half-term") {
+          const bundle = exportByHalfTermFolder(activeSubject);
+          const result = await window.api.saveFolderOfXlsx(
+            bundle.files.map((f) => ({ name: f.name, buffer: f.buffer })),
+            { suggestedFolderName: bundle.suggestedFolderName }
+          );
+          if (result) {
+            console.info(
+              `[export] wrote ${result.fileCount} files to ${result.folderPath}`
+            );
+          }
+        } else if (mode === "by-topic") {
+          const bundle = exportByTopicFolder(activeSubject);
+          const result = await window.api.saveFolderOfXlsx(
+            bundle.files.map((f) => ({ name: f.name, buffer: f.buffer })),
+            { suggestedFolderName: bundle.suggestedFolderName }
+          );
+          if (result) {
+            console.info(
+              `[export] wrote ${result.fileCount} files to ${result.folderPath}`
+            );
+          }
+        }
+      } catch (e) {
+        alert(`Export failed: ${(e as Error).message}`);
+      } finally {
+        setExportModalOpen(false);
+      }
+    },
+    [activeSubject]
+  );
 
   const handleClose = useCallback(
     (id: string) => {
@@ -230,7 +277,7 @@ export function App(): JSX.Element {
         onOpen={() => void handleOpen()}
         onSave={() => void handleSave()}
         onSaveAs={() => void handleSaveAs()}
-        onExport={() => void handleExport()}
+        onExport={handleExport}
         onOpenCalendarSettings={() => setCalendarTarget({ kind: "workspace" })}
         onEditSubjectCalendar={(id) => setCalendarTarget({ kind: "subject", subjectId: id })}
         onSetSubjectKeyStage={setSubjectKeyStage}
@@ -271,6 +318,13 @@ export function App(): JSX.Element {
             applyPresetLayout(presetId);
             setPresetPickerOpen(false);
           }}
+        />
+      )}
+      {exportModalOpen && activeSubject && (
+        <ExportModal
+          subject={activeSubject}
+          onCancel={() => setExportModalOpen(false)}
+          onConfirm={(mode) => void handleExportConfirm(mode)}
         />
       )}
       {calendarTarget && (() => {

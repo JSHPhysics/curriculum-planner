@@ -26,7 +26,12 @@ test.describe("Persistence", () => {
 
   test("Export writes an .xlsx via the mocked save dialog", async ({ app }) => {
     await app.loadExample();
-    await app.page.getByRole("button", { name: "Export" }).click();
+    // The Export button now opens a modal (Session 23) — confirm "Single
+    // workbook" (the default selection) to trigger the actual write.
+    await app.page.getByRole("button", { name: "Export", exact: true }).click();
+    const dialog = app.page.getByRole("dialog", { name: /Export/i });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: /Export…/i }).click();
     await expect.poll(async () => (await app.listMockFiles()).length).toBeGreaterThan(0);
     const files = await app.listMockFiles();
     expect(files.some((p) => p.endsWith(".xlsx"))).toBe(true);

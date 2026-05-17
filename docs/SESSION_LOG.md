@@ -1586,3 +1586,91 @@ This is the "originally planned Session 22" follow-up after the Session 21 polis
 - Three-spiral defaults to passes 2+3 for depth content. A pure pedagogical case can be made for passes 1+2+3 (depth gets the same spacing as foundation) or pass 3 only (depth is "stretch" content, only when foundation is firmly in). Easy to flip; flag if you have a preference after using it.
 - The Python `build_example.py` script is still on disk. Delete it now that the Node script is canonical, or leave it as a reference for the original sheet-styling choices?
 - Next per the original roadmap: **Session 23** — folder + weekly-Excel export (two separate exports: timeline-organized and topic-organized). The new 66-lesson demo will give it more meaningful content to export.
+
+---
+
+## Session 23 — Folder-based exports (by half-term + by topic) + unified Export modal
+**Date:** 2026-05-17
+**Status:** Complete
+**Commit:** *(pending — see git log)*
+
+The original "Export" button wrote a single 5-sheet workbook (DEC original / SPEC §6.1). Two new export modes added, surfaced via a unified `ExportModal` so the original behaviour is preserved as the default selection.
+
+### What was built
+
+**Engine — `src/model/folderExport.ts` (~270 LOC):**
+- `exportByHalfTermFolder(subject, options?)` — one `.xlsx` per visible half-term. Each workbook has TWO sheets: "Weekly schedule" (row = week of HT, columns Week/Topic/Sub-topic/Lesson/Practical/Objectives, empty weeks render as "(no lessons placed)") and "Lesson list" (long-form, row = lesson, with Week#/Topic codes+names/Sub-topic/Lesson/Practical/Depth/Separate/Objectives).
+- `exportByTopicFolder(subject, options?)` — one `.xlsx` per topic that has at least one placement. Filename `01 — T1 — Key concepts.xlsx` (sortable padded prefix). Single sheet `<code> lessons` listing every placed lesson in calendar order.
+- Both honour `subject.config.hiddenYears`; both skip EoHT and custom-block placements (scaffolding, not spec content). Pure functions returning `{ suggestedFolderName, files: [{ name, buffer }] }`.
+- Filename-safe: strips `[\\/:*?"<>|]` and trailing dots (Windows-hostile).
+- Week-distribution heuristic: `lessonsPerWeek = ceil(totalLessons / weeks)` so trailing weeks empty out gracefully; documented as approximate.
+
+**IPC — `electron/main.ts` + `electron/preload.ts`:**
+- New `file:saveFolderXlsx` handler. Uses `dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })` to pick a PARENT directory, then creates `<parent>/<suggestedFolderName>` and writes every file from the map into it.
+- Exposed as `window.api.saveFolderOfXlsx(files, opts)` via preload.
+- Renderer `src/types/api.d.ts` updated.
+
+**UI — `src/components/ExportModal.tsx` (~150 LOC):**
+- Replaces the Export button's direct save behaviour with a radio-style picker of three options: Single workbook / Folder by half-term / Folder by topic.
+- Each option shows name + subtitle + 2-3 sentence description + live preview ("Will write N files into …/by half-term").
+- Cancel + click-outside dismiss. Primary button label flips between "Export…" (single) and "Choose folder…" (folder modes).
+- `subject.config.hiddenYears` shown in the header so the user knows what's filtered.
+
+**App.tsx wiring:**
+- `handleExport` now opens the modal instead of saving directly.
+- `handleExportConfirm(mode)` dispatches based on radio selection: single → existing `saveSpreadsheetFile` path; folder modes → new `saveFolderOfXlsx` path.
+- All paths still respect `window.api` presence (browser mode still alerts "File dialogs require the Electron shell" — captured in BUGFIXES.md from earlier this session).
+
+**Tests added (+17 unit, +3 E2E):**
+- `tests/model/folderExport.test.ts`:
+  - `exportByHalfTermFolder` shape (file count = visible HT count; filename format `Y9-A1.xlsx`; both sheets present; respects hiddenYears; weekly grid contains week labels and empty-week placeholders; lesson list has the 11-column header; EoHTs excluded)
+  - `exportByTopicFolder` shape (zero files when nothing placed; 13 files with default includeDepth:false on demo, 15 with includeDepth:true; sortable padded filename prefix; lessons calendar-ordered; respects hiddenYears)
+  - Filename safety (path-reserved chars stripped from topic + subject names)
+- `tests/e2e/export-modal.spec.ts`:
+  - Export button opens modal with three radio choices; Cancel dismisses
+  - Single mode writes a single .xlsx via mocked save dialog
+  - By-half-term mode writes 17 files via mocked folder dialog
+- Existing `tests/e2e/persistence.spec.ts` updated: its "Export writes an .xlsx" test now navigates through the modal first.
+- Test fixture (`tests/e2e/fixtures.ts`) gained a `saveFolderOfXlsx` mock that stores files in the in-memory map under `mock://<folder>/<name>` keys.
+
+### Exit criteria check
+- [x] Two new export modes shipping (folder by HT + folder by topic)
+- [x] Existing single-workbook mode preserved as the modal default
+- [x] Single unified `ExportModal` (per user choice: not three buttons, not a dropdown)
+- [x] Each per-HT workbook has both compact + long-form sheets (per user choice)
+- [x] Hidden years filtered consistently with single-workbook exporter (DEC-036)
+- [x] Filename-safe across Windows / macOS
+- [x] `npm run typecheck` clean (renderer + electron)
+- [x] `npm test` — 316/316 (was 299/299; +17 new)
+- [x] `npm run test:e2e` — 29/29 (was 26/26; +3 new + 1 updated)
+- [x] `npm run build:renderer` clean
+- [x] DEC-039 logged with full rationale + alternatives + consequences
+
+### Deviations from the plan
+- **Per-topic export skips topics with zero placements** (so the demo with `includeDepth:false` emits 13 not 15 files because T11 and T15 each have only one sub-topic and that sub-topic is depth-flagged by the importer). Considered emitting empty placeholder files for missing topics — rejected as clutter; the user can flip `includeDepth` to see the depth-only topics.
+- **No SPEC.md edits.** New export modes fit under SPEC §6 "Export" without contradiction; captured in DEC-039 only. Will fold into SPEC at next consolidation pass.
+- **No zip support.** Considered but rejected: would add a dependency for one-click-share that the user can achieve in two clicks via OS Explorer/Finder. The IPC could be trivially extended later.
+
+### Decisions logged
+- [DEC-039](DECISIONS.md#dec-039) — Two new folder-based export modes (by-half-term + by-topic) sit alongside the original single-workbook export
+
+### Surprises and gotchas
+- **The importer aggregates lesson-level depth flags into a sub-topic-level depth flag.** A sub-topic with one foundation lesson + one depth lesson gets `subTopic.isDepth=true`, and presets `applyPreset(…, "frontloaded")` then skips it entirely when `includeDepth=false`. Surfaced this when expecting 15 per-topic files and getting 13 — the "missing" topics (T11, T15) have a single sub-topic that contains both kinds of lessons. Not a regression; documented as known current behaviour in the test. Worth revisiting whether `isSubTopicDepth` should mean "exclusively depth" rather than "contains any depth" — a separate session.
+- **`exactOptionalPropertyTypes` rejected `defaultName?` spread again.** Same pattern as Sessions 19-22: when forwarding optional API args, omit-when-absent rather than spread-with-undefined.
+- **Playwright `getByRole("dialog", { name: /…regex with quotes…/ })`** behaved unpredictably with literal `"` in the accessible name pattern. Switched to `/Export.*GCSE Physics 1PH0/i` (no embedded quote chars). Probably Playwright's regex normalisation; not worth a fuller investigation.
+- **The week-distribution heuristic in the Weekly schedule sheet is approximate.** `lessonsPerWeek = ceil(totalLessons / weeks)` means for "8 lessons over 6 weeks" we assign 2 lessons each to weeks 1-4, then weeks 5-6 are empty. Real-life timetabling distributes more evenly. Decided not to over-engineer — teachers tune by hand. Documented in source.
+- **Renderer's existing Export E2E test had to be updated** since clicking Export no longer writes a file directly. Found this by the full-suite run after the new spec passed; minor surprise but the kind of thing the test suite is for.
+
+### What's usable now
+1. Click Export with an active subject → modal opens with three radio choices
+2. Default selection is "Single workbook" — Enter to keep current behaviour (5-sheet xlsx)
+3. Pick "Folder by half-term" → choose a parent folder → planner creates `<subject> — by half-term/` with 17 `.xlsx` files (one per visible HT), each with a Weekly schedule + Lesson list tab
+4. Pick "Folder by topic" → similar UX → creates `<subject> — by topic/` with one `.xlsx` per topic-with-placements, calendar-ordered
+5. All three modes respect hidden years (Y10 hidden → no Y10 files / no Y10 rows)
+6. All three modes show filename previews in the modal so the user knows what they're about to get
+
+### Open questions for the user
+- **EoHTs and customs** are excluded from folder exports. A teacher who has placed retrieval-block customs and wants them in the weekly schedule will be confused — should they appear (with a distinctive label) or stay excluded as scaffolding?
+- **Zip support**: not in v1 of this. Worth adding for "email this to a colleague" or are folders fine since macOS/Windows file managers zip with two clicks?
+- **`isSubTopicDepth` semantics**: currently a sub-topic with any depth lesson is treated as depth-only when `includeDepth=false`. Should it instead be "include the foundation lessons of a partially-depth sub-topic, skip the depth ones"? Affects presets and folder-export topic counts.
+- Next per the roadmap: **Session 24** — first-startup wizard (consumes the calendar machinery from Sessions 19-20 and the preset machinery from Session 22).

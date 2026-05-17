@@ -22,6 +22,14 @@ const api = {
       buffer,
       defaultName: options?.defaultName,
     }),
+  saveFolderOfXlsx: (
+    files: ReadonlyArray<{ name: string; buffer: Uint8Array }>,
+    options: { suggestedFolderName: string }
+  ): Promise<{ folderPath: string; fileCount: number } | null> =>
+    ipcRenderer.invoke("file:saveFolderXlsx", {
+      files,
+      suggestedFolderName: options.suggestedFolderName,
+    }),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke("app:getVersion"),
   setDirty: (dirty: boolean): Promise<void> =>
     ipcRenderer.invoke("app:setDirty", dirty),

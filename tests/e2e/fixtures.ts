@@ -40,6 +40,10 @@ async function installApiMock(page: Page): Promise<void> {
         buffer: Uint8Array,
         opts?: { defaultName?: string }
       ): Promise<{ path: string } | null>;
+      saveFolderOfXlsx(
+        files: ReadonlyArray<{ name: string; buffer: Uint8Array }>,
+        opts: { suggestedFolderName: string }
+      ): Promise<{ folderPath: string; fileCount: number } | null>;
       getAppVersion(): Promise<string>;
       setDirty(dirty: boolean): Promise<void>;
     }
@@ -68,6 +72,13 @@ async function installApiMock(page: Page): Promise<void> {
           data: new Uint8Array(buffer),
         });
         return { path };
+      },
+      async saveFolderOfXlsx(files, opts) {
+        const folderPath = `mock://${opts.suggestedFolderName}`;
+        for (const f of files) {
+          memory.set(`${folderPath}/${f.name}`, { name: f.name, data: new Uint8Array(f.buffer) });
+        }
+        return { folderPath, fileCount: files.length };
       },
       async getAppVersion() {
         return "1.0.0-test";
