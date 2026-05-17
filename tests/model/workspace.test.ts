@@ -364,4 +364,39 @@ describe("serializeWorkspace / deserializeWorkspace", () => {
     });
     expect(() => deserializeWorkspace(json)).toThrow();
   });
+
+  it("round-trips a CustomBlock with no `kind` field (pre-Session-15 .curriculum)", () => {
+    // Simulates a `.curriculum` file saved before the CustomBlock kind +
+    // revisits fields were added. The deserialiser must preserve the absence
+    // of those fields — normalising to `kind: "standard"` would create a
+    // dirty diff on every load of a legacy file.
+    const json = JSON.stringify({
+      fileVersion: FILE_VERSION,
+      appVersion: "1.0.0",
+      savedAt: "2026-05-16T00:00:00Z",
+      workspace: {
+        activeSubjectId: null,
+        subjects: [
+          {
+            id: "subj-legacy",
+            meta: { name: "Legacy", colour: "#1F3A5F", sourceFilename: null },
+            importedSpec: { topics: [] },
+            workingSpec: { topics: [] },
+            timeline: { halfTerms: [] },
+            customBlocks: [
+              { id: "cb-1", name: "Mock exam", lessons: 2, colour: "#B85C5C", isEoHT: false },
+            ],
+            config: { includeDepth: false, lostLessonBuffer: false, autoSpillover: true },
+          },
+        ],
+      },
+    });
+    const restored = deserializeWorkspace(json);
+    const block = restored.subjects[0]?.customBlocks[0];
+    expect(block).toBeDefined();
+    expect(block!.id).toBe("cb-1");
+    // The new fields are absent — not normalised to defaults
+    expect("kind" in block!).toBe(false);
+    expect("revisits" in block!).toBe(false);
+  });
 });

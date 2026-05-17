@@ -76,12 +76,22 @@ export interface Timeline {
   readonly halfTerms: readonly HalfTerm[];
 }
 
+/**
+ * v1: every CustomBlock is "standard" unless explicitly marked. "retrieval"
+ * is reserved for blocks the user has tagged as revisiting earlier content
+ * (see DEC-031). The `revisits` array holds sub-topic codes the block is
+ * meant to revisit; it's only meaningful when kind === "retrieval".
+ */
+export type CustomBlockKind = "standard" | "retrieval";
+
 export interface CustomBlock {
   readonly id: string;
   readonly name: string;
   readonly lessons: number;
   readonly colour: string | null;
   readonly isEoHT: boolean;
+  readonly kind?: CustomBlockKind;
+  readonly revisits?: readonly string[];
 }
 
 export interface SubjectMeta {

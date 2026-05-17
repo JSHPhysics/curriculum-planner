@@ -1028,3 +1028,52 @@ No code signing: `electron-builder` logs "no signing info identified, signing is
 - `.github/workflows/release.yml`
 - `electron-builder.json`
 - [DEC-019](#dec-019) (existing CI / Pages workflows)
+
+---
+
+## DEC-031 — Retrieval-suggestion algorithm: weighted gap with depth/difficulty bonuses; deterministic, no AI
+**Date:** 2026-05-17
+**Session:** 15
+**Status:** Accepted
+
+### Context
+The user asked for an in-app way to "suggest retrieval topics for a given half-term — the app looks back, considers spacing, and suggests which topics might benefit from retrieval questions as part of tests/homework/lesson starters." They explicitly required this work for any imported curriculum without any AI/LLM component (per `SPEC.md` §1.2). The challenge: produce a defensible ranking of "which previously-taught sub-topics would benefit most from retrieval right now?" using only the structural properties of the (Spec × Timeline) data the user already authored.
+
+### Decision
+A pure scoring function in `src/model/retrievalSuggestions.ts`:
+
+```
+gapScore        = clamp(halfTermsSinceLastTouch / 12, 0, 1)
+depthBonus      = hasDepthContent ? 0.15 : 0
+difficultyBonus = (difficulty - 1) * 0.1              // 0, 0.1, 0.2
+recentnessPenalty = totalPlacementsToDate > 1 ? -0.1 : 0
+score = clamp(gapScore + depthBonus + difficultyBonus + recentnessPenalty, 0, 1)
+```
+
+Rationale, per signal:
+- **gapScore** is the dominant term. Bigger gap → bigger retrieval payoff (Bjork's "desirable difficulties"). Peak at 12 half-terms (~1 school year of HTs out of our 17 across Y9–Y11).
+- **depthBonus** rewards sub-topics flagged `isDepth` at import time, or containing any `isDepth` lesson. The user has signalled at authoring time that these matter; surface them more aggressively.
+- **difficultyBonus** uses the sub-topic's `difficulty` (1–3) field, again user-authored. Harder content benefits more from spaced retrieval.
+- **recentnessPenalty** nudges single-touch sub-topics above already-revisited ones. If something has been taught 3 times, a 4th retrieval prompt is less valuable than revisiting something taught only once.
+
+All weights and the gap normalisation constant live at the top of the file as named constants. Tuning later (after user feedback) is a one-line change without touching algorithm shape.
+
+### Alternatives considered
+- **Forgetting-curve simulation** (e.g. Ebbinghaus exponential decay per touch). Mathematically tidier but adds the obligation to pin a decay constant per learner / per content — there's no defensible single value. The piecewise weighted approach is simpler and produces the same qualitative ordering for v1.
+- **AI/LLM-driven suggestions** considering semantic similarity between topics. Out of scope per `SPEC.md` §1.2 and offers no clear advantage over structural ranking for a teacher who knows their content.
+- **Pure gap, no other signals.** Cleanest but loses the user-authored depth/difficulty signals that should pull the ranking towards content the user already deems important.
+- **Per-objective scoring** (rather than per-sub-topic). Considered, but each objective lives inside a lesson inside a sub-topic — placement gaps are per-sub-topic in practice. Keeping the unit at sub-topic level matches the UI surface (the eventual button will be on a `BlockEditModal` or `CustomBlockModal` already scoped to that granularity).
+
+### Consequences
+- **Subject-agnostic.** No hardcoded topic names, no per-curriculum tuning — works for physics, history, languages, any spec the user imports.
+- **Deterministic.** Same inputs → same outputs. Reproducible across runs and contributors.
+- **Easy to tune.** All five constants are at the top of the file; changing one is a 30-second edit + re-run of `npm test`.
+- **Easy to test.** The score is a pure number from numeric inputs; tests can pin specific orderings (e.g. "T1a 12HT-gap single-touch outscores T1b 3HT-gap twice-touched").
+- **No UI commitment.** The engine returns ranked `RetrievalCandidate[]`; the renderer (added in a follow-up session) can present them as chips in a panel, suggestions on the Block modal, or any other surface.
+- **Algorithm is one of many that would work.** Documented so future contributors know what was considered and why this shape was chosen; a v1.1+ rework with real user data is fine and expected.
+
+### Related
+- `SPEC.md` §1.1 (in-scope), §1.2 (no AI), §14 (per-objective auto-schedule still deferred)
+- `src/model/retrievalSuggestions.ts`
+- `src/model/spacing.ts` (provides the underlying `getPlacementHistory` data)
+- `tests/model/retrievalSuggestions.test.ts`

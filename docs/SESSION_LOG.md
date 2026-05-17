@@ -884,3 +884,75 @@ Run `npm run dev`:
 ### Open questions for the user
 - Want me to cut `v1.0.0` now and trigger the first real release? Or smoke-test the Windows installer first?
 - All BUILD_PLAN sessions (0–14) are complete. The remaining work is the v1.1+ deferred items (presets, keyboard drag, intra-lesson objective reorder, cross-subject view, retrieval scheduler, PWA, cloud sync) and any user-reported polish from real use.
+
+---
+
+## Session 15 — Pedagogical groundwork: spacing analytics + retrieval suggestion engine
+**Date:** 2026-05-17
+**Status:** Complete (groundwork-only by design — see *Deliberate non-scope*)
+**Commit:** *(pending — see git log)*
+
+### What was built
+- **`src/model/spacing.ts`** — pure subject-agnostic analytics with no store or UI coupling:
+  - `getPlacementHistory(subject, subTopicCode)` — calendar-ordered placements for one sub-topic, each tagged with `halfTermIdx` (0..16) and the underlying `placedBlock`
+  - `SpacingProfile { placements, gapsInHalfTerms, maxGap, meanGap, isSingleTouch, isUnplaced, lastPlacementHalfTermIdx }` returned by `getSpacingProfile` (one) and `getSpacingProfilesAll` (every sub-topic in spec order, includes unplaced ones)
+  - `getInterleavingScore(subject, halfTerm) → { distinctTopicCount, distinctSubTopicCount, totalLessons, dominantTopicCode, dominantTopicShare }` + `getInterleavingScoresAll`
+  - `getSpacingFlags(subject) → { singleTouch, unplaced, blockedCells, wellSpaced }` — rolled-up health flags ready for a diagnostic panel. Thresholds (`BLOCKED_CELL_MIN_LESSONS = 4`, `BLOCKED_CELL_DOMINANT_SHARE = 0.8`, `WELL_SPACED_MIN_PLACEMENTS = 3`, `WELL_SPACED_MIN_MEAN_GAP = 4`) sit at the top of the file for easy tuning.
+- **`src/model/retrievalSuggestions.ts`** — the suggestion engine:
+  - `suggestRetrievalCandidates(subject, contextHalfTermId, options?) → readonly RetrievalCandidate[]`
+  - Pure scoring formula per [DEC-031](DECISIONS.md#dec-031): `score = clamp(gapScore + depthBonus + difficultyBonus + recentnessPenalty, 0, 1)`
+  - Tunable weights at top of file as named constants (`PEAK_GAP_HALF_TERMS = 12`, `DEPTH_BONUS = 0.15`, `DIFFICULTY_BONUS_PER_LEVEL = 0.1`, `REPEATED_PLACEMENT_PENALTY = -0.1`)
+  - Returns `RetrievalCandidate { subTopicCode, topicCode, lastPlacementHalfTermId, halfTermsSinceLastTouch, totalPlacementsToDate, hasDepthContent, difficulty, score, reason }`. The `reason` field is a short human-readable string ("Last seen 14 half-terms ago in Y9-A1; never revisited; depth content; high difficulty") suitable for a tooltip or chip.
+  - Options: `maxCandidates` (default 8), `includeUnplaced` (default false), `minHalfTermsSinceTouch` (default 1)
+  - Edge cases handled: unknown contextHalfTermId → `[]`; context at earliest half-term → `[]`; no sub-topic placed before context → `[]`
+- **`src/model/types.ts`** — minor `CustomBlock` extension:
+  - Added `kind?: CustomBlockKind` and `revisits?: readonly string[]` (both optional)
+  - Backwards-compatible: existing `.curriculum` files load unchanged; the new fields are absent on legacy blocks (not normalised to defaults — preserves dirty-flag fidelity)
+- **Tests:** 21 new tests across two files
+  - `tests/model/spacing.test.ts` — 12 tests covering `getPlacementHistory` (empty, multi-half-term, same-half-term ordering), `getSpacingProfile` (unplaced / single-touch / multi-touch gap math), `getSpacingProfilesAll`, `getInterleavingScore` (empty cell / dominant topic / EoHT exclusion), `getInterleavingScoresAll`, and an end-to-end `getSpacingFlags` integration test
+  - `tests/model/retrievalSuggestions.test.ts` — 8 tests covering empty cases, the spacing-dominates-scoring assertion, `maxCandidates` truncation, `includeUnplaced`, deterministic ordering, and the `reason` string format
+  - `tests/model/workspace.test.ts` — +1 test locking in backwards-compat: a legacy `.curriculum` JSON with no `kind` field on a custom block round-trips with `kind` and `revisits` still absent (not normalised)
+
+### Exit criteria check
+- [x] All new analytics expose pure functions (no store, no UI imports). Confirmed by reading the import list — only `./queries` and `./types`.
+- [x] `npm test` passes — 212/212 across 13 files (was 191/191 across 11 files before).
+- [x] `npm run test:coverage` passes the 80% gate — now at **94.84% lines** (up from 87.91%); `spacing.ts` and `retrievalSuggestions.ts` both at 100% lines.
+- [x] `npm run test:e2e` passes — 10/10 unchanged (no UI changes this session).
+- [x] `npm run typecheck` clean.
+- [x] `npm run build:renderer` clean.
+- [x] No new runtime dependencies; no UI changes; existing `.curriculum` files still load identically.
+
+### Deviations from the plan
+None. The plan file [`i-d-like-you-to-glimmering-dragon.md`](../../../../Users/Josh/.claude/plans/i-d-like-you-to-glimmering-dragon.md) was executed end-to-end. One small judgement call: removed the unused `findTopicAndSubTopic` import from `retrievalSuggestions.ts` after switching to `getPlacementHistory` for the lookup — the import was leftover from the draft.
+
+### Deliberate non-scope (per plan)
+- **No UI changes.** Renderer is byte-identical in behaviour to v1.0.0. This is by design — the follow-up session ships the diagnostic panel (Option A), retrieval-block modal (Option C), and a "Suggest topics to revisit" affordance, each as a small drop-in component reading from this session's modules.
+- **No store actions.** The analytics are read-only pure functions consumed directly by UI components (eventual).
+- **No new deps.** Reused `findTopicAndSubTopic` from `queries.ts` and the existing timeline traversal idiom.
+
+### Decisions logged
+- [DEC-031](DECISIONS.md#dec-031) — Retrieval-suggestion algorithm: weighted gap with depth/difficulty bonuses; deterministic, no AI
+
+### Surprises and gotchas
+- **`exactOptionalPropertyTypes` works cleanly with the new optional fields.** TS is happy with `kind?: CustomBlockKind` and existing CustomBlock construction code didn't need updates because every existing call site builds the block without the `kind` field — it's literally absent, not undefined. The strict-mode flag would have caught any drift.
+- **The deserialiser already passes through unknown fields.** No `workspace.ts` change was needed for backwards-compat; the existing structural validation (`subjects` is an array, `activeSubjectId` is string|null) doesn't introspect customBlocks. Locked in with a new test rather than relying on it being implicit.
+- **Multiple placements in the same half-term contribute a `gap = 0`** in `gapsInHalfTerms`. That's the right semantics — "no spacing between them" — and is faithfully reflected in `meanGap`. A future user-facing presentation might want to collapse these, but the analytics correctly distinguish "two pieces of the same sub-topic in one cell" from "two cells apart".
+- **Sort stability for tied scores.** TS's `Array.sort` is stable since Node 12, and I push candidates in spec order during the walk — so equal-score items naturally retain spec order. Tested with the determinism assertion (same input → same output across calls).
+- **The example physics spec has T1 with only one sub-topic.** Same gotcha caught back in Session 11 store tests. My new tests use a hand-built spec (T1 with T1a + T1b; T2 with T2a) rather than the example file, which is more controllable and doesn't share that quirk.
+- **Coverage jumped from 87.91% → 94.84% on `src/model/`.** The two new files are at 100% lines, and they pulled the average up. `queries.ts` is still the weakest at 53% (it's primarily exercised by UI integration, not unit tests) — could add explicit tests in a polish pass but the gate passes comfortably.
+
+### What's usable now (no user-visible change)
+- `import { suggestRetrievalCandidates } from "@/model/retrievalSuggestions"` is available to renderer code. Calling it on the active subject + a half-term id returns a ranked array of `RetrievalCandidate` objects ready to render.
+- `import { getSpacingFlags } from "@/model/spacing"` returns the `{ singleTouch, unplaced, blockedCells, wellSpaced }` summary that the future diagnostic panel will render.
+
+### What ships next session
+Per the plan's "follow-up" section, three small UI pieces, each independently shippable:
+1. **Diagnostic panel** (~150 LOC, 1 component) reading from `getSpacingFlags` — shown collapsed in the StatusBar area, expandable to show details and click-to-jump to a flagged cell/topic.
+2. **CustomBlockModal extension** (~50 LOC) — a kind picker ("Standard" / "Retrieval") + multi-select for `revisits` populated from placed sub-topics.
+3. **Retrieval-suggestion UI** (~80 LOC) — a "Suggest topics to revisit here" button on `BlockEditModal` (or as a standalone half-term-cell context menu item) that opens a panel listing the top-N `RetrievalCandidate`s with their `reason` strings, click-to-add as a retrieval custom block.
+
+Order TBD by user preference once they see this groundwork in place.
+
+### Open questions for the user
+- Which of the three follow-up UI pieces to ship first? (My instinct: #1 diagnostic panel — it's the easiest "look at what you've built" win and validates the analytics modules in real use before #2/#3 commit to a specific interaction model.)
+- Should the retrieval-suggestion engine eventually account for `subject.config.includeDepth` (currently no — depth always counts as a positive signal)? Could be a tunable in a future session.

@@ -31,6 +31,8 @@ A desktop curriculum planning tool for teachers. The user imports an Excel file 
 - Restore-to-import — revert any subject to its original imported state
 - "Lost-lesson buffer" toggle (scales capacities by 0.9)
 - "Include depth" toggle (adds depth-flagged lessons to totals)
+- Spacing + interleaving analytics surfaced as health flags on the plan (subject-agnostic, deterministic, no AI — see [DEC-031](DECISIONS.md#dec-031))
+- Retrieval-candidate suggestion engine: given a half-term, surface sub-topics worth revisiting based on placement gap, depth flag, difficulty, and revisit history
 
 ### 1.2 Explicitly out of scope (v1)
 - Any AI or LLM features
@@ -627,7 +629,7 @@ curriculum-planner/
 ## 14. Open questions deliberately left for v1.1+
 
 - Cross-subject conflict detection (e.g. test in two subjects same week)
-- Per-objective retrieval schedule
+- Per-objective retrieval *auto-schedule* (the suggestion engine in §1.1 is per-sub-topic and user-initiated; a full per-objective auto-scheduler would auto-place ghost markers across the year)
 - PWA build for iPad
 - Resource attachments per lesson
 - Lesson plan templates
