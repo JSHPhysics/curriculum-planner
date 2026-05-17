@@ -1119,3 +1119,60 @@ Open the app and load the example. Then:
 ### Open questions for the user
 - The Spacing panel's threshold constants (`BLOCKED_CELL_MIN_LESSONS = 4`, etc., in `src/model/spacing.ts`) are not currently UI-tunable like the retrieval weights are. Worth exposing? My take: only if it's been a real friction point in use. Easy to add when needed.
 - Should `docs/PEDAGOGY.md` be linkable from within the app (a "Read the rationale →" button on the Spacing panel and the WeightsEditor)? Currently the path is mentioned in the disclosures but not clickable.
+
+---
+
+## Session 18 — Tunable spacing-panel thresholds with pedagogical "Why this default?" disclosures
+**Date:** 2026-05-17
+**Status:** Complete
+**Commit:** *(pending — see git log)*
+
+### What was built
+- **`src/model/types.ts`** — new `SpacingThresholds` interface (all four fields optional). `SubjectConfig` extended with `spacingThresholds?: SpacingThresholds`. Backwards-compatible: existing `.curriculum` files load with the field absent and fall through to defaults.
+- **`src/model/spacing.ts`**:
+  - Exported `DEFAULT_SPACING_THRESHOLDS: Required<SpacingThresholds>` (one per former hard-coded constant)
+  - New `resolveSpacingThresholds(subject)` layers subject.config over the defaults, field-by-field
+  - `getSpacingFlags(subject)` resolves thresholds internally — no signature change for callers
+- **`src/components/SpacingPanel.tsx`**:
+  - New `ThresholdsEditor` (~110 LOC) inside the expanded panel's grid, behind a "⚙ Tune thresholds for this subject" `<details>` disclosure (full-width across the 4-column layout)
+  - One `ThresholdRow` per threshold with: a slider, a formatted value display (e.g. "80%" for the share, "4 lessons" for the count), an "edited" badge when overridden, and a `<details>` "Why this default?" sub-disclosure with 2–3 sentences of pedagogical rationale citing the same sources as `docs/PEDAGOGY.md`
+  - "Reset to defaults" button — disabled when there are no overrides
+  - Edits flow through `updateActiveSubjectConfig({ spacingThresholds: { ... } })`; the flag pills above re-evaluate immediately via the existing `useMemo`
+- **`docs/PEDAGOGY.md`** — new §4b "The Spacing panel — tuning the flag thresholds" covering all four defaults with pedagogical justification + adjustment guidance (when to raise, when to lower). Same prose register as the rest of the doc — teacher-pedagogue audience.
+- **Tests:**
+  - `tests/model/spacing.test.ts` — +3 unit tests: blocked-cell threshold override changes the flag, well-spaced placements threshold override flips the flag, `resolveSpacingThresholds` layering is field-by-field correct
+  - `tests/e2e/spacing-and-retrieval.spec.ts` — +1 E2E: place 3 lessons (under default 4) → no blocked cell; drag the slider to 2 → the Y9-A1 · T2 button appears in the Blocked cells section
+
+### Exit criteria check
+- [x] All four spacing thresholds tunable per-subject via UI
+- [x] Each threshold has an inline "Why this default?" disclosure with pedagogical rationale
+- [x] Defaults remain pedagogically defensible (justifications written into both UI and docs)
+- [x] `npm run typecheck` clean
+- [x] `npm test` — 222/222 (was 218/218; +4 new unit tests)
+- [x] `npm run test:e2e` — 16/16 (was 15/15; +1 new E2E)
+- [x] `npm run build:renderer` clean
+- [x] Backwards-compatible: optional field, missing values fall through, deserialiser unchanged
+
+### Deviations from the plan
+None of substance. The `ThresholdsEditor` is structurally identical to the `WeightsEditor` from Session 17 (both use a `<details>` outer + sliders + per-knob `<details>` inner). Could have shared a generic editor abstraction, but the value labels (e.g. "80%" vs "0.8") and threshold-specific rationale strings differ enough that an abstraction would add ceremony without saving lines.
+
+### Decisions logged
+- [DEC-033](DECISIONS.md#dec-033) — Per-subject tunable spacing thresholds with pedagogically defensible defaults
+
+### Surprises and gotchas
+- **Pattern repetition is fine.** The DEC-032 / DEC-033 pair shows the same pattern can be applied twice without harm. Future tunable knob? Same shape: type → SubjectConfig field → defaults constant → resolver → UI editor with rationale disclosures → docs entry. Worth recognising as "the project's tunable-pedagogy pattern" rather than abstracting prematurely.
+- **The 0.5 lower-bound on dominant-share is load-bearing.** Below ~55% the meaning inverts (healthy interleaving = "blocked"). Documented in DEC-033 and enforced by the slider's `min={0.5}`. Worth a comment in the UI: a user dragging it down might wonder why it stops.
+- **No unit-test breakage from the `getSpacingFlags` refactor.** The function's existing tests (which used the hard-coded defaults) still pass because the new defaults are identical. The new tests exercise the override path explicitly.
+- **The threshold E2E uses `input[type=range].fill("2")`** — Playwright treats range inputs the same as text inputs for value setting. Works without needing custom `dispatchEvent` calls.
+- **Same `updateActiveSubjectConfig` store action** handles both retrieval weights (DEC-032) and spacing thresholds (this session). Adding a third tunable would just add a third optional field on SubjectConfig — no store changes needed. The action is essentially `(partial) => merge` which generalises well.
+
+### What's usable now
+1. Open the Spacing panel (now persistent), click "⚙ Tune thresholds for this subject" at the bottom.
+2. Drag any slider — the flag pills above (single-touch / unplaced / blocked / well-spaced) re-evaluate immediately.
+3. Click "Why this default?" under any slider for a paragraph explaining the choice with literature citations.
+4. "Reset to defaults" clears all subject-level threshold overrides.
+5. Subject-level overrides persist in `subject.config.spacingThresholds` and round-trip through `.curriculum` files.
+
+### Open questions for the user
+- DEC-032's open question still stands: should `docs/PEDAGOGY.md` be linkable from within the app? Now that BOTH the retrieval popover AND the spacing panel reference the doc, an in-app "Open PEDAGOGY.md" button would surface it consistently from either entry point.
+- Two third-kind tunables are now `subject.config.*` — should `SubjectConfig` get a `pedagogy: { retrievalWeights, spacingThresholds }` sub-object for tidiness? Probably defer until there are 3+ pedagogy preferences.

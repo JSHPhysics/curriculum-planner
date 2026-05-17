@@ -114,11 +114,24 @@ export interface RetrievalWeights {
   readonly repeatedPlacementPenalty?: number;
 }
 
+/**
+ * Per-subject overrides for the Spacing-panel flag thresholds (see DEC-033).
+ * Missing fields fall back to `DEFAULT_SPACING_THRESHOLDS` in
+ * `src/model/spacing.ts`. Rationale for each default lives in `docs/PEDAGOGY.md`.
+ */
+export interface SpacingThresholds {
+  readonly blockedCellMinLessons?: number;
+  readonly blockedCellDominantShare?: number; // 0..1
+  readonly wellSpacedMinPlacements?: number;
+  readonly wellSpacedMinMeanGap?: number;
+}
+
 export interface SubjectConfig {
   readonly includeDepth: boolean;
   readonly lostLessonBuffer: boolean;
   readonly autoSpillover: boolean;
   readonly retrievalWeights?: RetrievalWeights;
+  readonly spacingThresholds?: SpacingThresholds;
 }
 
 export interface Subject {

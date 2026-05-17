@@ -1125,3 +1125,48 @@ All weights and the gap normalisation constant live at the top of the file as na
 - `src/components/RetrievalSuggestionPopover.tsx` (`WeightsEditor`, `WeightRow`)
 - `src/components/SpacingPanel.tsx` (`Section` rationale disclosures)
 - [DEC-031](#dec-031) (parent: the engine itself)
+
+---
+
+## DEC-033 — Spacing-panel flag thresholds are tunable per-subject via `subject.config.spacingThresholds`
+**Date:** 2026-05-17
+**Session:** 18
+**Status:** Accepted
+
+### Context
+The Spacing panel surfaces four flags (single-touch, unplaced, blocked cells, well-spaced) computed against four numeric thresholds in `src/model/spacing.ts`: `BLOCKED_CELL_MIN_LESSONS = 4`, `BLOCKED_CELL_DOMINANT_SHARE = 0.8`, `WELL_SPACED_MIN_PLACEMENTS = 3`, `WELL_SPACED_MIN_MEAN_GAP = 4`. The user's working principle is "allow flexibility" — the thresholds should be user-tunable like the retrieval weights from DEC-032, with the same "click for more info" pedagogical rationale for each default.
+
+### Decision
+Same pattern as DEC-032, applied to the spacing thresholds:
+- Add `SpacingThresholds` type (all four fields optional) to `src/model/types.ts`
+- Extend `SubjectConfig` with optional `spacingThresholds?: SpacingThresholds`
+- Export `DEFAULT_SPACING_THRESHOLDS: Required<SpacingThresholds>` and `resolveSpacingThresholds(subject)` from `src/model/spacing.ts`
+- `getSpacingFlags` resolves thresholds internally; no signature change
+- UI: a `ThresholdsEditor` lives inside the SpacingPanel's expanded view (full-width across the 4-column grid) behind a "⚙ Tune thresholds for this subject" `<details>` disclosure. Each threshold has a slider + numeric value + "Why this default?" sub-disclosure with a paragraph of pedagogical rationale
+- `docs/PEDAGOGY.md` gains a new §4b covering all four thresholds with citations
+
+The four defaults' pedagogical justifications (summarised; full prose in `docs/PEDAGOGY.md`):
+- **blockedCellMinLessons = 4**: Approximates a teaching week, the empirical threshold past which fluency-illusion effects from blocked practice start hurting later transfer (Rohrer & Taylor 2007).
+- **blockedCellDominantShare = 0.8**: 80%+ = "essentially the whole cell". Below ~55% the meaning inverts (healthy interleaving gets flagged as blocked); the slider clamps at 0.5 to prevent this.
+- **wellSpacedMinPlacements = 3**: Two placements give one gap (which could be coincidence); three give two gaps, which reads as intentional spacing design.
+- **wellSpacedMinMeanGap = 4**: 4 half-terms ≈ 24 weeks ≈ inside Cepeda et al.'s (2006) optimal ISI window for year-end retention.
+
+### Alternatives considered
+- **A single combined "Pedagogy settings" modal** covering both spacing thresholds and retrieval weights. Considered, but the two are conceptually different (thresholds = where do we flag, weights = how do we rank) and live near different UI surfaces (SpacingPanel vs RetrievalSuggestionPopover). Keeping them co-located with the thing they affect is better UX.
+- **Workspace-level thresholds** (one tuning across all subjects). Consistent with DEC-032's per-subject decision — different subjects might legitimately want different cell-dominance thresholds.
+- **Hardcoded thresholds with no UI tuning** (the v1 status). Rejected per the user's "allow flexibility" principle, but worth noting: the defaults are pedagogically defensible, so the typical user can ignore the tuner entirely.
+- **Lower-bound clamps on the dominant-share slider**. Set at 0.5 (UI) to prevent the meaning-inversion. Below 0.5 the engine would flag every cell with two evenly-split topics as "blocked", which contradicts the pedagogical definition of blocked practice.
+
+### Consequences
+- Existing `.curriculum` files load unchanged: missing `spacingThresholds` falls through to defaults
+- Per-subject thresholds persist in `subject.config.spacingThresholds` and round-trip through `.curriculum` files
+- The Spacing panel's flag pills re-evaluate immediately on any slider change (the same `getSpacingFlags(subject)` call runs through the memo)
+- The four threshold "Why this default?" disclosures expose the pedagogical literature without forcing the user to read it — same progressive-disclosure pattern as DEC-032
+
+### Related
+- `SPEC.md` §1.1 (in-scope), §1.2 (no AI)
+- `docs/PEDAGOGY.md` §4b (canonical reference for the thresholds)
+- `src/model/types.ts` (`SpacingThresholds`, `SubjectConfig.spacingThresholds`)
+- `src/model/spacing.ts` (`DEFAULT_SPACING_THRESHOLDS`, `resolveSpacingThresholds`, refactored `getSpacingFlags`)
+- `src/components/SpacingPanel.tsx` (`ThresholdsEditor`, `ThresholdRow`)
+- [DEC-031](#dec-031), [DEC-032](#dec-032) (sibling decisions on the retrieval side)

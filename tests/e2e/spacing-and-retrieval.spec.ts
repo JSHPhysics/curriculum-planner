@@ -122,6 +122,31 @@ test.describe("Spacing panel + retrieval suggestions", () => {
     await expect(dialog).toContainText(/Nothing to revisit yet/i);
   });
 
+  test("Tuning a spacing threshold re-evaluates the flags live", async ({ app }) => {
+    await app.loadExample();
+
+    // Place 3 lessons of T2a in Y9-A1 — under the default blocked-cell minimum (4)
+    const t2a = app.page.locator("div.touch-none", { hasText: "T2a" }).first();
+    const y9a1 = app.page.getByTestId("halfterm-cell-Y9-A1");
+    await dragTo(app.page, t2a, y9a1);
+    await expect(y9a1.locator("div.touch-none", { hasText: "T2a" })).toBeVisible();
+
+    // Open Plan health
+    await app.page.getByRole("button", { name: /Plan health/i }).click();
+    const details = app.page.locator("#spacing-panel-details");
+    await expect(details).toBeVisible();
+    // No blocked cells at default thresholds (only 3 lessons in Y9-A1)
+    await expect(details).toContainText(/No cells dominated by a single topic/i);
+
+    // Open the thresholds editor, drag the "Blocked-cell minimum lessons" slider down to 2
+    await details.getByRole("group").or(details).getByText(/Tune thresholds for this subject/i).click();
+    const slider = details.getByRole("slider", { name: /Blocked-cell minimum lessons/i });
+    await slider.fill("2"); // input[type=range].fill works as setValue
+
+    // The "Blocked cells" section now lists Y9-A1 as flagged
+    await expect(details.getByRole("button", { name: /Y9-A1 · T2/i })).toBeVisible();
+  });
+
   test("SpacingPanel expanded state persists across a reload", async ({ app }) => {
     await app.loadExample();
     const trigger = app.page.getByRole("button", { name: /Plan health/i });

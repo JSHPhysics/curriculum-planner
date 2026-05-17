@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { findTopicAndSubTopic } from "@/model/queries";
-import { getSpacingFlags } from "@/model/spacing";
-import type { Subject } from "@/model/types";
+import {
+  DEFAULT_SPACING_THRESHOLDS,
+  getSpacingFlags,
+  resolveSpacingThresholds,
+} from "@/model/spacing";
+import type { SpacingThresholds, Subject } from "@/model/types";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
 export interface SpacingPanelProps {
@@ -31,6 +35,7 @@ function readExpandedFromStorage(): boolean {
  */
 export function SpacingPanel({ subject }: SpacingPanelProps): JSX.Element | null {
   const setCurrentTermId = useWorkspaceStore((s) => s.setCurrentTermId);
+  const updateActiveSubjectConfig = useWorkspaceStore((s) => s.updateActiveSubjectConfig);
   const [expanded, setExpanded] = useState<boolean>(readExpandedFromStorage);
 
   useEffect(() => {
@@ -43,8 +48,26 @@ export function SpacingPanel({ subject }: SpacingPanelProps): JSX.Element | null
   }, [expanded]);
 
   const flags = useMemo(() => (subject ? getSpacingFlags(subject) : null), [subject]);
+  const thresholds = useMemo(
+    () => (subject ? resolveSpacingThresholds(subject) : null),
+    [subject]
+  );
 
-  if (!subject || !flags) return null;
+  if (!subject || !flags || !thresholds) return null;
+
+  function patchThresholds(patch: Partial<SpacingThresholds>): void {
+    updateActiveSubjectConfig({
+      spacingThresholds: { ...(subject!.config.spacingThresholds ?? {}), ...patch },
+    });
+  }
+
+  function resetThresholds(): void {
+    updateActiveSubjectConfig({ spacingThresholds: {} });
+  }
+
+  const hasThresholdOverrides =
+    subject.config.spacingThresholds !== undefined &&
+    Object.keys(subject.config.spacingThresholds).length > 0;
 
   const total =
     flags.singleTouch.length +
@@ -225,6 +248,20 @@ export function SpacingPanel({ subject }: SpacingPanelProps): JSX.Element | null
               <SubTopicChip key={code} code={code} subject={subject} tone="good" />
             ))}
           </Section>
+
+          <div className="md:col-span-2 lg:col-span-4">
+            <details className="border-t border-line pt-2 mt-1">
+              <summary className="cursor-pointer text-xs text-ink-dim hover:text-ink select-none">
+                ⚙ Tune thresholds for this subject
+              </summary>
+              <ThresholdsEditor
+                thresholds={thresholds}
+                onChange={patchThresholds}
+                onReset={resetThresholds}
+                hasOverrides={hasThresholdOverrides}
+              />
+            </details>
+          </div>
         </div>
       )}
     </div>
@@ -308,5 +345,154 @@ function SubTopicChip({ code, subject, tone = "warn" }: SubTopicChipProps): JSX.
     >
       {code}
     </span>
+  );
+}
+
+interface ThresholdsEditorProps {
+  readonly thresholds: Required<SpacingThresholds>;
+  readonly onChange: (patch: Partial<SpacingThresholds>) => void;
+  readonly onReset: () => void;
+  readonly hasOverrides: boolean;
+}
+
+function ThresholdsEditor({
+  thresholds,
+  onChange,
+  onReset,
+  hasOverrides,
+}: ThresholdsEditorProps): JSX.Element {
+  return (
+    <div className="mt-3 space-y-3 bg-surface-2/40 p-3 rounded border border-line">
+      <p className="text-[11px] text-ink-dim leading-snug">
+        Changes here apply only to this subject and re-evaluate the four flags above immediately.
+        Pedagogically defensible defaults are explained beneath each control. Full rationale in{" "}
+        <code className="font-mono">docs/PEDAGOGY.md</code> §3 and §5.
+      </p>
+
+      <ThresholdRow
+        label="Blocked-cell minimum lessons"
+        value={thresholds.blockedCellMinLessons}
+        defaultValue={DEFAULT_SPACING_THRESHOLDS.blockedCellMinLessons}
+        min={1}
+        max={20}
+        step={1}
+        format={(n) => `${n} lessons`}
+        onChange={(v) => onChange({ blockedCellMinLessons: v })}
+        rationale="A cell with fewer than 4 lessons isn't 'blocked' — it's just a focused mini-block (a couple of sessions). 4+ lessons on a single topic is approximately a teaching week at most lesson cadences; that's where the absence of interleaving starts producing the fluency illusion Rohrer warns about. Raise this if your cells are typically very long and you only want to flag genuinely heavy blocks; lower it if you teach in short cycles and even 2–3 consecutive sessions on one topic concern you."
+      />
+
+      <ThresholdRow
+        label="Blocked-cell dominant share"
+        value={thresholds.blockedCellDominantShare}
+        defaultValue={DEFAULT_SPACING_THRESHOLDS.blockedCellDominantShare}
+        min={0.5}
+        max={1}
+        step={0.05}
+        format={(n) => `${Math.round(n * 100)}%`}
+        onChange={(v) => onChange({ blockedCellDominantShare: v })}
+        rationale="At 80%+ one topic is essentially the whole cell — the rest is noise. Drop this to 60% if you also want to flag cells with mild dominance (one topic + two interleaved); push to 90% if you only care about extreme cases. Note that going below ~55% starts flagging healthy interleaving as 'blocked', which inverts the meaning."
+      />
+
+      <ThresholdRow
+        label="Well-spaced minimum placements"
+        value={thresholds.wellSpacedMinPlacements}
+        defaultValue={DEFAULT_SPACING_THRESHOLDS.wellSpacedMinPlacements}
+        min={2}
+        max={6}
+        step={1}
+        format={(n) => `${n} placements`}
+        onChange={(v) => onChange({ wellSpacedMinPlacements: v })}
+        rationale="Two placements give you one inter-placement gap (a single revisit); three give you two — enough to read as intentional spacing rather than coincidence. Drop to 2 if you consider any revisit as worthy of the positive flag; raise to 4+ if you reserve 'well-spaced' for truly repeated retrieval."
+      />
+
+      <ThresholdRow
+        label="Well-spaced minimum mean gap"
+        value={thresholds.wellSpacedMinMeanGap}
+        defaultValue={DEFAULT_SPACING_THRESHOLDS.wellSpacedMinMeanGap}
+        min={1}
+        max={12}
+        step={1}
+        format={(n) => `${n} half-terms`}
+        onChange={(v) => onChange({ wellSpacedMinMeanGap: v })}
+        rationale="4 half-terms ≈ 24 weeks — comfortably inside Cepeda et al.'s optimal ISI window for year-end retention. Shorter gaps (≤2 HT ≈ 12 weeks) are massed-practice territory and don't earn the label. Higher thresholds (e.g. 6+) are even better for retention but rarely achievable inside a single school year."
+      />
+
+      <div className="flex items-center justify-end pt-1">
+        <button
+          type="button"
+          onClick={onReset}
+          disabled={!hasOverrides}
+          className="text-[11px] px-2 py-1 border border-line rounded hover:bg-surface disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Restore the four thresholds to their built-in defaults"
+        >
+          Reset to defaults
+        </button>
+      </div>
+    </div>
+  );
+}
+
+interface ThresholdRowProps {
+  readonly label: string;
+  readonly value: number;
+  readonly defaultValue: number;
+  readonly min: number;
+  readonly max: number;
+  readonly step: number;
+  readonly format: (n: number) => string;
+  readonly onChange: (v: number) => void;
+  readonly rationale: string;
+}
+
+function ThresholdRow({
+  label,
+  value,
+  defaultValue,
+  min,
+  max,
+  step,
+  format,
+  onChange,
+  rationale,
+}: ThresholdRowProps): JSX.Element {
+  const isCustom = value !== defaultValue;
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-ink-dim text-xs flex-1">{label}</span>
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="w-32 accent-navy"
+          aria-label={label}
+        />
+        <span
+          className={
+            "w-24 text-right font-mono text-[11px] px-1.5 py-0.5 rounded border " +
+            (isCustom ? "border-navy bg-navy/10 text-navy" : "border-line text-ink-dim")
+          }
+          title={isCustom ? `Default: ${format(defaultValue)}` : "Default value"}
+        >
+          {format(value)}
+        </span>
+        {isCustom && (
+          <span className="text-[10px] text-navy font-mono" title={`Default: ${format(defaultValue)}`}>
+            edited
+          </span>
+        )}
+      </div>
+      <details className="ml-1">
+        <summary className="cursor-pointer text-[10px] text-ink-fade hover:text-ink select-none">
+          Why this default?
+        </summary>
+        <p className="text-[11px] text-ink-dim mt-1 leading-snug pl-3 border-l-2 border-line-2">
+          {rationale}
+        </p>
+      </details>
+    </div>
   );
 }

@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import { placeBlock } from "@/model/placement";
 import {
+  DEFAULT_SPACING_THRESHOLDS,
   getInterleavingScore,
   getInterleavingScoresAll,
   getPlacementHistory,
   getSpacingFlags,
   getSpacingProfile,
   getSpacingProfilesAll,
+  resolveSpacingThresholds,
 } from "@/model/spacing";
 import { createDefaultTimeline, createEoHTBlocks } from "@/model/timeline";
 import type { Spec, Subject } from "@/model/types";
@@ -234,5 +236,74 @@ describe("getSpacingFlags", () => {
     expect(flags.blockedCells[0]?.halfTermId).toBe("Y9-A1");
     expect(flags.blockedCells[0]?.dominantTopicCode).toBe("T1");
     expect(flags.blockedCells[0]?.lessons).toBe(5);
+  });
+
+  it("respects subject.config.spacingThresholds overrides", () => {
+    const subject = makeSubject();
+    // Place 3 lessons of T1a in Y9-A1 — under the default threshold (4) so NOT blocked
+    const tl = placeBlock(subject.timeline, { kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 3);
+    const placed: Subject = { ...subject, timeline: tl };
+
+    // With defaults: not blocked (only 3 lessons, threshold is 4)
+    expect(getSpacingFlags(placed).blockedCells.length).toBe(0);
+
+    // Lower the threshold to 2 — now 3 lessons IS blocked
+    const subjectWithLowerThreshold: Subject = {
+      ...placed,
+      config: {
+        ...placed.config,
+        spacingThresholds: { blockedCellMinLessons: 2 },
+      },
+    };
+    expect(getSpacingFlags(subjectWithLowerThreshold).blockedCells.length).toBe(1);
+  });
+
+  it("respects wellSpacedMinPlacements override", () => {
+    const subject = makeSubject();
+    // T1a placed twice — under default threshold (3) so NOT well-spaced
+    let tl = placeBlock(subject.timeline, { kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 1);
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T1a" }, "Y10-S1", 1);
+    const placed: Subject = { ...subject, timeline: tl };
+
+    expect(getSpacingFlags(placed).wellSpaced).toEqual([]);
+
+    // Lower the threshold to 2 — now T1a IS well-spaced (mean gap = 8 > 4)
+    const subjectWithLowerThreshold: Subject = {
+      ...placed,
+      config: {
+        ...placed.config,
+        spacingThresholds: { wellSpacedMinPlacements: 2 },
+      },
+    };
+    expect(getSpacingFlags(subjectWithLowerThreshold).wellSpaced).toEqual(["T1a"]);
+  });
+});
+
+describe("resolveSpacingThresholds", () => {
+  it("returns DEFAULT_SPACING_THRESHOLDS when no overrides are set", () => {
+    const subject = makeSubject();
+    expect(resolveSpacingThresholds(subject)).toEqual(DEFAULT_SPACING_THRESHOLDS);
+  });
+
+  it("layers subject.config.spacingThresholds over defaults, field-by-field", () => {
+    const subject: Subject = {
+      ...makeSubject(),
+      config: {
+        includeDepth: false,
+        lostLessonBuffer: false,
+        autoSpillover: true,
+        spacingThresholds: {
+          blockedCellMinLessons: 6,
+          wellSpacedMinMeanGap: 2,
+        },
+      },
+    };
+    const resolved = resolveSpacingThresholds(subject);
+    expect(resolved).toEqual({
+      blockedCellMinLessons: 6, // from config
+      blockedCellDominantShare: DEFAULT_SPACING_THRESHOLDS.blockedCellDominantShare,
+      wellSpacedMinPlacements: DEFAULT_SPACING_THRESHOLDS.wellSpacedMinPlacements,
+      wellSpacedMinMeanGap: 2, // from config
+    });
   });
 });

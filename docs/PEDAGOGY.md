@@ -130,6 +130,46 @@ Default `-0.1`, applied when the sub-topic has been taught more than once before
 
 ---
 
+## 4b. The Spacing panel — tuning the flag thresholds
+
+Each of the four flags described in §3 above fires at a numeric threshold. These thresholds are tunable per subject through the "⚙ Tune thresholds for this subject" disclosure at the bottom of the expanded panel. The defaults are pedagogically defensible — not optimal for every classroom, but a reasonable starting point that errs toward surfacing fewer false positives than false negatives.
+
+### Blocked-cell minimum lessons (default: 4)
+
+A cell with fewer than 4 lessons devoted to one topic isn't really "blocked" in the pedagogically meaningful sense — it's a focused mini-block of 1–3 sessions, which is normal for introducing a concept. The interleaving literature (Rohrer & Taylor 2007; Rohrer, Dedrick & Stershic 2015) shows the benefits of interleaved practice over blocked practice emerge clearly once practice extends past a small number of consecutive sessions. 4+ lessons on a single topic is approximately a teaching week, which is the empirical threshold past which "fluency illusion" effects start hurting later transfer.
+
+**Adjust down** if you teach in shorter cycles or want a stricter pass — even 2-3 consecutive sessions on one topic might concern you if your students have shown signs of surface-only learning.
+
+**Adjust up** if your cells are typically very long (e.g. 12+ lesson half-terms in Y10/Y11) and you only want to flag genuinely heavy single-topic stretches.
+
+### Blocked-cell dominant share (default: 0.8)
+
+The proportion of lessons in a cell that must belong to one topic for the cell to count as blocked. 80% is the "essentially the whole cell" threshold — the remaining 20% is noise, not interleaving. A cell with 6 T2 lessons + 2 T3 lessons (75% dominant) is interleaving healthily, even if mildly; flagging it as blocked would invert the meaning.
+
+**Adjust down to ~60%** if you want the engine to flag mild dominance (one topic + two interleaved). Useful if you're trying to design for very aggressive interleaving (e.g. ABCABC patterns).
+
+**Adjust up to ~90%** if you only care about extreme cases (one topic + a token sub-topic on the side).
+
+**Going below ~55% starts flagging healthy interleaving as 'blocked'** — the meaning inverts. The slider clamps at 0.5 to prevent this.
+
+### Well-spaced minimum placements (default: 3)
+
+The number of distinct placements a sub-topic needs before it can qualify as "well-spaced". Two placements give you one inter-placement gap (a single revisit, which could be coincidence — e.g. a topic that spilled across two half-terms in spite of you, not because of you); three give you two gaps, which reads as intentional spacing design.
+
+**Drop to 2** if you consider any revisit positively notable. Useful for newer planners building the habit.
+
+**Raise to 4+** if you reserve the positive label for truly repeated retrieval. Realistic only with very high-frequency content (e.g. a foundational concept you genuinely teach four times over Y9-Y11).
+
+### Well-spaced minimum mean gap (default: 4 half-terms)
+
+The average gap between placements that qualifies as "spaced" rather than "blocked-with-gaps". 4 half-terms ≈ 24 weeks ≈ comfortably inside Cepeda et al.'s (2006) optimal inter-study interval window for a year-end retention test. Shorter gaps (≤2 HT ≈ 12 weeks) are massed-practice territory — they don't activate spacing benefits meaningfully and shouldn't earn the positive flag.
+
+**Adjust down to 2-3** if your retention horizon is intra-year (e.g. end-of-Y10 exam) rather than terminal (Y11 exam).
+
+**Adjust up to 6+** for terminal-exam-focused planning. The biggest payoff comes from gaps of 4-12 half-terms, but the optimum within that range depends on the retention interval and is not knowable in advance for any given student.
+
+---
+
 ## 5. Things the engine deliberately doesn't do
 
 - **It doesn't simulate forgetting curves per student.** The planner has no student-level data. The signals are structural; the inference (what should I revisit?) is yours.

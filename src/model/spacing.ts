@@ -1,18 +1,41 @@
 import { findTopicAndSubTopic } from "./queries";
-import type { HalfTerm, PlacedBlock, Subject } from "./types";
+import type { HalfTerm, PlacedBlock, SpacingThresholds, Subject } from "./types";
 
 // ============================================================
-// Tunable thresholds — keep at the top so a future polish pass
-// can adjust without touching algorithm shape.
+// Default thresholds. Per-subject overrides live in
+// `subject.config.spacingThresholds`. Rationale for each default
+// is in `docs/PEDAGOGY.md` §3 and §5.
 // ============================================================
 
-/** A cell is "blocked" if it has ≥ this many lessons and the dominant topic's share exceeds DOMINANT_SHARE_THRESHOLD. */
-const BLOCKED_CELL_MIN_LESSONS = 4;
-const BLOCKED_CELL_DOMINANT_SHARE = 0.8;
+export const DEFAULT_SPACING_THRESHOLDS: Required<SpacingThresholds> = {
+  /** A cell is "blocked" only if it has at least this many lessons. */
+  blockedCellMinLessons: 4,
+  /** AND the dominant topic accounts for at least this fraction of the cell's lessons. */
+  blockedCellDominantShare: 0.8,
+  /** A sub-topic is "well spaced" only if placed at least this many times. */
+  wellSpacedMinPlacements: 3,
+  /** AND the mean inter-placement gap is at least this many half-terms. */
+  wellSpacedMinMeanGap: 4,
+};
 
-/** A sub-topic is "well spaced" if it has ≥ this many placements with mean gap ≥ MIN_MEAN_GAP_WELL_SPACED. */
-const WELL_SPACED_MIN_PLACEMENTS = 3;
-const WELL_SPACED_MIN_MEAN_GAP = 4;
+/**
+ * Resolve the four thresholds by layering subject.config over the defaults.
+ * Exported so the UI (ThresholdsEditor) can read the same effective values
+ * the engine uses.
+ */
+export function resolveSpacingThresholds(subject: Subject): Required<SpacingThresholds> {
+  const fromConfig = subject.config.spacingThresholds ?? {};
+  return {
+    blockedCellMinLessons:
+      fromConfig.blockedCellMinLessons ?? DEFAULT_SPACING_THRESHOLDS.blockedCellMinLessons,
+    blockedCellDominantShare:
+      fromConfig.blockedCellDominantShare ?? DEFAULT_SPACING_THRESHOLDS.blockedCellDominantShare,
+    wellSpacedMinPlacements:
+      fromConfig.wellSpacedMinPlacements ?? DEFAULT_SPACING_THRESHOLDS.wellSpacedMinPlacements,
+    wellSpacedMinMeanGap:
+      fromConfig.wellSpacedMinMeanGap ?? DEFAULT_SPACING_THRESHOLDS.wellSpacedMinMeanGap,
+  };
+}
 
 // ============================================================
 // Per-sub-topic placement history + spacing profile
@@ -182,6 +205,7 @@ export interface SpacingFlags {
 }
 
 export function getSpacingFlags(subject: Subject): SpacingFlags {
+  const thresholds = resolveSpacingThresholds(subject);
   const profiles = getSpacingProfilesAll(subject);
   const singleTouch: string[] = [];
   const unplaced: string[] = [];
@@ -196,9 +220,9 @@ export function getSpacingFlags(subject: Subject): SpacingFlags {
       continue;
     }
     if (
-      profile.placements.length >= WELL_SPACED_MIN_PLACEMENTS &&
+      profile.placements.length >= thresholds.wellSpacedMinPlacements &&
       profile.meanGap !== null &&
-      profile.meanGap >= WELL_SPACED_MIN_MEAN_GAP
+      profile.meanGap >= thresholds.wellSpacedMinMeanGap
     ) {
       wellSpaced.push(profile.subTopicCode);
     }
@@ -207,9 +231,9 @@ export function getSpacingFlags(subject: Subject): SpacingFlags {
   const blockedCells: BlockedCell[] = [];
   for (const score of getInterleavingScoresAll(subject)) {
     if (
-      score.totalLessons >= BLOCKED_CELL_MIN_LESSONS &&
+      score.totalLessons >= thresholds.blockedCellMinLessons &&
       score.dominantTopicCode !== null &&
-      score.dominantTopicShare >= BLOCKED_CELL_DOMINANT_SHARE
+      score.dominantTopicShare >= thresholds.blockedCellDominantShare
     ) {
       blockedCells.push({
         halfTermId: score.halfTermId,
