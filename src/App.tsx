@@ -4,6 +4,7 @@ import { Header } from "@/components/Header";
 import { LessonView } from "@/components/LessonView";
 import { ObjectiveView } from "@/components/ObjectiveView";
 import { RestoreToImportModal } from "@/components/RestoreToImportModal";
+import { SpacingPanel } from "@/components/SpacingPanel";
 import { StatusBar } from "@/components/StatusBar";
 import { SubTopicView } from "@/components/SubTopicView";
 import { TopicView } from "@/components/TopicView";
@@ -193,6 +194,7 @@ export function App(): JSX.Element {
         onExport={() => void handleExport()}
       />
       <StatusBar subject={activeSubject} onToggleConfig={updateActiveSubjectConfig} />
+      <SpacingPanel subject={activeSubject} />
       <main className="flex-1 flex overflow-hidden">
         {activeSubject && currentView === "topic" ? (
           <TopicView subject={activeSubject} />

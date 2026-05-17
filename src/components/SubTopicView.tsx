@@ -120,6 +120,7 @@ export function SubTopicView({ subject }: SubTopicViewProps): JSX.Element {
       )}
       {openModal?.kind === "custom" && (
         <CustomBlockModal
+          subject={subject}
           onCancel={() => setOpenModal(null)}
           onCreate={handleCustomCreate}
         />

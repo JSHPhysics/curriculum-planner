@@ -245,11 +245,16 @@ function describeForModal(
   if (block.source.kind === "custom") {
     const customBlockId = block.source.customBlockId;
     const cb = subject.customBlocks.find((c) => c.id === customBlockId);
+    const isRetrieval = cb?.kind === "retrieval";
+    const revisitsNote =
+      isRetrieval && cb?.revisits && cb.revisits.length > 0
+        ? `Revisits: ${cb.revisits.join(", ")}`
+        : null;
     return {
-      code: "CB",
+      code: isRetrieval ? "↺" : "CB",
       name: cb?.name ?? "Custom block",
       colour: cb?.colour ?? "#8A8478",
-      note: null as string | null,
+      note: revisitsNote,
     };
   }
   return {

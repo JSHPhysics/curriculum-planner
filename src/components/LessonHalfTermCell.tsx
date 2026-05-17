@@ -148,13 +148,21 @@ function NonSubTopicGroup({ placed, subject, onOpen }: NonSubTopicGroupProps): J
   const cb = subject.customBlocks.find(
     (c) => placed.source.kind === "custom" && c.id === placed.source.customBlockId
   );
+  const isRetrieval = cb?.kind === "retrieval";
+  const revisitsText =
+    isRetrieval && cb?.revisits && cb.revisits.length > 0
+      ? ` — revisits ${cb.revisits.join(", ")}`
+      : "";
   return (
     <button
       onClick={() => onOpen(placed.id)}
       className="text-left text-[11px] px-1.5 py-1 rounded border border-line bg-surface hover:bg-surface-2"
       style={{ borderLeft: `3px solid ${cb?.colour ?? "#8A8478"}` }}
+      title={(cb?.name ?? "Custom block") + revisitsText}
     >
-      <span className="font-mono text-[9px] text-ink-fade uppercase mr-1">CB</span>
+      <span className="font-mono text-[9px] text-ink-fade uppercase mr-1">
+        {isRetrieval ? "↺" : "CB"}
+      </span>
       {cb?.name ?? "Custom block"}
       <span className="ml-2 text-ink-dim">{placed.lessonsClaimed}L</span>
     </button>

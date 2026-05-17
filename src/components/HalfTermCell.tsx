@@ -1,4 +1,5 @@
 import { useDraggable, useDroppable } from "@dnd-kit/core";
+import { useState } from "react";
 
 import {
   findCustomBlock,
@@ -10,6 +11,7 @@ import { halfTermUsed } from "@/model/timeline";
 import type { HalfTerm, PlacedBlock, Subject } from "@/model/types";
 
 import { Block } from "./Block";
+import { RetrievalSuggestionPopover } from "./RetrievalSuggestionPopover";
 
 export interface HalfTermCellProps {
   readonly subject: Subject;
@@ -27,12 +29,14 @@ export function HalfTermCell({
     data: { kind: "term", termId: halfTerm.id },
   });
 
+  const [suggestOpen, setSuggestOpen] = useState(false);
   const used = halfTermUsed(halfTerm);
   const over = used > halfTerm.budget;
 
   return (
     <div
       ref={setNodeRef}
+      data-testid={`halfterm-cell-${halfTerm.id}`}
       className={
         "flex flex-col rounded-card border bg-surface min-h-[140px] transition " +
         (isOver ? "ring-2 ring-navy bg-surface-2 border-navy" : "border-line")
@@ -64,6 +68,22 @@ export function HalfTermCell({
           </div>
         )}
       </div>
+      <button
+        type="button"
+        onClick={() => setSuggestOpen(true)}
+        className="w-full px-2 py-1 text-[10px] text-ink-fade hover:text-gold hover:bg-gold/5 border-t border-line transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-inset"
+        aria-label={`Suggest sub-topics worth revisiting in ${halfTerm.year} ${halfTerm.label}`}
+        title={`Suggest sub-topics worth revisiting in ${halfTerm.year} ${halfTerm.label}`}
+      >
+        ↺ Suggest revisits
+      </button>
+      {suggestOpen && (
+        <RetrievalSuggestionPopover
+          subject={subject}
+          halfTerm={halfTerm}
+          onClose={() => setSuggestOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -125,9 +145,15 @@ function describePlacement(placed: PlacedBlock, subject: Subject) {
   }
   if (placed.source.kind === "custom") {
     const cb = findCustomBlock(subject, placed.source.customBlockId);
+    const isRetrieval = cb?.kind === "retrieval";
+    const revisitsList =
+      isRetrieval && cb?.revisits && cb.revisits.length > 0
+        ? ` — revisits ${cb.revisits.join(", ")}`
+        : "";
+    const baseName = placed.userEdits.title ?? cb?.name ?? "(missing custom block)";
     return {
-      code: "CB",
-      name: placed.userEdits.title ?? cb?.name ?? "(missing custom block)",
+      code: isRetrieval ? "↺" : "CB",
+      name: baseName + revisitsList,
       colour: cb?.colour ?? "#8A8478",
       variant: "custom" as const,
     };

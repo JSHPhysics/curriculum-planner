@@ -956,3 +956,72 @@ Order TBD by user preference once they see this groundwork in place.
 ### Open questions for the user
 - Which of the three follow-up UI pieces to ship first? (My instinct: #1 diagnostic panel — it's the easiest "look at what you've built" win and validates the analytics modules in real use before #2/#3 commit to a specific interaction model.)
 - Should the retrieval-suggestion engine eventually account for `subject.config.includeDepth` (currently no — depth always counts as a positive signal)? Could be a tunable in a future session.
+
+---
+
+## Session 16 — Spacing UI: diagnostic panel, retrieval-block authoring, per-cell suggestions
+**Date:** 2026-05-17
+**Status:** Complete
+**Commit:** *(pending — see git log)*
+
+### What was built
+- **`src/components/SpacingPanel.tsx`** — collapsible chrome strip below the StatusBar.
+  - Collapsed: one-line summary with four colour-tonal pills (single-touch / unplaced / blocked cells / well-spaced)
+  - Expanded: four-column detail grid with sub-topic chips per section; blocked-cell chips are clickable and call `setCurrentTermId` to focus that half-term
+  - Reads purely from `getSpacingFlags(subject)` — no store mutations, no data fetch
+- **`src/components/CustomBlockModal.tsx`** — extended:
+  - New `kind` toggle ("Standard" / "↺ Retrieval") at the top, segmented-control style
+  - When `kind === "retrieval"`, a `RevisitsPicker` appears — collapsible per-topic checkbox list of sub-topics, with already-placed sub-topics emphasised and unplaced ones de-emphasised (revisiting unplaced content is unusual but allowed)
+  - Header copy and placeholder name change with kind ("Recall: Forces & Motion" vs "Mid-year revision")
+  - Now accepts a `subject` prop so it can render the picker. SubTopicView updated to pass it.
+- **`src/components/RetrievalSuggestionPopover.tsx`** — the per-cell suggestion engine UI.
+  - Triggered from a small "↺ Suggest revisits" button at the bottom of each `HalfTermCell` (aria-labelled per cell for screen-reader + test-stability)
+  - Modal-style overlay listing up to 12 ranked `RetrievalCandidate`s for the cell's half-term, with the engine's `reason` string under each
+  - Each candidate has a visual score bar (0–100% of the engine's score)
+  - User ticks one or more candidates, sets a lesson count, clicks "Create retrieval block" — auto-creates a `CustomBlock { kind: "retrieval", revisits: [codes], colour: gold }` and places it in the cell in a single user action (two store dispatches: `addCustomBlock` + `placeBlock`, naturally debounced into one autosave)
+  - Auto-generates a name like `Recall: T2a, T3b +2` if many sub-topics
+- **Visual distinction for retrieval blocks** (`HalfTermCell`, `LessonHalfTermCell`, `BlockEditModal`):
+  - Code prefix is `↺` (instead of `CB`) for retrieval-kind custom blocks
+  - Block name appended with `— revisits T2a, T3b` so the user sees the linkage without opening the modal
+  - BlockEditModal's note section shows the revisits list when editing a retrieval block
+- **`HalfTermCell.tsx`** gains `data-testid="halfterm-cell-{id}"` for stable Playwright targeting (also useful for future tests of cell-specific behaviour)
+- **Tests:**
+  - `tests/e2e/spacing-and-retrieval.spec.ts` — 2 new scenarios:
+    1. Plan-health panel visible after import, contains "unplaced" pill, expands to show all four sections
+    2. Drag T2a to Y9-A1 → open "Suggest revisits" in Y10-A1 → see T2a as a candidate (its `reason` includes "Last seen 6 half-terms ago…") → tick + create → a `↺ Recall: T2a` block appears in Y10-A1
+
+### Exit criteria check
+- [x] All three UI pieces ship, each independently shippable and small (~150 / ~150 / ~180 LOC)
+- [x] `npm run typecheck` clean
+- [x] `npm test` passes (212/212 — no unit-test regressions)
+- [x] `npm run test:e2e` passes (12/12 — was 10/10, +2 new scenarios)
+- [x] `npm run build:renderer` clean
+- [x] No data model changes — uses only the optional fields already added in Session 15
+- [x] No new runtime dependencies
+
+### Deviations from the plan
+None of substance. Some implementation details worth recording:
+- **Two store dispatches per "create retrieval block"** (`addCustomBlock` then `placeBlock`) rather than a single combined action. Considered adding `createAndPlaceCustomBlock(block, termId)` but Zustand's set() is synchronous and autosave debounces, so the user perceives a single change. Composing existing actions keeps the store surface unchanged.
+- **No "edit revisits" UI on existing retrieval blocks yet.** Today the user can see the revisits list in `BlockEditModal` but not modify it. Easy follow-up: re-render the `RevisitsPicker` inside `BlockEditModal` when the block is a retrieval custom block. Deferred to a polish pass.
+
+### Decisions logged
+None — this session is pure UI assembly on top of Session 15's [DEC-031](DECISIONS.md#dec-031). No new architectural choices.
+
+### Surprises and gotchas
+- **`aria-label` vs `title` for accessible name.** I first used `title` to distinguish per-cell Suggest buttons; Playwright's `getByRole("button", { name })` reads `aria-label` (or text content), not `title`. Added `aria-label` to make each button uniquely identifiable. Worth remembering: `title` is a tooltip only, not part of the accessible-name algorithm in most situations.
+- **`.first()` on a container locator placed T2a in the wrong cell.** `app.page.locator("div", { has: ... }).first()` matches the topmost div whose subtree contains the header — could be a whole year row or even higher. The mouse target snapped to its centre, which happened to be inside Y10-A1, not Y9-A1. Switched to a `data-testid` on `HalfTermCell` for unambiguous targeting. Lesson: when a Playwright drag misfires, check whether the source/target locator is precise enough — `.first()` lies to you when nesting is deep.
+- **Wording drift.** Popover initially had `aria-label="Suggested retrievals for ..."` while the button said "Suggest revisits". Test caught it; aligned both to "revisits". A grep before commit catches this kind of thing.
+- **Vite HMR + `reuseExistingServer: true` is fine** in practice. After killing leftover node processes I worried Playwright was caching, but the real issue was always selector specificity. HMR picked up the rename within a second.
+- **Auto-spillover on retrieval blocks.** The popover's "Create retrieval block" calls `placeBlock` (not `placeBlockWithSpillover`) for predictability — the user explicitly chose this cell and is OK with the over-budget warning if they go past capacity. Matches DEC-017's "term→term drag uses moveBlock, no spillover" principle.
+
+### What's usable now
+Run the app, load the example. You'll see:
+1. Below the existing StatusBar: a one-line **Plan health** strip. Empty workspace → invisible. Loaded workspace → pills like `13 unplaced` `0 single-touch`. Click to expand and see all flagged sub-topics + blocked cells.
+2. Every half-term cell has a **↺ Suggest revisits** button at the bottom. Click it → ranked list of sub-topics worth revisiting in that cell, each scored 0–100 with a reason ("Last seen 14 half-terms ago in Y9-A1; never revisited; depth content"). Tick one or more, pick a lesson count, click **Create retrieval block** — a gold `↺ Recall: T2a, T3b` block appears in the cell with the full revisits list in its name.
+3. The **+ Custom** button now opens a modal that lets you create either a Standard or Retrieval block from scratch. Retrieval blocks get a sub-topic-picker with placed/unplaced visual hints.
+4. Retrieval blocks display with the `↺` code prefix everywhere they appear (Sub-topic view, Lesson view, BlockEditModal header) and their name shows the revisits list.
+
+### Open questions for the user
+- Want a way to **edit the revisits list** on an existing retrieval block (currently view-only in BlockEditModal)? Small follow-up.
+- Should the Spacing panel **persist its expanded state** across sessions (localStorage), or always start collapsed? Currently always collapsed on app load.
+- Should the Suggest button on each cell also live in the **Lesson view** cells (it currently doesn't — only Sub-topic view's `HalfTermCell`)?
