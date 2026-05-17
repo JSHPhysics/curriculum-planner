@@ -1936,3 +1936,81 @@ User-confirmed design choices (via AskUserQuestion):
 - **`PlacedBlockSource.eoht` cleanup**: drop the union member entirely in a future "v1.x cleanup" session, or leave it indefinitely?
 - **Default `autoSeedEoHTTest` on existing workspaces**: when a user opens a v1.x file (post-migration), the migrated workspace's `calendarTemplate` may not have the new field set — it'll behave as `true` (the default). Is that desired, or should the migration explicitly set it `false` to match the just-cleaned state?
 - Next: still nothing locked in — could be #1 from BUGFIXES.md (browser file dialogs), the first-startup wizard (Session 24 on the original roadmap), or guided tours (Session 25 on the original roadmap).
+
+---
+
+## Session 27 — Folder export rewritten as nested folder tree (DEC-045)
+**Date:** 2026-05-17
+**Status:** Complete
+**Commit:** *(pending — see git log)*
+
+**v1.2.0 shipped a wrong feature.** The user installed v1.2.0, tried the folder export, and pushed back:
+
+> "This export isn't what I wanted at all. I wanted the export to create a series of folders, root 'curriculum name' then, inside that, a folder for each topic or a folder for each half term (user specifies), then inside those, the sub-topics, then the lesson folder inside those, all the way down, a folder tree based on the structure of the curriculum. Users then have a prebuilt folder structure they can put their resources into. The xlsx export was always meant to be 1 file for the entire curriculum, do you understand?"
+
+I had built "one xlsx per HT/topic" — the opposite of what was wanted. Session 27 is the rewrite to the actual feature.
+
+### What was built (DEC-045)
+
+**Engine — `src/model/folderExport.ts` completely rewritten:**
+- `exportFolderStructure(subject, rootBy, options?)` returns `{ suggestedRootName, entries }` where each entry is `{ path, content? }` — content absent = folder marker, content present = file bytes.
+- `rootBy = "half-term"`: `subject/<HT>/<topic>/<sub-topic>/<lesson>/_lesson-info.txt`. Every visible HT emits a folder even when empty (future-planning slot).
+- `rootBy = "topic"`: `subject/<topic>/<sub-topic>/<lesson>/_lesson-info.txt`. Topics in spec order, sub-topics in spec order, lessons in calendar order.
+- Custom blocks appear as leaf folders too — by-HT puts them under their HT; by-topic collects them in a root-level "Other blocks".
+- `_lesson-info.txt` UTF-8 text: lesson title + topic + sub-topic + HT + dates + practical + depth/separate flags + bulleted objectives + friendly closing line.
+- `packTreeAsZip(tree)` packs the tree as a single .zip via JSZip with folder + file entries.
+- Filename safety: `[\\/:*?"<>|]` → space, whitespace collapsed, trailing dots stripped.
+
+**IPC — `file:saveFolderXlsx` renamed to `file:saveFolderTree`:**
+- New shape: `{ suggestedRootName, entries }`.
+- Two-pass write: folder markers first (mkdir -p), then files. Forward-slash paths split + joined with OS separator.
+
+**UI — `ExportModal` rewritten:**
+- Two top-level radios: Single workbook / Folder structure.
+- Folder mode reveals sub-options: top-level grouping (by half-term / by topic) + output (Zip file / Folder on disk).
+- Live preview block: count of folders + info files + first 6 folder paths.
+- Primary action label adapts: "Export…" / "Save zip…" / "Choose folder…".
+
+**Tests (-6 unit, +5 unit, +1 E2E):**
+- All v1.2.0 tests asserting the old "one xlsx per HT/topic" shape replaced with assertions on the new tree shape.
+- 16 unit tests: by-half-term emits root+HT folders (even empty); HT→Topic→Sub-topic→Lesson nesting; `_lesson-info.txt` contains expected metadata; custom blocks land in cells; hidden-year + depth filtering; by-topic emits topic-rooted tree, spec order, custom blocks in "Other blocks"; zip round-trip preserves structure + content byte-for-byte; safe-naming for path-reserved chars + trailing dots + whitespace collapse.
+- 5 E2E tests for the new modal shape: opens with two modes, single workbook flow, folder→zip flow, folder→loose-folder flow, folder→by-topic grouping.
+
+**Other:**
+- `package.json` + `APP_VERSION` bumped 1.2.0 → 1.2.1.
+
+### Exit criteria check
+- [x] Folder export produces a nested tree mirroring the curriculum (NOT one xlsx per HT/topic)
+- [x] User picks by-HT or by-topic top-level
+- [x] Each leaf lesson folder contains `_lesson-info.txt` with metadata
+- [x] Zip toggle still works (default for folder mode)
+- [x] All existing filters honoured (hidden years, depth toggle, custom blocks)
+- [x] Old `exportByHalfTermFolder` / `exportByTopicFolder` / `packBundleAsZip` removed
+- [x] IPC + preload + types + e2e fixture all updated together
+- [x] `npm run typecheck` clean
+- [x] `npm test` — 341/341
+- [x] `npm run test:e2e` — 34/34
+- [x] `npm run build:renderer` clean
+- [x] DEC-045 logged with full rationale + alternatives + consequences
+
+### Decisions logged
+- [DEC-045](DECISIONS.md#dec-045) — Folder export is a NESTED FOLDER TREE mirroring the curriculum hierarchy
+
+### Surprises and gotchas
+- **The v1.2.0 release is unusable for the folder-export use case**. Anyone who installed v1.2.0 to test the folder feature got "one xlsx per HT/topic" — completely different from what they wanted. Lesson: when the user describes a feature, repeat it back before building. I had multiple AskUserQuestion rounds for the v1.2.0 folder export and still missed the core "nested folder tree, not files" intent. The clarifying questions were about *configuration of the wrong feature*. Better: when in doubt, sketch the literal file/folder output as ASCII and confirm it before writing code.
+- **Folder names with no prefix sort alphabetically within their parent**, which means within-topic sub-topic order is alphabetical not spec order. User explicitly accepted this. If it becomes a pain point, switching to "Code-prefix" naming is one line in `folderExport.ts`.
+- **JSZip's `folder()` registers empty directory entries** that survive `loadAsync` round-trips. Good for tests; means even empty cells' HT folders survive the zip.
+- **Path splitting on `/` then joining with `path.sep`** in the IPC — straightforward but easy to get wrong. The mkdir-recursive call handles intermediate directories; the two-pass write (folders first, then files) is belt-and-braces.
+- **`safe()` collapses runs of whitespace after the char-strip step** — so `"Forces / Motion"` becomes `"Forces Motion"` (single space), not `"Forces  Motion"` (two spaces). Fine.
+
+### What's usable now
+1. Click Export → see "Single workbook" / "Folder structure" radios
+2. Pick Folder structure → see grouping radio (By half-term / By topic) + output radio (Zip / Folder)
+3. Live preview shows the first few folder paths so you can sanity-check before saving
+4. Save zip → one .zip containing the nested tree
+5. Choose folder → loose folder tree on disk, ready to receive your worksheets/slides/etc. into the right `_lesson-info.txt`-labelled leaves
+
+### Open questions for the user
+- **Sub-topic order within a topic** is alphabetical (because no prefix). Stick with this or revisit naming?
+- **Empty HT folders** still appear in by-HT mode for visible-but-empty cells (planning slots). Keep, or omit?
+- Next: still nothing locked in. Options listed in the previous session's tail.

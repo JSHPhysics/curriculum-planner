@@ -22,13 +22,13 @@ const api = {
       buffer,
       defaultName: options?.defaultName,
     }),
-  saveFolderOfXlsx: (
-    files: ReadonlyArray<{ name: string; buffer: Uint8Array }>,
-    options: { suggestedFolderName: string }
-  ): Promise<{ folderPath: string; fileCount: number } | null> =>
-    ipcRenderer.invoke("file:saveFolderXlsx", {
-      files,
-      suggestedFolderName: options.suggestedFolderName,
+  saveFolderTree: (
+    entries: ReadonlyArray<{ path: string; content?: Uint8Array }>,
+    options: { suggestedRootName: string }
+  ): Promise<{ rootPath: string; entryCount: number } | null> =>
+    ipcRenderer.invoke("file:saveFolderTree", {
+      entries,
+      suggestedRootName: options.suggestedRootName,
     }),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke("app:getVersion"),
   setDirty: (dirty: boolean): Promise<void> =>

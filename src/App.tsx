@@ -14,11 +14,7 @@ import { SubTopicView } from "@/components/SubTopicView";
 import { TopicView } from "@/components/TopicView";
 import { ViewPlaceholder } from "@/components/ViewPlaceholder";
 import { exportSubjectToXlsx } from "@/model/export";
-import {
-  exportByHalfTermFolder,
-  exportByTopicFolder,
-  packBundleAsZip,
-} from "@/model/folderExport";
+import { exportFolderStructure, packTreeAsZip } from "@/model/folderExport";
 import { importSpec } from "@/model/import";
 import {
   applyCalendarTemplate,
@@ -226,7 +222,11 @@ export function App(): JSX.Element {
   }, [activeSubject]);
 
   const handleExportConfirm = useCallback(
-    async (mode: ExportMode, output: ExportOutput): Promise<void> => {
+    async (
+      mode: ExportMode,
+      output: ExportOutput,
+      rootBy: "half-term" | "topic"
+    ): Promise<void> => {
       if (!activeSubject) {
         setExportModalOpen(false);
         return;
@@ -237,36 +237,35 @@ export function App(): JSX.Element {
         return;
       }
       try {
-        if (mode === "single") {
+        if (mode === "workbook") {
           const buf = exportSubjectToXlsx(activeSubject);
           const result = await window.api.saveSpreadsheetFile(new Uint8Array(buf), {
             defaultName: `${activeSubject.meta.name}.xlsx`,
           });
           if (result) console.info(`[export] wrote ${result.path}`);
         } else {
-          // Folder modes — first build the in-memory bundle, then either
-          // hand it to the folder-write IPC OR zip it and reuse the
-          // saveSpreadsheetFile IPC (which already handles single-file saves).
-          const bundle =
-            mode === "by-half-term"
-              ? exportByHalfTermFolder(activeSubject)
-              : exportByTopicFolder(activeSubject);
+          // Folder-tree mode (DEC-045) — build the nested tree, then either
+          // zip it (one .zip via the saveSpreadsheet IPC) or write it loose
+          // to disk via the saveFolderTree IPC.
+          const tree = exportFolderStructure(activeSubject, rootBy);
           if (output === "zip") {
-            const zipped = await packBundleAsZip(bundle);
+            const zipped = await packTreeAsZip(tree);
             const result = await window.api.saveSpreadsheetFile(zipped.buffer, {
               defaultName: zipped.suggestedFilename,
             });
-            if (result) {
-              console.info(`[export] wrote zip ${result.path}`);
-            }
+            if (result) console.info(`[export] wrote zip ${result.path}`);
           } else {
-            const result = await window.api.saveFolderOfXlsx(
-              bundle.files.map((f) => ({ name: f.name, buffer: f.buffer })),
-              { suggestedFolderName: bundle.suggestedFolderName }
+            const result = await window.api.saveFolderTree(
+              tree.entries.map((e) =>
+                e.content === undefined
+                  ? { path: e.path }
+                  : { path: e.path, content: e.content }
+              ),
+              { suggestedRootName: tree.suggestedRootName }
             );
             if (result) {
               console.info(
-                `[export] wrote ${result.fileCount} files to ${result.folderPath}`
+                `[export] wrote ${result.entryCount} entries to ${result.rootPath}`
               );
             }
           }
@@ -370,7 +369,7 @@ export function App(): JSX.Element {
         <ExportModal
           subject={activeSubject}
           onCancel={() => setExportModalOpen(false)}
-          onConfirm={(mode, output) => void handleExportConfirm(mode, output)}
+          onConfirm={(mode, output, rootBy) => void handleExportConfirm(mode, output, rootBy)}
         />
       )}
       {legacyMigrationPending && (

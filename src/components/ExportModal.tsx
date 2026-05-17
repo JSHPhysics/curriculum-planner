@@ -1,25 +1,34 @@
 import { useMemo, useState } from "react";
 
 import {
-  exportByHalfTermFolder,
-  exportByTopicFolder,
+  exportFolderStructure,
+  type FolderRootBy,
 } from "@/model/folderExport";
 import { getVisibleTimelineYears } from "@/model/timeline";
 import type { Subject } from "@/model/types";
 
-export type ExportMode = "single" | "by-half-term" | "by-topic";
 /**
- * Whether folder-mode exports are delivered as a loose folder of .xlsx files
- * (chosen via the OS folder picker, written into a new sub-folder) or as a
- * single .zip archive (chosen via the OS save-file picker). The `single`
- * mode ignores this — always one .xlsx.
+ * Two export modes (DEC-045):
+ *   - "workbook"     — single .xlsx with the 5 sheets (Cover / Topic /
+ *                       Sub-topic / Lesson / Objective views)
+ *   - "folder-tree"  — nested folder structure mirroring the curriculum
+ *                       hierarchy (subject / HT or topic / sub-topic / lesson),
+ *                       with a `_lesson-info.txt` in each leaf so teachers can
+ *                       drop resources into pre-built slots
  */
+export type ExportMode = "workbook" | "folder-tree";
+
+/** Folder-tree output: loose folder on disk vs zipped archive. */
 export type ExportOutput = "folder" | "zip";
 
 export interface ExportModalProps {
   readonly subject: Subject;
   readonly onCancel: () => void;
-  readonly onConfirm: (mode: ExportMode, output: ExportOutput) => void;
+  readonly onConfirm: (
+    mode: ExportMode,
+    output: ExportOutput,
+    rootBy: FolderRootBy
+  ) => void;
 }
 
 interface ChoiceDescriptor {
@@ -27,58 +36,47 @@ interface ChoiceDescriptor {
   readonly name: string;
   readonly subtitle: string;
   readonly description: string;
-  readonly footnote?: string;
 }
 
 const CHOICES: readonly ChoiceDescriptor[] = [
   {
-    id: "single",
+    id: "workbook",
     name: "Single workbook",
     subtitle: "One .xlsx with five sheets",
     description:
-      "The original export: Cover, Topic view, Sub-topic view, Lesson view, Objective view. " +
-      "Best for archiving a snapshot or printing a single sheet.",
+      "The complete plan as one spreadsheet: Cover, Topic view, Sub-topic view, " +
+      "Lesson view, Objective view. Best for archiving a snapshot or printing.",
   },
   {
-    id: "by-half-term",
-    name: "Folder by half-term",
-    subtitle: "One .xlsx per half-term — weekly schedule + lesson list",
+    id: "folder-tree",
+    name: "Folder structure",
+    subtitle: "Nested folders mirroring the curriculum hierarchy",
     description:
-      "Writes one workbook per visible half-term into a folder you choose. Each workbook has " +
-      "a compact \"Weekly schedule\" tab (row = week of the HT) and a long-form \"Lesson list\" tab. " +
-      "Best for handing a colleague the term they're covering.",
-  },
-  {
-    id: "by-topic",
-    name: "Folder by topic",
-    subtitle: "One .xlsx per topic — calendar-ordered lessons",
-    description:
-      "Writes one workbook per topic into a folder you choose. Each workbook lists every placed " +
-      "lesson for that topic in calendar order with year/HT/dates and objectives. " +
-      "Best for seeing how a topic spreads across the timeline.",
+      "Builds a folder tree (subject → HT or topic → sub-topic → lesson) " +
+      "with a _lesson-info.txt in each leaf folder describing the lesson. " +
+      "Best for setting up a resource library: drop your worksheets / slides / " +
+      "videos into the right pre-built slot.",
   },
 ];
 
 /**
- * Export-mode picker. Replaces the bare Export button's direct save-dialog
- * with a radio picker so the user can choose between the original
- * single-workbook export and the two new folder formats. Renders a preview
- * (file count) for the folder modes so the user knows what they're about
- * to get.
+ * Export-mode picker (DEC-045). User chooses between the single-workbook
+ * xlsx and the folder-structure tree. For folder-structure, sub-options
+ * appear: top-level grouping (by half-term or by topic) and output format
+ * (zip archive or loose folder).
  */
 export function ExportModal({ subject, onCancel, onConfirm }: ExportModalProps): JSX.Element {
-  const [selected, setSelected] = useState<ExportMode>("single");
+  const [selected, setSelected] = useState<ExportMode>("workbook");
+  const [rootBy, setRootBy] = useState<FolderRootBy>("half-term");
   const [output, setOutput] = useState<ExportOutput>("zip");
-  const isFolderMode = selected !== "single";
+  const isFolderMode = selected === "folder-tree";
 
-  // Lightweight previews — same engine as the actual exports, throw away the
-  // workbook buffers (we only care about file counts and folder names for UI).
-  const previews = useMemo(() => {
-    return {
-      byHalfTerm: exportByHalfTermFolder(subject),
-      byTopic: exportByTopicFolder(subject),
-    };
-  }, [subject]);
+  // Live preview of the folder tree so the user can sanity-check their
+  // choice before saving. Cheap — same engine the actual export uses.
+  const treePreview = useMemo(
+    () => (isFolderMode ? exportFolderStructure(subject, rootBy) : null),
+    [subject, isFolderMode, rootBy]
+  );
 
   const visibleYears = getVisibleTimelineYears(subject);
 
@@ -106,8 +104,10 @@ export function ExportModal({ subject, onCancel, onConfirm }: ExportModalProps):
             </h2>
           </div>
           <p className="text-xs text-ink-fade mt-1">
-            Choose how you want the plan packaged. All formats respect hidden years (currently
-            visible: {visibleYears.join(", ") || "none"}).
+            Choose how you want the plan packaged. All formats respect hidden years
+            (currently visible: {visibleYears.join(", ") || "none"}) and the
+            <span className="font-mono text-[10px]"> Show depth </span>
+            toggle.
           </p>
         </header>
 
@@ -118,12 +118,6 @@ export function ExportModal({ subject, onCancel, onConfirm }: ExportModalProps):
         >
           {CHOICES.map((choice) => {
             const active = selected === choice.id;
-            const preview =
-              choice.id === "by-half-term"
-                ? previews.byHalfTerm
-                : choice.id === "by-topic"
-                ? previews.byTopic
-                : null;
             return (
               <button
                 key={choice.id}
@@ -150,52 +144,83 @@ export function ExportModal({ subject, onCancel, onConfirm }: ExportModalProps):
                       <span className="text-[11px] text-ink-fade italic">{choice.subtitle}</span>
                     </div>
                     <p className="text-xs text-ink-dim mt-1 leading-relaxed">{choice.description}</p>
-                    {preview && (
-                      <p className="text-[11px] text-ink-fade mt-1.5 font-mono">
-                        Will write {preview.files.length} file
-                        {preview.files.length === 1 ? "" : "s"}
-                        {output === "zip" ? " into " : " into "}
-                        <span className="text-ink-dim">
-                          {output === "zip"
-                            ? `${preview.suggestedFolderName}.zip`
-                            : `${preview.suggestedFolderName}/`}
-                        </span>
-                      </p>
-                    )}
                   </div>
                 </div>
               </button>
             );
           })}
+
+          {isFolderMode && treePreview && (
+            <div className="border border-line rounded p-3 space-y-3 bg-surface-2/30">
+              <div>
+                <div className="text-xs text-ink-dim mb-1.5 font-semibold">Top-level grouping</div>
+                <div
+                  role="radiogroup"
+                  aria-label="Folder tree grouping"
+                  className="inline-flex border border-line rounded overflow-hidden"
+                >
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={rootBy === "half-term"}
+                    onClick={() => setRootBy("half-term")}
+                    className={
+                      "px-3 py-1 text-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy focus-visible:ring-inset " +
+                      (rootBy === "half-term" ? "bg-navy text-bg" : "text-ink-dim hover:bg-surface")
+                    }
+                    title="Tree rooted at each half-term: HT → Topic → Sub-topic → Lesson"
+                  >
+                    By half-term
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={rootBy === "topic"}
+                    onClick={() => setRootBy("topic")}
+                    className={
+                      "px-3 py-1 text-xs transition border-l border-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy focus-visible:ring-inset " +
+                      (rootBy === "topic" ? "bg-navy text-bg" : "text-ink-dim hover:bg-surface")
+                    }
+                    title="Tree rooted at each topic: Topic → Sub-topic → Lesson (calendar order)"
+                  >
+                    By topic
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs text-ink-dim mb-1.5 font-semibold">Output as</div>
+                <div className="flex items-center gap-3 text-xs text-ink-dim">
+                  <label className="flex items-center gap-1.5 cursor-pointer" title="A single .zip archive — easy to email or attach.">
+                    <input
+                      type="radio"
+                      name="export-output"
+                      value="zip"
+                      checked={output === "zip"}
+                      onChange={() => setOutput("zip")}
+                      className="accent-navy"
+                    />
+                    <span>Zip file</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 cursor-pointer" title="Loose folder on disk — ready to receive your resource files.">
+                    <input
+                      type="radio"
+                      name="export-output"
+                      value="folder"
+                      checked={output === "folder"}
+                      onChange={() => setOutput("folder")}
+                      className="accent-navy"
+                    />
+                    <span>Folder on disk</span>
+                  </label>
+                </div>
+              </div>
+
+              <PreviewTree tree={treePreview} />
+            </div>
+          )}
         </div>
 
-        {isFolderMode && (
-          <div className="px-5 py-3 border-t border-line flex items-center gap-3 text-xs text-ink-dim">
-            <span className="font-semibold">Output as:</span>
-            <label className="flex items-center gap-1.5 cursor-pointer" title="A single .zip archive — easy to email or attach.">
-              <input
-                type="radio"
-                name="export-output"
-                value="zip"
-                checked={output === "zip"}
-                onChange={() => setOutput("zip")}
-                className="accent-navy"
-              />
-              <span>Zip file</span>
-            </label>
-            <label className="flex items-center gap-1.5 cursor-pointer" title="A loose folder of .xlsx files — direct access on disk.">
-              <input
-                type="radio"
-                name="export-output"
-                value="folder"
-                checked={output === "folder"}
-                onChange={() => setOutput("folder")}
-                className="accent-navy"
-              />
-              <span>Folder of .xlsx</span>
-            </label>
-          </div>
-        )}
         <footer className="px-5 py-3 border-t border-line flex items-center gap-2 justify-end">
           <button
             onClick={onCancel}
@@ -204,16 +229,53 @@ export function ExportModal({ subject, onCancel, onConfirm }: ExportModalProps):
             Cancel
           </button>
           <button
-            onClick={() => onConfirm(selected, output)}
+            onClick={() => onConfirm(selected, output, rootBy)}
             className="px-3 py-1.5 text-sm bg-navy text-bg rounded hover:bg-navy-dim focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
           >
-            {selected === "single"
+            {selected === "workbook"
               ? "Export…"
               : output === "zip"
               ? "Save zip…"
               : "Choose folder…"}
           </button>
         </footer>
+      </div>
+    </div>
+  );
+}
+
+interface PreviewTreeProps {
+  readonly tree: { readonly suggestedRootName: string; readonly entries: readonly { readonly path: string; readonly content?: Uint8Array }[] };
+}
+
+/**
+ * Compact preview of the first few folders + file count. Helps the user
+ * confirm grouping choice without actually saving. Caps at ~6 paths.
+ */
+function PreviewTree({ tree }: PreviewTreeProps): JSX.Element {
+  const folderCount = tree.entries.filter((e) => e.content === undefined).length;
+  const fileCount = tree.entries.filter((e) => e.content !== undefined).length;
+  // Show the first 6 folder paths (skipping root), to give a flavour of depth.
+  const samplePaths = tree.entries
+    .filter((e) => e.content === undefined && e.path !== "")
+    .slice(0, 6)
+    .map((e) => e.path);
+  return (
+    <div className="text-[11px] text-ink-fade font-mono leading-tight">
+      <div className="text-ink-dim mb-1">
+        Preview: <span className="text-ink">{folderCount}</span> folders,{" "}
+        <span className="text-ink">{fileCount}</span> info files
+      </div>
+      <div className="bg-bg/60 border border-line/60 rounded p-2 space-y-0.5">
+        <div className="text-ink-dim">{tree.suggestedRootName}/</div>
+        {samplePaths.map((p) => (
+          <div key={p} className="pl-3">
+            {p}/
+          </div>
+        ))}
+        {tree.entries.length > 8 && (
+          <div className="pl-3 italic text-ink-fade">… and more</div>
+        )}
       </div>
     </div>
   );

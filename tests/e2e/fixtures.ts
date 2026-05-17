@@ -40,10 +40,10 @@ async function installApiMock(page: Page): Promise<void> {
         buffer: Uint8Array,
         opts?: { defaultName?: string }
       ): Promise<{ path: string } | null>;
-      saveFolderOfXlsx(
-        files: ReadonlyArray<{ name: string; buffer: Uint8Array }>,
-        opts: { suggestedFolderName: string }
-      ): Promise<{ folderPath: string; fileCount: number } | null>;
+      saveFolderTree(
+        entries: ReadonlyArray<{ path: string; content?: Uint8Array }>,
+        opts: { suggestedRootName: string }
+      ): Promise<{ rootPath: string; entryCount: number } | null>;
       getAppVersion(): Promise<string>;
       setDirty(dirty: boolean): Promise<void>;
     }
@@ -80,12 +80,17 @@ async function installApiMock(page: Page): Promise<void> {
         });
         return { path };
       },
-      async saveFolderOfXlsx(files, opts) {
-        const folderPath = `mock://${opts.suggestedFolderName}`;
-        for (const f of files) {
-          memory.set(`${folderPath}/${f.name}`, { name: f.name, data: new Uint8Array(f.buffer) });
+      async saveFolderTree(entries, opts) {
+        const rootPath = `mock://${opts.suggestedRootName}`;
+        for (const e of entries) {
+          if (e.path === "") continue; // root marker
+          const key = `${rootPath}/${e.path}`;
+          memory.set(key, {
+            name: e.path,
+            data: e.content ?? new Uint8Array(),
+          });
         }
-        return { folderPath, fileCount: files.length };
+        return { rootPath, entryCount: entries.length };
       },
       async getAppVersion() {
         return "1.0.0-test";

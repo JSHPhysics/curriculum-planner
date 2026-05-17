@@ -157,33 +157,33 @@ ipcMain.handle(
   }
 );
 
-interface SaveFolderXlsxArgs {
+interface SaveFolderTreeArgs {
   /**
-   * Default folder name suggested when the user is prompted to choose where
-   * the output folder should be created. The IPC layer creates `<chosen>/<name>`
-   * and writes every file from `files` into it.
+   * Suggested name of the root folder. The IPC creates `<chosen>/<suggested>`
+   * and writes every entry inside. Per DEC-045.
    */
-  readonly suggestedFolderName: string;
+  readonly suggestedRootName: string;
   /**
-   * Map of filename (e.g. "Y9-A1.xlsx") to file contents as a Uint8Array.
-   * Filenames are written verbatim; the renderer is responsible for any
-   * cross-platform path-safety scrubbing.
+   * Tree entries. Each `path` is relative to the root (forward slashes;
+   * the IPC translates to OS separators). `content === undefined` ⇒ folder
+   * marker; otherwise the bytes are written to the file at that path.
+   * The renderer is responsible for path-safety scrubbing of segment names.
    */
-  readonly files: ReadonlyArray<{ readonly name: string; readonly buffer: Uint8Array }>;
+  readonly entries: ReadonlyArray<{
+    readonly path: string;
+    readonly content?: Uint8Array;
+  }>;
 }
 
-interface SaveFolderXlsxResult {
-  readonly folderPath: string;
-  readonly fileCount: number;
+interface SaveFolderTreeResult {
+  readonly rootPath: string;
+  readonly entryCount: number;
 }
 
 ipcMain.handle(
-  "file:saveFolderXlsx",
-  async (event, args: SaveFolderXlsxArgs): Promise<SaveFolderXlsxResult | null> => {
+  "file:saveFolderTree",
+  async (event, args: SaveFolderTreeArgs): Promise<SaveFolderTreeResult | null> => {
     const win = BrowserWindow.fromWebContents(event.sender);
-    // Pick the PARENT directory; we then create `suggestedFolderName` inside it.
-    // `createDirectory` lets the user make a new parent folder mid-dialog if
-    // they want a fresh location.
     const dialogOpts = {
       properties: ["openDirectory", "createDirectory"] as const,
       title: "Choose where to create the export folder",
@@ -193,13 +193,26 @@ ipcMain.handle(
       : dialog.showOpenDialog({ ...dialogOpts, properties: [...dialogOpts.properties] }));
     if (result.canceled || result.filePaths.length === 0) return null;
     const parent = result.filePaths[0]!;
-    const folderPath = path.join(parent, args.suggestedFolderName);
-    await mkdir(folderPath, { recursive: true });
-    for (const file of args.files) {
-      const out = path.join(folderPath, file.name);
-      await writeFile(out, Buffer.from(file.buffer));
+    const rootPath = path.join(parent, args.suggestedRootName);
+    await mkdir(rootPath, { recursive: true });
+    // Two-pass write: folder markers first (so mkdir -p has the right tree
+    // even for branches with no leaf file), then files. Files implicitly
+    // create their parent directories too via { recursive: true } on mkdir.
+    for (const entry of args.entries) {
+      if (entry.content !== undefined) continue;
+      if (entry.path === "") continue; // root marker, already created above
+      const dir = path.join(rootPath, ...entry.path.split("/"));
+      await mkdir(dir, { recursive: true });
     }
-    return { folderPath, fileCount: args.files.length };
+    for (const entry of args.entries) {
+      if (entry.content === undefined) continue;
+      const filePath = path.join(rootPath, ...entry.path.split("/"));
+      // Ensure the file's parent directory exists.
+      const parentDir = path.dirname(filePath);
+      await mkdir(parentDir, { recursive: true });
+      await writeFile(filePath, Buffer.from(entry.content));
+    }
+    return { rootPath, entryCount: args.entries.length };
   }
 );
 

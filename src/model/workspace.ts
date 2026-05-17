@@ -10,7 +10,7 @@ import type {
 } from "./types";
 
 export const FILE_VERSION = 1 as const;
-export const APP_VERSION = "1.2.0";
+export const APP_VERSION = "1.2.1";
 
 export function createWorkspace(): Workspace {
   return { activeSubjectId: null, subjects: [] };
