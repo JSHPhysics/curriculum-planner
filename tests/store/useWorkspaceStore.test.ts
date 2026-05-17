@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { importSpec } from "@/model/import";
-import { createDefaultTimeline, createEoHTBlocks } from "@/model/timeline";
+import { createDefaultTimeline, seedEndOfHalfTermTests } from "@/model/timeline";
 import type { Subject } from "@/model/types";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
@@ -23,8 +23,16 @@ function loadExampleSubject(id: string): Subject {
     idGen: counterIdGen(),
   });
   if (!r.ok) throw new Error("import failed");
-  const timeline = createEoHTBlocks(createDefaultTimeline());
-  return { ...r.subject, id, timeline };
+  // DEC-044: end-of-HT tests are now CustomBlocks; the seeded block has to
+  // be added to the subject's customBlocks array so the timeline references
+  // resolve.
+  const seeded = seedEndOfHalfTermTests(createDefaultTimeline());
+  return {
+    ...r.subject,
+    id,
+    timeline: seeded.timeline,
+    customBlocks: [...r.subject.customBlocks, seeded.customBlock],
+  };
 }
 
 function reset(): void {

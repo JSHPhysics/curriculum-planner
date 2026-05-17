@@ -10,8 +10,10 @@ test.describe("Workspace calendar settings", () => {
     // Cycle length defaults to 2 (fortnight)
     const cycleInput = dialog.locator("#cal-cycle");
     await expect(cycleInput).toHaveValue("2");
-    // Y9/Y10/Y11 are pre-enabled, others aren't
-    await expect(dialog.getByRole("checkbox").nth(2)).toBeChecked(); // Y9 (index 2 = 3rd year)
+    // Y9 year toggle is pre-enabled. The auto-seed checkbox (DEC-044) shifted
+    // the positional indexing; locate by the wrapping label's text instead.
+    const y9Checkbox = dialog.locator("label", { hasText: /^Y9/ }).locator("input[type='checkbox']");
+    await expect(y9Checkbox).toBeChecked();
   });
 
   test("changes cycle length and saves; modal closes", async ({ app }) => {

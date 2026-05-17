@@ -54,7 +54,7 @@ export function HalfTermCell({
         </span>
       </header>
       <div className="flex flex-col gap-1 p-1.5 flex-1">
-        {sortedBlocksForCell(halfTerm.placedBlocks).map((pb) => (
+        {sortedBlocksForCell(halfTerm.placedBlocks, subject.customBlocks).map((pb) => (
           <PlacedBlockCard
             key={pb.id}
             placed={pb}
@@ -145,27 +145,43 @@ function describePlacement(placed: PlacedBlock, subject: Subject) {
   }
   if (placed.source.kind === "custom") {
     const cb = findCustomBlock(subject, placed.source.customBlockId);
-    const isRetrieval = cb?.kind === "retrieval";
+    // DEC-044: prefer `category` (new), fall back to legacy `kind` for mid-
+    // migration files. EoHT-tagged customs use the dashed legacy variant so
+    // the renderer styling preserves v1 UX.
+    const category = cb?.category ?? (cb?.kind === "retrieval" ? "retrieval" : "other");
+    const isRetrieval = category === "retrieval";
+    const isEoHTish = cb?.isEoHT === true;
     const revisitsList =
       isRetrieval && cb?.revisits && cb.revisits.length > 0
         ? ` — revisits ${cb.revisits.join(", ")}`
         : "";
     const baseName = placed.userEdits.title ?? cb?.name ?? "(missing custom block)";
+    const labelSuffix = cb?.label ? ` · ${cb.label}` : "";
     return {
-      code: isRetrieval ? "↺" : "CB",
-      name: baseName + revisitsList,
+      code: BLOCK_CODE_FOR_CATEGORY[category] ?? "CB",
+      name: baseName + labelSuffix + revisitsList,
       colour: cb?.colour ?? "#8A8478",
-      variant: "custom" as const,
+      variant: (isEoHTish ? "eoht" : "custom") as "eoht" | "custom",
     };
   }
-  // eoht
+  // Legacy source.kind === "eoht" — deserializer rejects these per DEC-044,
+  // but the renderer stays defensive.
   const ht = subject.timeline.halfTerms.find((h) =>
     h.placedBlocks.some((p) => p.id === placed.id)
   );
   return {
     code: "EoHT",
-    name: placed.userEdits.title ?? (ht ? `${ht.year} ${ht.label} test` : "End-of-half-term test"),
+    name: placed.userEdits.title ?? (ht ? `${ht.year} ${ht.label} test (legacy)` : "End-of-half-term test"),
     colour: "#8A8478",
     variant: "eoht" as const,
   };
 }
+
+const BLOCK_CODE_FOR_CATEGORY: Record<string, string> = {
+  test: "TST",
+  lesson: "LSN",
+  unit: "UNT",
+  assessment: "ASM",
+  retrieval: "↺",
+  other: "CB",
+};

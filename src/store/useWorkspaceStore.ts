@@ -38,6 +38,8 @@ import {
   addSubject as wsAddSubject,
   applyTemplateToSubject,
   createWorkspace,
+  detectLegacyEoHTPlacements,
+  migrateLegacyEoHTPlacements,
   removeSubject as wsRemoveSubject,
   replaceSubject,
   restoreSubjectToImport as wsRestoreSubjectToImport,
@@ -737,19 +739,34 @@ export function enableAutosave(): () => void {
  * Restore the workspace from localStorage if a saved copy is present.
  * Returns true if a workspace was loaded; false if none was found or the
  * stored data couldn't be parsed.
+ *
+ * DEC-044: legacy `source.kind === "eoht"` placements are silently migrated
+ * to the new custom-block shape. Autosave is unattended recovery state, so
+ * popping a migration confirmation dialog at app startup would be annoying.
+ * File opens (which the user explicitly initiates) DO show the dialog.
  */
 export function loadAutosaved(): boolean {
   if (typeof localStorage === "undefined") return false;
   const raw = localStorage.getItem(AUTOSAVE_KEY);
   if (!raw) return false;
   try {
-    const parsed = JSON.parse(raw) as Workspace;
+    let parsed = JSON.parse(raw) as Workspace;
     if (
       typeof parsed !== "object" ||
       parsed === null ||
       !Array.isArray((parsed as Workspace).subjects)
     ) {
       return false;
+    }
+    // Silent legacy-EoHT migration. The migrator works on the file-wrapper
+    // shape; wrap, migrate, unwrap.
+    const wrapped = JSON.stringify({ fileVersion: 1, workspace: parsed });
+    if (detectLegacyEoHTPlacements(wrapped)) {
+      const migrated = migrateLegacyEoHTPlacements(wrapped);
+      parsed = (JSON.parse(migrated) as { workspace: Workspace }).workspace;
+      console.info(
+        "[autosave] silently migrated legacy EoHT placements to custom blocks (DEC-044)"
+      );
     }
     useWorkspaceStore.getState().setWorkspace(parsed);
     return true;

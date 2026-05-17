@@ -40,6 +40,12 @@ export function CalendarSettingsModal({
     () => ({ ...seed.lessonsPerCyclePerYear })
   );
   const [halfTerms, setHalfTerms] = useState<readonly CalendarHalfTerm[]>(seed.halfTerms);
+  // DEC-044: whether NEW subjects added with this template get an auto-seeded
+  // end-of-HT test custom block. Default true preserves v1.x UX; undef in
+  // the loaded template is treated as true.
+  const [autoSeedEoHTTest, setAutoSeedEoHTTest] = useState<boolean>(
+    seed.autoSeedEoHTTest ?? true
+  );
 
   const enabledYears = useMemo<readonly YearId[]>(
     () =>
@@ -143,6 +149,7 @@ export function CalendarSettingsModal({
       cycleLengthInWeeks: Math.max(1, cycleLengthInWeeks),
       lessonsPerCyclePerYear: trimmedLessons,
       halfTerms,
+      autoSeedEoHTTest,
     };
     onSave(template);
   }
@@ -231,6 +238,27 @@ export function CalendarSettingsModal({
                   : `${cycleLengthInWeeks}-week timetable`}
               </span>
             </div>
+          </section>
+
+          <section>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={autoSeedEoHTTest}
+                onChange={(e) => setAutoSeedEoHTTest(e.target.checked)}
+                className="accent-navy mt-0.5"
+              />
+              <div className="text-xs">
+                <div className="text-ink">Auto-seed an end-of-half-term test in each cell</div>
+                <p className="text-ink-fade text-[11px] mt-0.5 leading-snug">
+                  When a new subject is added with this calendar, a single
+                  &ldquo;End of half-term test&rdquo; custom block (category:{" "}
+                  <code className="font-mono">test</code>) is placed in every cell —
+                  one custom per subject, editable like any other. Untick for a clean
+                  slate where you seed your own tests/lessons/units.
+                </p>
+              </div>
+            </label>
           </section>
 
           <section>

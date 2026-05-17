@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { importSpec } from "@/model/import";
 import { generateImportTemplate } from "@/model/importTemplate";
-import { createDefaultTimeline, createEoHTBlocks, inferKeyStage } from "@/model/timeline";
+import { createDefaultTimeline, inferKeyStage, seedEndOfHalfTermTests } from "@/model/timeline";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import type { ViewType } from "@/model/types";
 
@@ -60,12 +60,20 @@ function EmptyWorkspace(): JSX.Element {
       throw new Error(result.errors.map((e) => `${e.code}: ${e.message}`).join("\n"));
     }
     const baseTimeline = createDefaultTimeline();
-    const timeline = createEoHTBlocks(baseTimeline);
+    // DEC-044: default-template subjects get the auto-seeded end-of-HT test
+    // custom block (the default LEHS template has no autoSeedEoHTTest flag
+    // set, so the default-true semantic applies).
+    const seeded = seedEndOfHalfTermTests(baseTimeline);
     const detectedKs = inferKeyStage(baseTimeline);
     const meta = detectedKs
       ? { ...result.subject.meta, keyStage: detectedKs }
       : result.subject.meta;
-    addSubject({ ...result.subject, meta, timeline });
+    addSubject({
+      ...result.subject,
+      meta,
+      timeline: seeded.timeline,
+      customBlocks: [...result.subject.customBlocks, seeded.customBlock],
+    });
     if (result.warnings.length > 0) {
       console.warn(`[import] ${result.warnings.length} warnings:`, result.warnings);
     }

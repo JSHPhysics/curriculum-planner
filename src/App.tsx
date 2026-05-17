@@ -23,13 +23,15 @@ import { importSpec } from "@/model/import";
 import {
   applyCalendarTemplate,
   createDefaultTimeline,
-  createEoHTBlocks,
   DEFAULT_CALENDAR_TEMPLATE,
   inferKeyStage,
+  seedEndOfHalfTermTests,
 } from "@/model/timeline";
 import type { PlacedBlock, Subject } from "@/model/types";
 import {
   deserializeWorkspace,
+  LegacyEoHTFileError,
+  migrateLegacyEoHTPlacements,
   previewRestoreSubjectToImport,
   serializeWorkspace,
 } from "@/model/workspace";
@@ -75,6 +77,9 @@ export function App(): JSX.Element {
   >(null);
   const [presetPickerOpen, setPresetPickerOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [legacyMigrationPending, setLegacyMigrationPending] = useState<
+    { readonly json: string; readonly path: string } | null
+  >(null);
 
   useEffect(() => {
     loadAutosaved();
@@ -132,14 +137,23 @@ export function App(): JSX.Element {
     const baseTimeline = workspace.calendarTemplate
       ? applyCalendarTemplate(workspace.calendarTemplate)
       : createDefaultTimeline();
-    const timeline = createEoHTBlocks(baseTimeline);
+    // DEC-044: auto-seed an end-of-HT test custom block in every cell when
+    // the calendar template has autoSeedEoHTTest enabled (default true).
+    const seedEoHT = workspace.calendarTemplate?.autoSeedEoHTTest ?? true;
+    let timeline = baseTimeline;
+    let customBlocks = result.subject.customBlocks;
+    if (seedEoHT) {
+      const seeded = seedEndOfHalfTermTests(baseTimeline);
+      timeline = seeded.timeline;
+      customBlocks = [...customBlocks, seeded.customBlock];
+    }
     // Auto-detect key stage from the years present in the timeline; user
     // can override via the subject tab menu.
     const detectedKs = inferKeyStage(baseTimeline);
     const meta = detectedKs
       ? { ...result.subject.meta, keyStage: detectedKs }
       : result.subject.meta;
-    addSubject({ ...result.subject, meta, timeline });
+    addSubject({ ...result.subject, meta, timeline, customBlocks });
     if (result.warnings.length > 0) {
       console.warn(`[import] ${result.warnings.length} warnings:`, result.warnings);
     }
@@ -157,9 +171,32 @@ export function App(): JSX.Element {
       setWorkspace(ws);
       setSavePath(opened.path);
     } catch (e) {
+      if (e instanceof LegacyEoHTFileError) {
+        // DEC-044: user-facing migration flow — keep the parsed JSON in
+        // pending state and let the modal handle the conversion + final load.
+        setLegacyMigrationPending({ json: opened.json, path: opened.path });
+        return;
+      }
       alert(`Failed to load file: ${(e as Error).message}`);
     }
   }, [setWorkspace, setSavePath]);
+
+  const handleConfirmLegacyMigration = useCallback(() => {
+    if (!legacyMigrationPending) return;
+    try {
+      const migratedJson = migrateLegacyEoHTPlacements(legacyMigrationPending.json);
+      const ws = deserializeWorkspace(migratedJson);
+      setWorkspace(ws);
+      // Drop the path so the user is prompted to Save As — guards against
+      // accidentally overwriting the legacy file before they've reviewed the
+      // migration result.
+      setSavePath(null);
+      setLegacyMigrationPending(null);
+    } catch (e) {
+      alert(`Migration failed: ${(e as Error).message}`);
+      setLegacyMigrationPending(null);
+    }
+  }, [legacyMigrationPending, setWorkspace, setSavePath]);
 
   const handleSave = useCallback(async () => {
     if (typeof window.api === "undefined") return;
@@ -335,6 +372,61 @@ export function App(): JSX.Element {
           onCancel={() => setExportModalOpen(false)}
           onConfirm={(mode, output) => void handleExportConfirm(mode, output)}
         />
+      )}
+      {legacyMigrationPending && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="legacy-migration-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4"
+          onClick={() => setLegacyMigrationPending(null)}
+        >
+          <div
+            className="bg-bg rounded-card border border-line w-[560px] max-w-full overflow-hidden flex flex-col shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header className="px-5 py-3 border-b border-line">
+              <h2 id="legacy-migration-title" className="font-display text-lg text-ink">
+                Migrate this file to v2?
+              </h2>
+              <p className="text-xs text-ink-fade mt-1">
+                This file was saved with an older version that stored end-of-half-term
+                tests as a separate kind of placement. v1.2 unifies them into the
+                custom-blocks system (category: <code className="font-mono">test</code>)
+                so you can rename, recategorise, or remove them like any other custom.
+              </p>
+            </header>
+            <div className="px-5 py-4 text-xs text-ink-dim space-y-2">
+              <p>
+                <strong>What changes:</strong> every legacy EoHT placement becomes a
+                "custom" placement referencing a new <em>End of half-term test</em>
+                custom block (one per subject; editing it ripples to every cell).
+              </p>
+              <p>
+                <strong>What stays the same:</strong> lesson counts, cell positions,
+                sub-topic placements, custom blocks you authored, every config option.
+              </p>
+              <p className="text-warn">
+                After migration the file isn't re-saved automatically — review the
+                converted plan, then use <em>Save as…</em> to write a v2 copy.
+              </p>
+            </div>
+            <footer className="px-5 py-3 border-t border-line flex items-center gap-2 justify-end">
+              <button
+                onClick={() => setLegacyMigrationPending(null)}
+                className="px-3 py-1.5 text-sm border border-line rounded hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmLegacyMigration}
+                className="px-3 py-1.5 text-sm bg-navy text-bg rounded hover:bg-navy-dim focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
+              >
+                Migrate to v2
+              </button>
+            </footer>
+          </div>
+        </div>
       )}
       {calendarTarget && (() => {
         if (calendarTarget.kind === "workspace") {

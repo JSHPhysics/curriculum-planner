@@ -263,6 +263,134 @@ export class DeserializationError extends Error {
   }
 }
 
+/**
+ * Thrown by `deserializeWorkspace` when the file contains legacy
+ * `source.kind === "eoht"` placements (DEC-044). The App's open flow catches
+ * this and surfaces a migration modal so the user can opt into the v2
+ * shape, where end-of-HT tests are CustomBlocks with category "test".
+ */
+export class LegacyEoHTFileError extends DeserializationError {
+  constructor() {
+    super(
+      "LEGACY_EOHT",
+      "This file was saved with an older version that used end-of-half-term placements as a separate kind. Click Migrate to convert them into custom test blocks (DEC-044)."
+    );
+    this.name = "LegacyEoHTFileError";
+  }
+}
+
+/**
+ * Cheap check: returns true if the parsed workspace JSON contains any
+ * `PlacedBlock` with `source.kind === "eoht"`. Used by the App's open flow
+ * to decide whether to show the migration dialog before invoking the full
+ * `deserializeWorkspace` (which would throw `LegacyEoHTFileError`).
+ *
+ * Tolerates malformed input — returns false rather than throwing so the
+ * caller can fall through to `deserializeWorkspace` for a real error
+ * message.
+ */
+export function detectLegacyEoHTPlacements(json: string): boolean {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return false;
+  }
+  if (typeof parsed !== "object" || parsed === null) return false;
+  const ws = (parsed as Record<string, unknown>)["workspace"];
+  if (typeof ws !== "object" || ws === null) return false;
+  const subjects = (ws as Record<string, unknown>)["subjects"];
+  if (!Array.isArray(subjects)) return false;
+  for (const s of subjects) {
+    if (typeof s !== "object" || s === null) continue;
+    const timeline = (s as Record<string, unknown>)["timeline"];
+    if (typeof timeline !== "object" || timeline === null) continue;
+    const halfTerms = (timeline as Record<string, unknown>)["halfTerms"];
+    if (!Array.isArray(halfTerms)) continue;
+    for (const ht of halfTerms) {
+      if (typeof ht !== "object" || ht === null) continue;
+      const placedBlocks = (ht as Record<string, unknown>)["placedBlocks"];
+      if (!Array.isArray(placedBlocks)) continue;
+      for (const pb of placedBlocks) {
+        if (typeof pb !== "object" || pb === null) continue;
+        const source = (pb as Record<string, unknown>)["source"];
+        if (typeof source !== "object" || source === null) continue;
+        if ((source as Record<string, unknown>)["kind"] === "eoht") return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Convert a legacy workspace JSON (with `source.kind: "eoht"` placements)
+ * into the v2 shape (DEC-044). Per subject:
+ *   - Create ONE new CustomBlock { isEoHT: true, category: "test",
+ *     name: "End of half-term test", lessons: 1 }
+ *   - Replace every EoHT placement with a custom-kind placement that
+ *     references the new block. Lesson count is preserved per-placement.
+ *
+ * Returns the migrated JSON as a string (still v1 fileVersion — the caller
+ * is expected to pipe this through `deserializeWorkspace` + a fresh save
+ * to persist the new shape).
+ *
+ * Idempotent: re-running on already-migrated input is a no-op.
+ */
+export function migrateLegacyEoHTPlacements(
+  json: string,
+  options: { idGen?: () => string } = {}
+): string {
+  const idGen = options.idGen ?? (() => crypto.randomUUID());
+  const parsed = JSON.parse(json) as { workspace?: { subjects?: unknown[] } } & Record<string, unknown>;
+  if (!parsed.workspace || !Array.isArray(parsed.workspace.subjects)) {
+    return json;
+  }
+  const subjects = parsed.workspace.subjects as Record<string, unknown>[];
+  for (const subject of subjects) {
+    const timeline = subject["timeline"] as { halfTerms?: unknown[] } | undefined;
+    if (!timeline || !Array.isArray(timeline.halfTerms)) continue;
+    const existingCustoms = Array.isArray(subject["customBlocks"])
+      ? (subject["customBlocks"] as unknown[])
+      : [];
+    let migrationBlockId: string | null = null;
+    const halfTerms = timeline.halfTerms as Record<string, unknown>[];
+    let anyMigrated = false;
+    for (const ht of halfTerms) {
+      const placedBlocks = ht["placedBlocks"];
+      if (!Array.isArray(placedBlocks)) continue;
+      const nextBlocks: unknown[] = [];
+      for (const pb of placedBlocks as Record<string, unknown>[]) {
+        const source = pb["source"] as { kind?: string } | undefined;
+        if (source && source.kind === "eoht") {
+          if (!migrationBlockId) {
+            migrationBlockId = idGen();
+            existingCustoms.push({
+              id: migrationBlockId,
+              name: "End of half-term test",
+              lessons: 1,
+              colour: null,
+              isEoHT: true,
+              category: "test",
+            });
+          }
+          anyMigrated = true;
+          nextBlocks.push({
+            ...pb,
+            source: { kind: "custom", customBlockId: migrationBlockId },
+          });
+        } else {
+          nextBlocks.push(pb);
+        }
+      }
+      ht["placedBlocks"] = nextBlocks;
+    }
+    if (anyMigrated) {
+      subject["customBlocks"] = existingCustoms;
+    }
+  }
+  return JSON.stringify(parsed, null, 2);
+}
+
 export function deserializeWorkspace(json: string): Workspace {
   let parsed: unknown;
   try {
@@ -322,6 +450,12 @@ export function deserializeWorkspace(json: string): Workspace {
       "INVALID_WORKSPACE",
       "workspace.activeSubjectId must be a string or null"
     );
+  }
+  // DEC-044: reject legacy EoHT placements; the App's open flow catches this
+  // and surfaces a migration modal. We re-use detectLegacyEoHTPlacements on
+  // the raw JSON to avoid duplicating the walk logic.
+  if (detectLegacyEoHTPlacements(json)) {
+    throw new LegacyEoHTFileError();
   }
   return workspace as Workspace;
 }

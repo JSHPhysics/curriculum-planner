@@ -12,7 +12,12 @@ import {
   type TopicSpacingFlags,
 } from "@/model/spacing";
 import { getVisibleKeyStages } from "@/model/timeline";
-import type { KeyStage, SpacingThresholds, Subject } from "@/model/types";
+import type {
+  KeyStage,
+  SpacingGranularity,
+  SpacingThresholds,
+  Subject,
+} from "@/model/types";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
 export interface SpacingPanelProps {
@@ -20,9 +25,6 @@ export interface SpacingPanelProps {
 }
 
 const EXPANDED_STORAGE_KEY = "curriculum-planner-spacing-panel-expanded-v1";
-const GRANULARITY_STORAGE_KEY = "curriculum-planner-spacing-panel-granularity-v1";
-
-type Granularity = "topic" | "sub-topic";
 
 function readExpandedFromStorage(): boolean {
   if (typeof localStorage === "undefined") return false;
@@ -30,17 +32,6 @@ function readExpandedFromStorage(): boolean {
     return localStorage.getItem(EXPANDED_STORAGE_KEY) === "1";
   } catch {
     return false;
-  }
-}
-
-function readGranularityFromStorage(): Granularity {
-  if (typeof localStorage === "undefined") return "topic";
-  try {
-    return localStorage.getItem(GRANULARITY_STORAGE_KEY) === "sub-topic"
-      ? "sub-topic"
-      : "topic";
-  } catch {
-    return "topic";
   }
 }
 
@@ -61,10 +52,15 @@ export function SpacingPanel({ subject }: SpacingPanelProps): JSX.Element | null
   // (DEC-037). This toggle lets the user collapse to a single combined view
   // for cross-KS spacing analysis when they actively want it.
   const [combineKS, setCombineKS] = useState(false);
-  // Granularity toggle (DEC-042): default "topic" since most planning thinking
-  // happens at the topic level. "sub-topic" reveals the more granular flags
-  // for users who want to drill into specific sub-topics.
-  const [granularity, setGranularity] = useState<Granularity>(readGranularityFromStorage);
+  // Granularity (DEC-042 + DEC-043): read from subject.config; default "topic"
+  // when absent. Persists per-subject so a planner's preference travels with
+  // the `.curriculum` file.
+  const granularity: SpacingGranularity =
+    subject?.config.spacingGranularity ?? "topic";
+
+  function setGranularity(g: SpacingGranularity): void {
+    updateActiveSubjectConfig({ spacingGranularity: g });
+  }
 
   useEffect(() => {
     if (typeof localStorage === "undefined") return;
@@ -74,15 +70,6 @@ export function SpacingPanel({ subject }: SpacingPanelProps): JSX.Element | null
       /* localStorage full / disabled — ignore */
     }
   }, [expanded]);
-
-  useEffect(() => {
-    if (typeof localStorage === "undefined") return;
-    try {
-      localStorage.setItem(GRANULARITY_STORAGE_KEY, granularity);
-    } catch {
-      /* ignore */
-    }
-  }, [granularity]);
 
   const subFlagsByKs = useMemo(
     () => (subject ? getSpacingFlagsByKeyStage(subject) : null),

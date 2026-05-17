@@ -1839,3 +1839,100 @@ So: interleaving stays topic-level-in-cell (correct already); spacing/retrieval 
 - **Should the granularity toggle be per-subject** (saved in `.curriculum`) instead of per-browser? Currently `localStorage`. Per-subject would let "this physics spec is best viewed at sub-topic level" survive across machines.
 - **PEDAGOGY.md** — still on the deferred list. Worth scheduling its own short session for documentation polish?
 - Next per the roadmap: **#1 from the post-v1.1 feedback** — remove EoHTs as a first-class concept; expand CustomBlock with category (test/lesson/unit/assessment). This is a substantive data model change deserving a fresh session with up-front design discussion.
+
+---
+
+## Session 26 — Per-subject granularity + EoHT removal + CustomBlock categories
+**Date:** 2026-05-17
+**Status:** Complete
+**Commit:** *(pending — see git log)*
+
+Two-part session per user direction after Session 25:
+
+> 1. remain deferred [PEDAGOGY.md]
+> 3. Yes [granularity per-subject]
+> 4. Then move on to next big item, removing the EoHTs in favor of customblocks
+
+### Part A — Granularity preference per-subject (DEC-043)
+
+**What was built:**
+- `SubjectConfig.spacingGranularity?: "topic" | "sub-topic"` (optional; defaults to "topic" when absent)
+- `SpacingPanel` and `RetrievalSuggestionPopover` now read/write via `subject.config.spacingGranularity` (via `updateActiveSubjectConfig`); both `localStorage` keys dropped.
+- Preference travels with the `.curriculum` file → reopens on a different machine show the same view. Different subjects in one workspace can have different granularities.
+
+### Part B — Remove EoHTs in favour of CustomBlocks (DEC-044)
+
+User-confirmed design choices (via AskUserQuestion):
+1. **Fixed category set + per-block free-text label** (Test / Lesson / Unit / Assessment / Retrieval / Other)
+2. **Configurable in CalendarSettings: "auto-seed end-of-HT test" checkbox, default ON** (backwards-compatible UX)
+3. **Hard break migration**: explicit "Migrate to v2" button click before legacy files load
+
+**Data model changes:**
+- `CustomBlockCategory` enum + `CustomBlock.category?: CustomBlockCategory` + `CustomBlock.label?: string` (free-text descriptor)
+- `CustomBlock.kind` and `CustomBlock.isEoHT` retained on the type as `@deprecated` (kept for legacy parsing); `isEoHT: true` repurposed to mean "this custom IS the auto-seeded EoHT test" — drives the dashed-italic rendering.
+- `CalendarTemplate.autoSeedEoHTTest?: boolean` (default `true`)
+
+**Engine rewrites:**
+- `createEoHTBlocks` → `seedEndOfHalfTermTests(timeline, options?)`, returning `{ timeline, customBlock }`. The custom block is created once per subject; callers wire it into `subject.customBlocks`. Old name preserved as a single-cycle deprecation shim.
+- `sortedBlocksForCell(blocks, customBlocks?)` recognises EoHT-tagged customs and sorts them to the end of each cell (matches v1 visual behaviour). All callers updated.
+
+**Migration:**
+- `LegacyEoHTFileError` (extends `DeserializationError`); `detectLegacyEoHTPlacements(json)` (cheap defensive check); `migrateLegacyEoHTPlacements(json, { idGen? })` (in-place rewrite to v2 shape, idempotent, preserves lesson counts).
+- `deserializeWorkspace` throws `LegacyEoHTFileError` when it sees `source.kind === "eoht"`.
+- App open-flow catches the error and shows a migration modal with cancel + "Migrate to v2" buttons. On confirm: migrate → deserialize → load → clear save path (forces user to Save As to commit the conversion).
+- `loadAutosaved` silently migrates (no dialog) — autosave is unattended recovery; logs to console for forensics.
+
+**UI:**
+- `CustomBlockModal` rewritten: 6-category radio grid (3 columns) with category icon + name + tooltip; new optional "Label" field below "Name"; category-aware modal headline + placeholder text.
+- `CalendarSettingsModal` gains the auto-seed checkbox.
+- `HalfTermCell.PlacedBlockCard` / `LessonHalfTermCell.NonSubTopicGroup` distinguish EoHT-tagged customs (dashed italic, v1 styling) from other category customs (solid border + 3-letter category code).
+- App.tsx + ViewPlaceholder.tsx use `seedEndOfHalfTermTests` and honour `workspace.calendarTemplate.autoSeedEoHTTest`.
+
+### Tests added/updated (+12 unit, +3 E2E, several fixtures updated)
+
+- `tests/model/workspace.test.ts` +7: legacy detection (returns true/false/tolerates-malformed); deserializer throws `LegacyEoHTFileError`; migrator converts EoHTs to custom-block placements; migrator is idempotent; non-EoHT placements survive migration.
+- `tests/model/timeline.test.ts`: 3 existing `createEoHTBlocks` tests updated — placement kind flips from `"eoht"` to `"custom"`; option name flips from `lessonsPerEoHT` to `lessonsPerTest`.
+- `tests/store/useWorkspaceStore.test.ts`: `loadExampleSubject` fixture updated to use `seedEndOfHalfTermTests` and wire the seeded custom block into the subject's `customBlocks` array (otherwise placements reference a missing custom).
+- `tests/e2e/calendar-settings.spec.ts`: `nth(2)` checkbox lookup replaced with label-based selector (auto-seed checkbox shifted positional indexing).
+- `tests/e2e/custom-block.spec.ts` +2: 6 DEC-044 categories present; label field visible; "End of half-term test" auto-seeded into every cell on example load.
+
+### Exit criteria check
+- [x] DEC-043: granularity preference per-subject; localStorage keys retired
+- [x] DEC-044: CustomBlock gains category + optional label; EoHTs become CustomBlocks
+- [x] Auto-seed checkbox in CalendarSettings, default ON
+- [x] Legacy `.curriculum` files prompt for explicit migration; autosave silently migrates
+- [x] All non-spec block rendering routes through the unified custom path
+- [x] `npm run typecheck` clean
+- [x] `npm test` — 347/347 (was 340/340; +7 migration tests)
+- [x] `npm run test:e2e` — 33/33 (was 31/31; +2 custom-block tests, 1 calendar test updated)
+- [x] `npm run build:renderer` clean
+- [x] DEC-043 + DEC-044 logged
+
+### Deviations from the plan
+- **No version bump.** This is substantive (data model changes, breaking schema migration for legacy files) — arguably warrants v1.2.0 or v2.0.0. User didn't ask; deferring to a future session unless flagged.
+- **No PEDAGOGY.md update** (user's "remain deferred" answer).
+- **No SPEC.md edits.** Captured in DECs; will fold into SPEC §5 (data model) at next consolidation.
+
+### Decisions logged
+- [DEC-043](DECISIONS.md#dec-043) — Spacing/retrieval granularity preference travels per-subject (not per-browser)
+- [DEC-044](DECISIONS.md#dec-044) — Remove `PlacedBlockSource.eoht`; end-of-half-term tests become CustomBlocks with category="test"
+
+### Surprises and gotchas
+- **Custom blocks with no entry in `subject.customBlocks`** are a silent bug: placements reference an id that doesn't resolve, so renderer falls through to fallback strings and analytics ignore them. The `loadExampleSubject` test fixture had this issue after the rewrite (it used the legacy `createEoHTBlocks` shim that discards the custom block). The orphan-detector in `restoreSubjectToImport` correctly flagged these as orphans — that's how I found the bug.
+- **`PlacedBlockSource.eoht` is still a TYPE-valid kind** because legacy files would otherwise fail at the type level. Removing the union member entirely is a one-line change for a future session, after files have had a few release cycles to migrate.
+- **`require()` inside an ESM file** doesn't work under TS strict mode; I tried it briefly in `loadAutosaved` to dodge an imagined circular import, then realised the import chain is fine and switched to static imports.
+- **E2E test `nth(N)` selectors are fragile** — the calendar-settings test broke when the new auto-seed checkbox shifted positional indexing. Fixed with a label-based selector. Worth grepping for `nth(` in the test suite as future hygiene.
+- **`updateActiveSubjectConfig` for the granularity setter** is a closure over a snapshot of `subject` — used directly inside the SpacingPanel; correctness verified by running through the e2e suite (which exercises the panel's read/write).
+
+### What's usable now
+1. Set spacing granularity to "sub-topic" on one subject → save → open the file on another machine → preference preserved
+2. Open the workspace calendar settings → uncheck "Auto-seed an end-of-half-term test" → new subjects added thereafter start with a clean timeline
+3. Click `+ Custom` → see the new 6-category picker + optional Label field → create a "Test" with label "Practical assessment" → the chip renders with the TST category code and the label as a secondary descriptor
+4. Open a v1.x `.curriculum` file → see the "Migrate to v2?" dialog → click Migrate → file loads with EoHTs converted to a single "End of half-term test" custom block per subject
+5. Restart the app with an autosaved session that has legacy EoHTs → migration happens silently, console logs `[autosave] silently migrated…` for forensics
+
+### Open questions for the user
+- **Version bump**: should this ship as v1.2.0 (additive features + breaking schema migration), or roll into the next user-facing milestone?
+- **`PlacedBlockSource.eoht` cleanup**: drop the union member entirely in a future "v1.x cleanup" session, or leave it indefinitely?
+- **Default `autoSeedEoHTTest` on existing workspaces**: when a user opens a v1.x file (post-migration), the migrated workspace's `calendarTemplate` may not have the new field set — it'll behave as `true` (the default). Is that desired, or should the migration explicitly set it `false` to match the just-cleaned state?
+- Next: still nothing locked in — could be #1 from BUGFIXES.md (browser file dialogs), the first-startup wizard (Session 24 on the original roadmap), or guided tours (Session 25 on the original roadmap).

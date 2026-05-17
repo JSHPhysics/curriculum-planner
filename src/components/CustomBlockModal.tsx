@@ -1,6 +1,10 @@
 import { useState } from "react";
 
-import type { CustomBlock, CustomBlockKind, Subject } from "@/model/types";
+import type {
+  CustomBlock,
+  CustomBlockCategory,
+  Subject,
+} from "@/model/types";
 
 import { RevisitsPicker } from "./RevisitsPicker";
 
@@ -19,16 +23,37 @@ const PALETTE: readonly string[] = [
   "#3F7494",
 ];
 
+// DEC-044: fixed category set (with per-block free-text `label` for nuance).
+// Order matches the picker presentation; defaults to "other" for the
+// "miscellaneous block" case (replaces v1.x kind="standard").
+interface CategoryDescriptor {
+  readonly id: CustomBlockCategory;
+  readonly name: string;
+  readonly icon: string;
+  readonly description: string;
+}
+
+const CATEGORIES: readonly CategoryDescriptor[] = [
+  { id: "test", name: "Test", icon: "TST", description: "Formative test, mid-topic check, end-of-HT quiz" },
+  { id: "lesson", name: "Lesson", icon: "LSN", description: "Bespoke lesson outside the imported spec" },
+  { id: "unit", name: "Unit", icon: "UNT", description: "Multi-lesson teacher-defined unit" },
+  { id: "assessment", name: "Assessment", icon: "ASM", description: "Summative assessment (mock, exam, NEA)" },
+  { id: "retrieval", name: "Retrieval", icon: "↺", description: "Revisits earlier sub-topics for spaced practice" },
+  { id: "other", name: "Other", icon: "CB", description: "Trip, INSET cover, anything that doesn't fit" },
+];
+
 export function CustomBlockModal({ subject, onCancel, onCreate }: CustomBlockModalProps): JSX.Element {
-  const [kind, setKind] = useState<CustomBlockKind>("standard");
+  const [category, setCategory] = useState<CustomBlockCategory>("other");
   const [name, setName] = useState("");
+  const [label, setLabel] = useState("");
   const [lessons, setLessons] = useState(1);
   const [colour, setColour] = useState<string>(PALETTE[0]!);
   const [revisits, setRevisits] = useState<readonly string[]>([]);
 
   function handleCreate(): void {
-    const trimmed = name.trim();
-    if (!trimmed) {
+    const trimmedName = name.trim();
+    const trimmedLabel = label.trim();
+    if (!trimmedName) {
       alert("Custom block needs a name.");
       return;
     }
@@ -38,11 +63,13 @@ export function CustomBlockModal({ subject, onCancel, onCreate }: CustomBlockMod
     }
     const block: CustomBlock = {
       id: makeId(),
-      name: trimmed,
+      name: trimmedName,
       lessons,
       colour,
       isEoHT: false,
-      ...(kind === "retrieval" ? { kind, revisits } : {}),
+      category,
+      ...(trimmedLabel ? { label: trimmedLabel } : {}),
+      ...(category === "retrieval" ? { revisits } : {}),
     };
     onCreate(block);
   }
@@ -53,6 +80,15 @@ export function CustomBlockModal({ subject, onCancel, onCreate }: CustomBlockMod
     );
   }
 
+  const headlineByCategory: Record<CustomBlockCategory, string> = {
+    test: "New test block",
+    lesson: "New lesson block",
+    unit: "New unit block",
+    assessment: "New assessment block",
+    retrieval: "New retrieval block",
+    other: "New custom block",
+  };
+
   return (
     <div
       role="dialog"
@@ -61,26 +97,26 @@ export function CustomBlockModal({ subject, onCancel, onCreate }: CustomBlockMod
       onClick={onCancel}
     >
       <div
-        className="bg-bg rounded-card border border-line w-[460px] max-w-[90vw] max-h-[90vh] overflow-hidden flex flex-col shadow-xl"
+        className="bg-bg rounded-card border border-line w-[520px] max-w-[92vw] max-h-[92vh] overflow-hidden flex flex-col shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="px-5 py-3 border-b border-line">
           <h2 className="font-display text-lg text-navy">
-            {kind === "retrieval" ? "New retrieval block" : "New custom block"}
+            {headlineByCategory[category]}
           </h2>
           <p className="text-[11px] text-ink-fade mt-1">
-            {kind === "retrieval"
+            {category === "retrieval"
               ? "Marks a half-term slot for revisiting earlier content. Pick which sub-topics it covers."
-              : "Trips, mocks, retrieval weeks, or anything else outside the spec content."}
+              : "Pick the block type that best fits — every custom block lives in the same place but each category gets its own visual cue."}
           </p>
         </header>
 
         <div className="px-5 py-4 space-y-4 overflow-y-auto">
-          <KindToggle kind={kind} onChange={setKind} />
+          <CategoryPicker category={category} onChange={setCategory} />
 
           <div>
             <label htmlFor="custom-block-name" className="block text-xs text-ink-dim mb-1">
-              Name
+              Name <span className="text-ink-fade">(headline)</span>
             </label>
             <input
               id="custom-block-name"
@@ -88,9 +124,34 @@ export function CustomBlockModal({ subject, onCancel, onCreate }: CustomBlockMod
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder={kind === "retrieval" ? "e.g. Recall: Forces & Motion" : "e.g. Mid-year revision"}
+              placeholder={
+                category === "retrieval"
+                  ? "e.g. Recall: Forces & Motion"
+                  : category === "test"
+                  ? "e.g. End of Aut 1 test"
+                  : category === "assessment"
+                  ? "e.g. Y10 mock"
+                  : "e.g. Trip to Science Museum"
+              }
               className="w-full px-2 py-1 border border-line rounded text-sm"
             />
+          </div>
+
+          <div>
+            <label htmlFor="custom-block-label" className="block text-xs text-ink-dim mb-1">
+              Label <span className="text-ink-fade">(optional; secondary descriptor)</span>
+            </label>
+            <input
+              id="custom-block-label"
+              type="text"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="e.g. practical, peer-marked, calculator"
+              className="w-full px-2 py-1 border border-line rounded text-sm"
+            />
+            <p className="text-[10px] text-ink-fade mt-1">
+              Sits alongside the headline name and shows in tooltips / chips.
+            </p>
           </div>
 
           <div>
@@ -127,7 +188,7 @@ export function CustomBlockModal({ subject, onCancel, onCreate }: CustomBlockMod
             </div>
           </div>
 
-          {kind === "retrieval" && (
+          {category === "retrieval" && (
             <RevisitsPicker
               subject={subject}
               selected={revisits}
@@ -155,60 +216,48 @@ export function CustomBlockModal({ subject, onCancel, onCreate }: CustomBlockMod
   );
 }
 
-interface KindToggleProps {
-  readonly kind: CustomBlockKind;
-  readonly onChange: (next: CustomBlockKind) => void;
+interface CategoryPickerProps {
+  readonly category: CustomBlockCategory;
+  readonly onChange: (next: CustomBlockCategory) => void;
 }
 
-function KindToggle({ kind, onChange }: KindToggleProps): JSX.Element {
+function CategoryPicker({ category, onChange }: CategoryPickerProps): JSX.Element {
   return (
     <div>
-      <div className="block text-xs text-ink-dim mb-1">Block type</div>
-      <div role="radiogroup" className="inline-flex border border-line rounded overflow-hidden">
-        <KindOption
-          value="standard"
-          label="Standard"
-          description="Generic non-spec block (e.g. trip, mock)"
-          active={kind === "standard"}
-          onSelect={() => onChange("standard")}
-        />
-        <KindOption
-          value="retrieval"
-          label="↺ Retrieval"
-          description="Revisits earlier sub-topics"
-          active={kind === "retrieval"}
-          onSelect={() => onChange("retrieval")}
-        />
+      <div className="block text-xs text-ink-dim mb-1.5">Category</div>
+      <div role="radiogroup" className="grid grid-cols-3 gap-1.5">
+        {CATEGORIES.map((c) => {
+          const active = category === c.id;
+          return (
+            <button
+              key={c.id}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              aria-label={`${c.name} — ${c.description}`}
+              onClick={() => onChange(c.id)}
+              title={c.description}
+              className={
+                "flex items-center gap-2 px-2.5 py-2 border rounded text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy focus-visible:ring-inset " +
+                (active
+                  ? "border-navy bg-navy/5"
+                  : "border-line hover:bg-surface-2")
+              }
+            >
+              <span
+                className={
+                  "font-mono text-[10px] tracking-wider px-1 py-0.5 rounded " +
+                  (active ? "bg-navy text-bg" : "bg-surface-2 text-ink-fade")
+                }
+              >
+                {c.icon}
+              </span>
+              <span className="text-xs text-ink">{c.name}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
-  );
-}
-
-interface KindOptionProps {
-  readonly value: CustomBlockKind;
-  readonly label: string;
-  readonly description: string;
-  readonly active: boolean;
-  readonly onSelect: () => void;
-}
-
-function KindOption({ value, label, description, active, onSelect }: KindOptionProps): JSX.Element {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={active}
-      aria-label={`${label} — ${description}`}
-      onClick={onSelect}
-      title={description}
-      className={
-        "px-3 py-1.5 text-sm transition border-l border-line first:border-l-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy focus-visible:ring-inset " +
-        (active ? "bg-navy text-bg" : "text-ink hover:bg-surface-2")
-      }
-      data-value={value}
-    >
-      {label}
-    </button>
   );
 }
 

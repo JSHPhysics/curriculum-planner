@@ -11,11 +11,14 @@ import {
   APP_VERSION,
   DeserializationError,
   FILE_VERSION,
+  LegacyEoHTFileError,
   addSubject,
   applyTemplateToSubject,
   createWorkspace,
   deserializeWorkspace,
+  detectLegacyEoHTPlacements,
   getActiveSubject,
+  migrateLegacyEoHTPlacements,
   previewApplyTemplateToSubject,
   previewRestoreSubjectToImport,
   removeSubject,
@@ -506,5 +509,146 @@ describe("serializeWorkspace / deserializeWorkspace", () => {
     // The new fields are absent — not normalised to defaults
     expect("kind" in block!).toBe(false);
     expect("revisits" in block!).toBe(false);
+  });
+});
+
+// ============================================================
+// Legacy EoHT migration (DEC-044)
+// ============================================================
+
+function legacyEoHTWorkspaceJson(): string {
+  return JSON.stringify({
+    fileVersion: FILE_VERSION,
+    appVersion: "1.0.0",
+    savedAt: "2026-05-15T00:00:00Z",
+    workspace: {
+      activeSubjectId: "subj-1",
+      subjects: [
+        {
+          id: "subj-1",
+          meta: { name: "Physics", colour: "#1F3A5F", sourceFilename: null },
+          importedSpec: { topics: [] },
+          workingSpec: { topics: [] },
+          timeline: {
+            halfTerms: [
+              {
+                id: "Y9-A1",
+                year: "Y9",
+                label: "Aut 1",
+                dates: null,
+                budget: 12,
+                placedBlocks: [
+                  {
+                    id: "pb-eoht-1",
+                    source: { kind: "eoht" },
+                    lessonsClaimed: 1,
+                    lessonRange: [0, 1],
+                    splitFrom: null,
+                    splitType: null,
+                    userEdits: {},
+                  },
+                  {
+                    id: "pb-st-1",
+                    source: { kind: "sub-topic", subTopicCode: "T1a" },
+                    lessonsClaimed: 3,
+                    lessonRange: [0, 3],
+                    splitFrom: null,
+                    splitType: null,
+                    userEdits: {},
+                  },
+                ],
+              },
+              {
+                id: "Y9-A2",
+                year: "Y9",
+                label: "Aut 2",
+                dates: null,
+                budget: 12,
+                placedBlocks: [
+                  {
+                    id: "pb-eoht-2",
+                    source: { kind: "eoht" },
+                    lessonsClaimed: 2,
+                    lessonRange: [0, 2],
+                    splitFrom: null,
+                    splitType: null,
+                    userEdits: {},
+                  },
+                ],
+              },
+            ],
+          },
+          customBlocks: [],
+          config: { includeDepth: false, lostLessonBuffer: false, autoSpillover: true },
+        },
+      ],
+    },
+  });
+}
+
+describe("DEC-044 — legacy EoHT migration", () => {
+  it("detectLegacyEoHTPlacements returns true for legacy files", () => {
+    expect(detectLegacyEoHTPlacements(legacyEoHTWorkspaceJson())).toBe(true);
+  });
+
+  it("detectLegacyEoHTPlacements returns false for clean files", () => {
+    const clean = JSON.stringify({
+      fileVersion: FILE_VERSION,
+      appVersion: APP_VERSION,
+      savedAt: "2026-05-17T00:00:00Z",
+      workspace: { activeSubjectId: null, subjects: [] },
+    });
+    expect(detectLegacyEoHTPlacements(clean)).toBe(false);
+  });
+
+  it("detectLegacyEoHTPlacements tolerates malformed JSON without throwing", () => {
+    expect(detectLegacyEoHTPlacements("not json")).toBe(false);
+    expect(detectLegacyEoHTPlacements("{}")).toBe(false);
+  });
+
+  it("deserializeWorkspace throws LegacyEoHTFileError on legacy files", () => {
+    expect(() => deserializeWorkspace(legacyEoHTWorkspaceJson())).toThrow(
+      LegacyEoHTFileError
+    );
+  });
+
+  it("migrateLegacyEoHTPlacements converts EoHTs to custom-block placements", () => {
+    let n = 0;
+    const idGen = (): string => `migrated-${++n}`;
+    const migrated = migrateLegacyEoHTPlacements(legacyEoHTWorkspaceJson(), { idGen });
+    const ws = deserializeWorkspace(migrated);
+    const subj = ws.subjects[0]!;
+    // ONE new custom block per subject (not one per cell)
+    const newCustoms = subj.customBlocks.filter((c) => c.isEoHT === true);
+    expect(newCustoms).toHaveLength(1);
+    expect(newCustoms[0]?.category).toBe("test");
+    expect(newCustoms[0]?.name).toBe("End of half-term test");
+    // Both EoHT placements rewritten to custom-kind referencing that block
+    const customId = newCustoms[0]!.id;
+    const placements = subj.timeline.halfTerms.flatMap((ht) =>
+      ht.placedBlocks.filter(
+        (pb) => pb.source.kind === "custom" && pb.source.customBlockId === customId
+      )
+    );
+    expect(placements).toHaveLength(2);
+    // Lesson counts preserved per-placement
+    expect(placements.map((p) => p.lessonsClaimed).sort()).toEqual([1, 2]);
+  });
+
+  it("migrateLegacyEoHTPlacements is idempotent on already-migrated files", () => {
+    let n = 0;
+    const idGen = (): string => `id-${++n}`;
+    const once = migrateLegacyEoHTPlacements(legacyEoHTWorkspaceJson(), { idGen });
+    const twice = migrateLegacyEoHTPlacements(once, { idGen });
+    expect(JSON.parse(once)).toEqual(JSON.parse(twice));
+  });
+
+  it("non-EoHT placements (sub-topic, existing customs) survive migration unchanged", () => {
+    const migrated = migrateLegacyEoHTPlacements(legacyEoHTWorkspaceJson());
+    const ws = deserializeWorkspace(migrated);
+    const a1 = ws.subjects[0]!.timeline.halfTerms[0]!;
+    const subTopicPlacement = a1.placedBlocks.find((pb) => pb.id === "pb-st-1");
+    expect(subTopicPlacement).toBeDefined();
+    expect(subTopicPlacement!.source.kind).toBe("sub-topic");
   });
 });

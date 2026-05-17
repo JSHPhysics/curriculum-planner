@@ -56,22 +56,22 @@ describe("createDefaultTimeline", () => {
   });
 });
 
-describe("createEoHTBlocks", () => {
-  it("adds one EoHT placement to every half-term", () => {
+describe("createEoHTBlocks / seedEndOfHalfTermTests (DEC-044)", () => {
+  it("adds one custom-kind placement (referencing the seeded test custom) to every half-term", () => {
     const tl = createEoHTBlocks(createDefaultTimeline(), { idGen: counterIdGen() });
     for (const ht of tl.halfTerms) {
       expect(ht.placedBlocks).toHaveLength(1);
       const block = ht.placedBlocks[0];
-      expect(block?.source.kind).toBe("eoht");
+      expect(block?.source.kind).toBe("custom");
       expect(block?.lessonsClaimed).toBe(1);
       expect(block?.splitFrom).toBeNull();
       expect(block?.splitType).toBeNull();
     }
   });
 
-  it("respects a custom lessonsPerEoHT", () => {
+  it("respects a custom lessonsPerTest", () => {
     const tl = createEoHTBlocks(createDefaultTimeline(), {
-      lessonsPerEoHT: 3,
+      lessonsPerTest: 3,
       idGen: counterIdGen(),
     });
     expect(tl.halfTerms[0]?.placedBlocks[0]?.lessonsClaimed).toBe(3);
@@ -99,7 +99,7 @@ describe("createEoHTBlocks", () => {
     const result = createEoHTBlocks(withFake, { idGen: counterIdGen() });
     expect(result.halfTerms[0]?.placedBlocks).toHaveLength(2);
     expect(result.halfTerms[0]?.placedBlocks[0]?.id).toBe("pre-existing");
-    expect(result.halfTerms[0]?.placedBlocks[1]?.source.kind).toBe("eoht");
+    expect(result.halfTerms[0]?.placedBlocks[1]?.source.kind).toBe("custom");
   });
 });
 

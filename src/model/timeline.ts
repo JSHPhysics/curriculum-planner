@@ -1,6 +1,7 @@
 import type {
   CalendarHalfTerm,
   CalendarTemplate,
+  CustomBlock,
   HalfTerm,
   KeyStage,
   PlacedBlock,
@@ -92,40 +93,85 @@ export function createDefaultTimeline(): Timeline {
 // Re-export the calendar half-term shape for convenience.
 export type { CalendarHalfTerm };
 
-export interface EoHTOptions {
-  readonly lessonsPerEoHT?: number;
+export interface SeedEoHTTestsOptions {
+  /** Lessons per auto-seeded test. Default 1. */
+  readonly lessonsPerTest?: number;
+  /** Deterministic id generator (tests). */
   readonly idGen?: () => string;
 }
 
-export function createEoHTBlocks(
+export interface SeedEoHTTestsResult {
+  readonly timeline: Timeline;
+  readonly customBlock: CustomBlock;
+}
+
+/**
+ * Auto-seed an end-of-half-term test custom block into every cell of the
+ * timeline (DEC-044). Returns both the modified Timeline AND the single
+ * new CustomBlock that the placements reference — callers should add the
+ * custom block to `subject.customBlocks` so the timeline references resolve.
+ *
+ * One custom block per subject (not per cell): editing it ripples to every
+ * placement. This matches existing UX.
+ *
+ * The custom block carries `isEoHT: true` (the legacy field, repurposed) so
+ * downstream code (sort-to-end behaviour, render styling) can identify the
+ * auto-seeded test even after the user renames it or changes its category.
+ */
+export function seedEndOfHalfTermTests(
   timeline: Timeline,
-  options: EoHTOptions = {}
-): Timeline {
-  const lessons = options.lessonsPerEoHT ?? 1;
+  options: SeedEoHTTestsOptions = {}
+): SeedEoHTTestsResult {
+  const lessons = options.lessonsPerTest ?? 1;
   const idGen = options.idGen ?? defaultIdGen;
+  const customBlock: CustomBlock = {
+    id: idGen(),
+    name: "End of half-term test",
+    lessons,
+    colour: null,
+    isEoHT: true,
+    category: "test",
+  };
   return {
-    halfTerms: timeline.halfTerms.map(
-      (ht): HalfTerm => ({
-        ...ht,
-        placedBlocks: [
-          ...ht.placedBlocks,
-          eoHTPlacement(idGen(), lessons),
-        ],
-      })
-    ),
+    customBlock,
+    timeline: {
+      halfTerms: timeline.halfTerms.map(
+        (ht): HalfTerm => ({
+          ...ht,
+          placedBlocks: [
+            ...ht.placedBlocks,
+            {
+              id: idGen(),
+              source: { kind: "custom", customBlockId: customBlock.id },
+              lessonsClaimed: lessons,
+              lessonRange: [0, lessons],
+              splitFrom: null,
+              splitType: null,
+              userEdits: {},
+            },
+          ],
+        })
+      ),
+    },
   };
 }
 
-function eoHTPlacement(id: string, lessons: number): PlacedBlock {
-  return {
-    id,
-    source: { kind: "eoht" },
-    lessonsClaimed: lessons,
-    lessonRange: [0, lessons],
-    splitFrom: null,
-    splitType: null,
-    userEdits: {},
-  };
+/**
+ * @deprecated Use `seedEndOfHalfTermTests` per DEC-044. Kept for one release
+ * cycle so existing tests/scripts continue to compile; new callers must use
+ * the new API which returns both the timeline AND the seeded custom block.
+ *
+ * This shim produces the same TIMELINE but discards the custom block, so
+ * placements in the returned timeline will reference a custom block id that
+ * isn't in any subject's `customBlocks` array. That's a programming error
+ * in production code — only used by legacy tests that are about to be
+ * updated.
+ */
+export function createEoHTBlocks(
+  timeline: Timeline,
+  options: SeedEoHTTestsOptions = {}
+): Timeline {
+  return seedEndOfHalfTermTests(timeline, options).timeline;
 }
 
 export function halfTermUsed(halfTerm: HalfTerm): number {

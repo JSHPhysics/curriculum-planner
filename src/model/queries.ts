@@ -1,4 +1,5 @@
 import type {
+  CustomBlock,
   PlacedBlock,
   Spec,
   SubTopic,
@@ -80,17 +81,30 @@ export function getPoolEntries(subject: Subject): PoolEntry[] {
 }
 
 /**
- * Compute the list of placed blocks grouped by half-term, with EoHT placements
- * sorted to the end of each cell's list (per BUILD_PLAN.md §8 step 3).
+ * Compute the list of placed blocks for a cell with end-of-HT test blocks
+ * sorted to the end (per BUILD_PLAN.md §8 step 3, updated per DEC-044 to
+ * recognise customs flagged `isEoHT: true` instead of the legacy
+ * `source.kind === "eoht"` placements).
+ *
+ * Accepts the `customBlocks` array so we can look up category/isEoHT for
+ * `source.kind === "custom"` placements. Falls back to recognising legacy
+ * `source.kind === "eoht"` for files in mid-migration (defensive — the
+ * deserializer hard-stops on those, but cheap to leave the check in).
  */
 export function sortedBlocksForCell(
-  blocks: readonly PlacedBlock[]
+  blocks: readonly PlacedBlock[],
+  customBlocks: readonly CustomBlock[] = []
 ): readonly PlacedBlock[] {
-  return [...blocks].sort((a, b) => {
-    const aEoht = a.source.kind === "eoht" ? 1 : 0;
-    const bEoht = b.source.kind === "eoht" ? 1 : 0;
-    return aEoht - bEoht;
-  });
+  function endRank(b: PlacedBlock): number {
+    if (b.source.kind === "eoht") return 1; // legacy
+    if (b.source.kind === "custom") {
+      const customId = b.source.customBlockId;
+      const cb = customBlocks.find((c) => c.id === customId);
+      if (cb?.isEoHT === true) return 1;
+    }
+    return 0;
+  }
+  return [...blocks].sort((a, b) => endRank(a) - endRank(b));
 }
 
 /**

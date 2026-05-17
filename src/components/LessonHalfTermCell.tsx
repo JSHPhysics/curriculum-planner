@@ -55,7 +55,7 @@ export function LessonHalfTermCell({
         </span>
       </header>
       <div className="flex flex-col gap-1.5 p-1.5 flex-1">
-        {sortedBlocksForCell(halfTerm.placedBlocks).map((pb) => (
+        {sortedBlocksForCell(halfTerm.placedBlocks, subject.customBlocks).map((pb) => (
           <PlacedBlockGroup
             key={pb.id}
             placed={pb}
@@ -155,36 +155,68 @@ interface NonSubTopicGroupProps {
 }
 
 function NonSubTopicGroup({ placed, subject, onOpen }: NonSubTopicGroupProps): JSX.Element {
+  // Legacy source.kind === "eoht" — kept for defensive parsing only; the
+  // deserializer hard-stops on these per DEC-044, but cheap to render.
   if (placed.source.kind === "eoht") {
     return (
       <button
         onClick={() => onOpen(placed.id)}
         className="text-left text-[11px] italic text-ink-dim px-1.5 py-1 border border-dashed border-line-2 rounded bg-surface-2/40 hover:bg-surface-2"
       >
-        End-of-half-term test
+        End-of-half-term test (legacy)
       </button>
     );
   }
   const cb = subject.customBlocks.find(
     (c) => placed.source.kind === "custom" && c.id === placed.source.customBlockId
   );
-  const isRetrieval = cb?.kind === "retrieval";
+  // DEC-044: read category preferentially, fall back to legacy `kind` for
+  // mid-migration files.
+  const category = cb?.category ?? (cb?.kind === "retrieval" ? "retrieval" : "other");
+  const isEoHTish = cb?.isEoHT === true;
+  const isRetrieval = category === "retrieval";
   const revisitsText =
     isRetrieval && cb?.revisits && cb.revisits.length > 0
       ? ` — revisits ${cb.revisits.join(", ")}`
       : "";
+  // Auto-seeded end-of-HT tests get the dashed italic styling (preserves
+  // v1 UX); other categories render with their distinctive border colour.
+  if (isEoHTish) {
+    return (
+      <button
+        onClick={() => onOpen(placed.id)}
+        className="text-left text-[11px] italic text-ink-dim px-1.5 py-1 border border-dashed border-line-2 rounded bg-surface-2/40 hover:bg-surface-2"
+        title={(cb?.name ?? "End of half-term test") + (cb?.label ? ` (${cb.label})` : "")}
+      >
+        {cb?.name ?? "End-of-half-term test"}
+        {cb?.label && <span className="ml-1 not-italic text-ink-fade">· {cb.label}</span>}
+      </button>
+    );
+  }
+  const catLabel = CATEGORY_LABELS[category];
   return (
     <button
       onClick={() => onOpen(placed.id)}
       className="text-left text-[11px] px-1.5 py-1 rounded border border-line bg-surface hover:bg-surface-2"
       style={{ borderLeft: `3px solid ${cb?.colour ?? "#8A8478"}` }}
-      title={(cb?.name ?? "Custom block") + revisitsText}
+      title={(cb?.name ?? "Custom block") + (cb?.label ? ` · ${cb.label}` : "") + revisitsText}
     >
       <span className="font-mono text-[9px] text-ink-fade uppercase mr-1">
-        {isRetrieval ? "↺" : "CB"}
+        {isRetrieval ? "↺" : catLabel}
       </span>
       {cb?.name ?? "Custom block"}
+      {cb?.label && <span className="ml-1 text-ink-fade">· {cb.label}</span>}
       <span className="ml-2 text-ink-dim">{placed.lessonsClaimed}L</span>
     </button>
   );
 }
+
+/** Short uppercase code shown in the custom-block chip's leading slot. */
+const CATEGORY_LABELS: Record<string, string> = {
+  test: "TST",
+  lesson: "LSN",
+  unit: "UNT",
+  assessment: "ASM",
+  retrieval: "↺",
+  other: "CB",
+};

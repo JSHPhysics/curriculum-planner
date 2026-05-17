@@ -14,6 +14,7 @@ import type {
   CustomBlock,
   HalfTerm,
   RetrievalWeights,
+  SpacingGranularity,
   Subject,
 } from "@/model/types";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
@@ -26,20 +27,6 @@ export interface RetrievalSuggestionPopoverProps {
 
 const MAX_CANDIDATES = 12;
 const DEFAULT_LESSONS = 1;
-const GRANULARITY_STORAGE_KEY = "curriculum-planner-retrieval-granularity-v1";
-
-type Granularity = "topic" | "sub-topic";
-
-function readGranularityFromStorage(): Granularity {
-  if (typeof localStorage === "undefined") return "topic";
-  try {
-    return localStorage.getItem(GRANULARITY_STORAGE_KEY) === "sub-topic"
-      ? "sub-topic"
-      : "topic";
-  } catch {
-    return "topic";
-  }
-}
 
 /**
  * Modal-style popover that surfaces ranked retrieval candidates for a single
@@ -67,25 +54,19 @@ export function RetrievalSuggestionPopover({
   const contextKs = getKeyStageForYear(halfTerm.year, subject.meta.keyStage);
   const offerCrossKsToggle = visibleKs.length > 1;
 
-  // Granularity (DEC-042) — default to topic. Selection state is per-granularity
-  // because the picked items mean different things (topic codes vs sub-topic codes).
-  const [granularity, setGranularity] = useState<Granularity>(readGranularityFromStorage);
+  // Granularity (DEC-042 + DEC-043) — read from subject.config so the
+  // preference travels per-subject. Default "topic" when missing. Selection
+  // state stays local because the picked items mean different things (topic
+  // codes vs sub-topic codes) and shouldn't bleed across opens.
+  const granularity: SpacingGranularity = subject.config.spacingGranularity ?? "topic";
+  function persistGranularity(g: SpacingGranularity): void {
+    updateActiveSubjectConfig({ spacingGranularity: g });
+  }
   const [selectedSub, setSelectedSub] = useState<readonly string[]>([]);
   const [selectedTopic, setSelectedTopic] = useState<readonly string[]>([]);
   const [lessons, setLessons] = useState(DEFAULT_LESSONS);
   const [tuneOpen, setTuneOpen] = useState(false);
   const [includeCrossKs, setIncludeCrossKs] = useState(false);
-
-  function persistGranularity(g: Granularity): void {
-    setGranularity(g);
-    if (typeof localStorage !== "undefined") {
-      try {
-        localStorage.setItem(GRANULARITY_STORAGE_KEY, g);
-      } catch {
-        /* ignore */
-      }
-    }
-  }
 
   const subCandidates = useMemo(
     () =>

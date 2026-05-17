@@ -86,11 +86,31 @@ export interface Timeline {
 }
 
 /**
- * v1: every CustomBlock is "standard" unless explicitly marked. "retrieval"
- * is reserved for blocks the user has tagged as revisiting earlier content
- * (see DEC-031). The `revisits` array holds sub-topic codes the block is
- * meant to revisit; it's only meaningful when kind === "retrieval".
+ * Per DEC-044, all non-spec blocks are CustomBlocks with an explicit category.
+ * Replaces the v1 dual-system (`PlacedBlockSource.eoht` + `CustomBlockKind`).
+ *
+ *   - "test"        — end-of-half-term test, mid-topic check, formative quiz
+ *   - "lesson"      — bespoke lesson that isn't in the imported spec
+ *   - "unit"        — multi-lesson block representing a teacher-defined unit
+ *   - "assessment"  — summative assessment (mock, end-of-year exam)
+ *   - "retrieval"   — block referencing earlier sub-topics for spaced retrieval
+ *                     (paired with the `revisits` field; see DEC-031)
+ *   - "other"       — catch-all for anything that doesn't fit
+ *
+ * Each block can also carry an optional free-text `label` for a more specific
+ * descriptor (e.g. category="test", label="Practical assessment"). The
+ * existing `name` field is the headline ("Y9 end-of-Aut1 test"); the `label`
+ * is a secondary tag used for filtering / display nuance.
  */
+export type CustomBlockCategory =
+  | "test"
+  | "lesson"
+  | "unit"
+  | "assessment"
+  | "retrieval"
+  | "other";
+
+/** @deprecated v1.x type — superseded by CustomBlockCategory per DEC-044. */
 export type CustomBlockKind = "standard" | "retrieval";
 
 export interface CustomBlock {
@@ -98,8 +118,19 @@ export interface CustomBlock {
   readonly name: string;
   readonly lessons: number;
   readonly colour: string | null;
+  /** @deprecated v1.x flag — auto-seeded EoHT tests now use category="test". */
   readonly isEoHT: boolean;
+  /**
+   * Block category (DEC-044). Optional only for backwards compat with v1.x
+   * `.curriculum` files; the deserializer normalises every loaded block to
+   * have one. New code should always set it.
+   */
+  readonly category?: CustomBlockCategory;
+  /** @deprecated v1.x field — preserved for parsing legacy files. Use `category`. */
   readonly kind?: CustomBlockKind;
+  /** Optional per-block descriptor; sits alongside the headline `name`. */
+  readonly label?: string;
+  /** Sub-topic codes this block revisits; only meaningful when category="retrieval". */
   readonly revisits?: readonly string[];
 }
 
@@ -143,6 +174,14 @@ export interface SpacingThresholds {
   readonly wellSpacedMinMeanGap?: number;
 }
 
+/**
+ * Granularity for spacing / retrieval analytics (see DEC-042). "topic" is the
+ * default — most planning thinking happens at the topic level. "sub-topic" is
+ * the deep-dive view. Optional so legacy `.curriculum` files default to topic
+ * on load without rewriting the saved blob.
+ */
+export type SpacingGranularity = "topic" | "sub-topic";
+
 export interface SubjectConfig {
   readonly includeDepth: boolean;
   readonly lostLessonBuffer: boolean;
@@ -156,6 +195,12 @@ export interface SubjectConfig {
    * Missing = nothing hidden.
    */
   readonly hiddenYears?: readonly YearId[];
+  /**
+   * Analytics granularity preference for this subject's SpacingPanel +
+   * RetrievalSuggestionPopover (DEC-043). Missing = default "topic". Stored
+   * per-subject so a planner's preference travels with the `.curriculum` file.
+   */
+  readonly spacingGranularity?: SpacingGranularity;
 }
 
 export interface Subject {
@@ -212,6 +257,14 @@ export interface CalendarTemplate {
   readonly cycleLengthInWeeks: number;
   readonly lessonsPerCyclePerYear: Partial<Record<YearId, number>>;
   readonly halfTerms: readonly CalendarHalfTerm[];
+  /**
+   * Whether to auto-seed an end-of-half-term test custom block into every
+   * cell when a new subject is added (DEC-044). Default is `true` for
+   * backwards-compatible UX with v1.x — undo by unchecking in the calendar
+   * settings modal. Existing subjects aren't retroactively changed when the
+   * flag flips; this only affects subjects added after the flag is set.
+   */
+  readonly autoSeedEoHTTest?: boolean;
 }
 
 export interface Workspace {
