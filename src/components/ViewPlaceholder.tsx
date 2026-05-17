@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { importSpec } from "@/model/import";
 import { generateImportTemplate } from "@/model/importTemplate";
-import { createDefaultTimeline, createEoHTBlocks } from "@/model/timeline";
+import { createDefaultTimeline, createEoHTBlocks, inferKeyStage } from "@/model/timeline";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import type { ViewType } from "@/model/types";
 
@@ -59,8 +59,13 @@ function EmptyWorkspace(): JSX.Element {
     if (!result.ok) {
       throw new Error(result.errors.map((e) => `${e.code}: ${e.message}`).join("\n"));
     }
-    const timeline = createEoHTBlocks(createDefaultTimeline());
-    addSubject({ ...result.subject, timeline });
+    const baseTimeline = createDefaultTimeline();
+    const timeline = createEoHTBlocks(baseTimeline);
+    const detectedKs = inferKeyStage(baseTimeline);
+    const meta = detectedKs
+      ? { ...result.subject.meta, keyStage: detectedKs }
+      : result.subject.meta;
+    addSubject({ ...result.subject, meta, timeline });
     if (result.warnings.length > 0) {
       console.warn(`[import] ${result.warnings.length} warnings:`, result.warnings);
     }

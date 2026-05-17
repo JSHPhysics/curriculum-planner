@@ -1,4 +1,4 @@
-import type { Subject, ViewType } from "@/model/types";
+import type { KeyStage, Subject, ViewType } from "@/model/types";
 
 import { SubjectTabs } from "./SubjectTabs";
 import { ViewSelector } from "./ViewSelector";
@@ -21,6 +21,7 @@ export interface HeaderProps {
   readonly onExport: () => void;
   readonly onOpenCalendarSettings: () => void;
   readonly onEditSubjectCalendar: (id: string) => void;
+  readonly onSetSubjectKeyStage: (id: string, keyStage: KeyStage | null) => void;
 }
 
 export function Header(props: HeaderProps): JSX.Element {
@@ -42,6 +43,7 @@ export function Header(props: HeaderProps): JSX.Element {
     onExport,
     onOpenCalendarSettings,
     onEditSubjectCalendar,
+    onSetSubjectKeyStage,
   } = props;
 
   const fileName = currentSavePath
@@ -68,6 +70,7 @@ export function Header(props: HeaderProps): JSX.Element {
           onRename={onRenameSubject}
           onRestore={onRestoreSubject}
           onEditCalendar={onEditSubjectCalendar}
+          onSetKeyStage={onSetSubjectKeyStage}
         />
       </div>
 

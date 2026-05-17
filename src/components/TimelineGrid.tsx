@@ -1,4 +1,4 @@
-import { getTimelineYears, halfTermUsed } from "@/model/timeline";
+import { getVisibleTimelineYears, halfTermUsed } from "@/model/timeline";
 import type { HalfTerm, Subject, YearId } from "@/model/types";
 
 import { HalfTermCell } from "./HalfTermCell";
@@ -9,7 +9,7 @@ export interface TimelineGridProps {
 }
 
 export function TimelineGrid({ subject, onBlockClick }: TimelineGridProps): JSX.Element {
-  const years = getTimelineYears(subject.timeline);
+  const years = getVisibleTimelineYears(subject);
   const byYear = new Map<YearId, HalfTerm[]>();
   for (const ht of subject.timeline.halfTerms) {
     const arr = byYear.get(ht.year) ?? [];

@@ -6,10 +6,12 @@ import {
   createEoHTBlocks,
   DEFAULT_CALENDAR_TEMPLATE,
   getTimelineYears,
+  getVisibleTimelineYears,
   halfTermRoom,
   halfTermUsed,
+  inferKeyStage,
 } from "@/model/timeline";
-import type { CalendarTemplate } from "@/model/types";
+import type { CalendarTemplate, Subject } from "@/model/types";
 
 function counterIdGen(): () => string {
   let n = 0;
@@ -240,5 +242,80 @@ describe("getTimelineYears", () => {
     };
     // Output ignores insertion order — always canonical
     expect(getTimelineYears(applyCalendarTemplate(ks3))).toEqual(["Y7", "Y8", "Y9"]);
+  });
+});
+
+describe("getVisibleTimelineYears", () => {
+  function fakeSubject(hidden: readonly ("Y9" | "Y10" | "Y11")[] | undefined): Subject {
+    return {
+      id: "subj",
+      meta: { name: "Test", colour: "#1F3A5F", sourceFilename: null },
+      importedSpec: { topics: [] },
+      workingSpec: { topics: [] },
+      timeline: createDefaultTimeline(),
+      customBlocks: [],
+      config: {
+        includeDepth: false,
+        lostLessonBuffer: false,
+        autoSpillover: true,
+        ...(hidden !== undefined ? { hiddenYears: hidden } : {}),
+      },
+    };
+  }
+
+  it("returns all timeline years when no hidden years are set", () => {
+    expect(getVisibleTimelineYears(fakeSubject(undefined))).toEqual(["Y9", "Y10", "Y11"]);
+  });
+
+  it("filters out hidden years from the result", () => {
+    expect(getVisibleTimelineYears(fakeSubject(["Y9"]))).toEqual(["Y10", "Y11"]);
+    expect(getVisibleTimelineYears(fakeSubject(["Y9", "Y11"]))).toEqual(["Y10"]);
+  });
+
+  it("returns empty list when all timeline years are hidden", () => {
+    expect(getVisibleTimelineYears(fakeSubject(["Y9", "Y10", "Y11"]))).toEqual([]);
+  });
+});
+
+describe("inferKeyStage", () => {
+  it("returns KS4 for the default LEHS timeline (Y9-Y11 only)", () => {
+    expect(inferKeyStage(createDefaultTimeline())).toBe("KS4");
+  });
+
+  it("returns KS3 for a Y7-Y9 timeline", () => {
+    const ks3: CalendarTemplate = {
+      cycleLengthInWeeks: 1,
+      lessonsPerCyclePerYear: { Y7: 3, Y8: 3, Y9: 3 },
+      halfTerms: [
+        { id: "Y7-HT1", name: "HT1", year: "Y7", weeks: 6 },
+        { id: "Y8-HT1", name: "HT1", year: "Y8", weeks: 6 },
+      ],
+    };
+    expect(inferKeyStage(applyCalendarTemplate(ks3))).toBe("KS3");
+  });
+
+  it("returns KS5 for a Y12-Y13 timeline", () => {
+    const ks5: CalendarTemplate = {
+      cycleLengthInWeeks: 1,
+      lessonsPerCyclePerYear: { Y12: 9, Y13: 9 },
+      halfTerms: [{ id: "Y12-HT1", name: "HT1", year: "Y12", weeks: 6 }],
+    };
+    expect(inferKeyStage(applyCalendarTemplate(ks5))).toBe("KS5");
+  });
+
+  it("returns null for a timeline that straddles key stages", () => {
+    const mixed: CalendarTemplate = {
+      cycleLengthInWeeks: 1,
+      lessonsPerCyclePerYear: { Y10: 4, Y12: 4 },
+      halfTerms: [
+        { id: "Y10-HT1", name: "HT1", year: "Y10", weeks: 6 },
+        { id: "Y12-HT1", name: "HT1", year: "Y12", weeks: 6 },
+      ],
+    };
+    expect(inferKeyStage(applyCalendarTemplate(mixed))).toBeNull();
+  });
+
+  it("returns null for an empty timeline", () => {
+    expect(inferKeyStage({ halfTerms: [] })).toBeNull();
   });
 });

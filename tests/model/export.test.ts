@@ -140,6 +140,33 @@ describe("computeCoverageStats", () => {
     // EoHT adds 17 lessons of placement, but shouldn't count
     expect(stats.placedLessons).toBe(9);
   });
+
+  it("respectHiddenYears excludes placements + budget for hidden years", () => {
+    const subj = placeSomeBlocks(loadExample());
+    const allStats = computeCoverageStats(subj);
+    // Hide Y9 — placements in Y9 should drop out of placed + budget
+    const hidden: Subject = {
+      ...subj,
+      config: { ...subj.config, hiddenYears: ["Y9"] },
+    };
+    const filteredStats = computeCoverageStats(hidden, { respectHiddenYears: true });
+    // Y9 is the only year with placements in the fixture, so visible total = 0
+    expect(filteredStats.placedLessons).toBe(0);
+    expect(filteredStats.perYear.has("Y9")).toBe(false);
+    // Without the option, behaviour is unchanged
+    const stillSeen = computeCoverageStats(hidden);
+    expect(stillSeen.placedLessons).toBe(allStats.placedLessons);
+  });
+
+  it("export sheets skip hidden-year placements", () => {
+    let subj = placeSomeBlocks(loadExample());
+    subj = { ...subj, config: { ...subj.config, hiddenYears: ["Y9"] } };
+    const buf = exportSubjectToXlsx(subj, { now: new Date("2026-05-15T10:00:00Z") });
+    const subTopicSheet = rows(readBack(buf), "Sub-topic view");
+    // No Y9 rows in the sub-topic sheet
+    const y9Rows = subTopicSheet.slice(1).filter((r) => r[0] === "Y9");
+    expect(y9Rows).toHaveLength(0);
+  });
 });
 
 describe("Topic view sheet", () => {

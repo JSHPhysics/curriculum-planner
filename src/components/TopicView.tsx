@@ -10,7 +10,7 @@ import {
 import { useState } from "react";
 
 import { getTopicColour } from "@/model/queries";
-import { getTimelineYears } from "@/model/timeline";
+import { getVisibleTimelineYears } from "@/model/timeline";
 import { getTopicBlocksForCell } from "@/model/topics";
 import type { HalfTerm, Subject, YearId } from "@/model/types";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
@@ -47,7 +47,7 @@ export function TopicView({ subject }: TopicViewProps): JSX.Element {
     moveTopicInHalfTerm(drag.topicCode, drag.fromTermId, drop.termId);
   }
 
-  const years = getTimelineYears(subject.timeline);
+  const years = getVisibleTimelineYears(subject);
   const byYear = new Map<YearId, HalfTerm[]>();
   for (const ht of subject.timeline.halfTerms) {
     const arr = byYear.get(ht.year) ?? [];

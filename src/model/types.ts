@@ -103,10 +103,18 @@ export interface CustomBlock {
   readonly revisits?: readonly string[];
 }
 
+/**
+ * UK key-stage classification for a subject (see DEC-036). Optional;
+ * auto-detected from the timeline's year groups at import where unambiguous,
+ * and can be overridden via the subject tab menu.
+ */
+export type KeyStage = "KS3" | "KS4" | "KS5";
+
 export interface SubjectMeta {
   readonly name: string;
   readonly colour: string;
   readonly sourceFilename: string | null;
+  readonly keyStage?: KeyStage;
 }
 
 /**
@@ -141,6 +149,13 @@ export interface SubjectConfig {
   readonly autoSpillover: boolean;
   readonly retrievalWeights?: RetrievalWeights;
   readonly spacingThresholds?: SpacingThresholds;
+  /**
+   * Year groups the user has hidden from this subject's views and exports
+   * (see DEC-036). All views derive their year list from the timeline minus
+   * this set; export functions skip placements in hidden years.
+   * Missing = nothing hidden.
+   */
+  readonly hiddenYears?: readonly YearId[];
 }
 
 export interface Subject {

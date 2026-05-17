@@ -218,6 +218,35 @@ describe("placement actions delegate to the active subject's timeline", () => {
     expect(useWorkspaceStore.getState().dirty).toBe(true);
   });
 
+  it("toggleYearVisibility adds and removes years from the hidden list", () => {
+    const store = useWorkspaceStore.getState();
+    store.addSubject(loadExampleSubject("subj-1"));
+    store.toggleYearVisibility("subj-1", "Y9");
+    expect(
+      useWorkspaceStore.getState().workspace.subjects[0]?.config.hiddenYears
+    ).toEqual(["Y9"]);
+    store.toggleYearVisibility("subj-1", "Y10");
+    expect(
+      useWorkspaceStore.getState().workspace.subjects[0]?.config.hiddenYears
+    ).toEqual(["Y9", "Y10"]);
+    store.toggleYearVisibility("subj-1", "Y9"); // unhide
+    expect(
+      useWorkspaceStore.getState().workspace.subjects[0]?.config.hiddenYears
+    ).toEqual(["Y10"]);
+  });
+
+  it("setSubjectKeyStage sets, replaces, and clears the meta.keyStage field cleanly", () => {
+    const store = useWorkspaceStore.getState();
+    store.addSubject(loadExampleSubject("subj-1"));
+    store.setSubjectKeyStage("subj-1", "KS4");
+    expect(useWorkspaceStore.getState().workspace.subjects[0]?.meta.keyStage).toBe("KS4");
+    store.setSubjectKeyStage("subj-1", "KS5");
+    expect(useWorkspaceStore.getState().workspace.subjects[0]?.meta.keyStage).toBe("KS5");
+    store.setSubjectKeyStage("subj-1", null);
+    // Field absent, not undefined
+    expect("keyStage" in (useWorkspaceStore.getState().workspace.subjects[0]?.meta ?? {})).toBe(false);
+  });
+
   it("setCalendarTemplate stores the template and marks dirty; null clears it cleanly", () => {
     const store = useWorkspaceStore.getState();
     store.setCalendarTemplate({

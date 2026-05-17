@@ -1,5 +1,5 @@
 import { computeCoverageStats } from "@/model/export";
-import { getTimelineYears } from "@/model/timeline";
+import { getVisibleTimelineYears } from "@/model/timeline";
 import type { Subject, SubjectConfig } from "@/model/types";
 
 export interface StatusBarProps {
@@ -19,7 +19,7 @@ export function StatusBar({ subject, onToggleConfig }: StatusBarProps): JSX.Elem
   const stats = computeCoverageStats(subject);
   const unplaced = stats.totalSpecLessons - stats.placedLessons;
   const cfg = subject.config;
-  const years = getTimelineYears(subject.timeline);
+  const years = getVisibleTimelineYears(subject);
 
   return (
     <div className="px-6 py-2 flex items-center gap-6 border-b border-line bg-surface-2 text-xs">

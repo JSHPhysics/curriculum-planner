@@ -2,7 +2,9 @@ import type {
   CalendarHalfTerm,
   CalendarTemplate,
   HalfTerm,
+  KeyStage,
   PlacedBlock,
+  Subject,
   Timeline,
   YearId,
 } from "./types";
@@ -149,6 +151,45 @@ export function getTimelineYears(timeline: Timeline): readonly YearId[] {
   const present = new Set<YearId>();
   for (const ht of timeline.halfTerms) present.add(ht.year);
   return YEAR_ORDER.filter((y) => present.has(y));
+}
+
+/**
+ * Like `getTimelineYears`, minus any years the user has hidden via
+ * `subject.config.hiddenYears`. This is the right helper for every render
+ * path — views, status bar, exports — that should respect visibility. The
+ * underlying timeline data is untouched; hiding is purely a render-time
+ * filter, so unhiding restores everything immediately.
+ */
+export function getVisibleTimelineYears(subject: Subject): readonly YearId[] {
+  const hidden = new Set(subject.config.hiddenYears ?? []);
+  return getTimelineYears(subject.timeline).filter((y) => !hidden.has(y));
+}
+
+/**
+ * Auto-detect a key stage from the years present in a timeline. Returns
+ * `null` when the timeline straddles multiple key stages (mixed coverage
+ * like Y9+Y12) — caller decides what to do.
+ *   KS3 = Y7, Y8, Y9 only
+ *   KS4 = Y9, Y10, Y11 only (GCSE)
+ *   KS5 = Y12, Y13 only (A-Level)
+ * Y9 belongs to both KS3 and KS4 in different schools' framings; we use
+ * "exclusively in this range" as the test, so a Y7-Y9 spec is KS3 and a
+ * Y9-Y11 spec is KS4 but a Y8-Y10 spec returns null.
+ */
+const KS_RANGES: Record<KeyStage, readonly YearId[]> = {
+  KS3: ["Y7", "Y8", "Y9"],
+  KS4: ["Y9", "Y10", "Y11"],
+  KS5: ["Y12", "Y13"],
+};
+
+export function inferKeyStage(timeline: Timeline): KeyStage | null {
+  const present = getTimelineYears(timeline);
+  if (present.length === 0) return null;
+  for (const ks of ["KS3", "KS4", "KS5"] as readonly KeyStage[]) {
+    const allowed = new Set(KS_RANGES[ks]);
+    if (present.every((y) => allowed.has(y))) return ks;
+  }
+  return null;
 }
 
 function defaultIdGen(): string {

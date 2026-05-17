@@ -157,6 +157,32 @@ export interface WorkspaceStoreActions {
     string,
     readonly import("@/model/types").PlacedBlock[]
   >;
+  /**
+   * Toggle a year group's visibility for a given subject. Hidden years are
+   * filtered from views and exports but remain in the underlying timeline
+   * (placements aren't deleted; unhiding restores them immediately).
+   */
+  readonly toggleYearVisibility: (
+    subjectId: string,
+    year: import("@/model/types").YearId
+  ) => void;
+  /**
+   * Replace the hidden-years list for a subject wholesale. Empty array =
+   * everything visible. Used by the "Show all years" reset action and any
+   * future bulk-hide UI.
+   */
+  readonly setSubjectHiddenYears: (
+    subjectId: string,
+    hidden: readonly import("@/model/types").YearId[]
+  ) => void;
+  /**
+   * Set or clear a subject's key-stage classification. `null` removes the
+   * field entirely (no `undefined` in serialised output).
+   */
+  readonly setSubjectKeyStage: (
+    subjectId: string,
+    keyStage: import("@/model/types").KeyStage | null
+  ) => void;
 }
 
 export type WorkspaceStore = WorkspaceStoreState & WorkspaceStoreActions;
@@ -569,6 +595,61 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set) => ({
     });
     return orphans;
   },
+
+  toggleYearVisibility: (subjectId, year) =>
+    set((state) => {
+      const subject = state.workspace.subjects.find((s) => s.id === subjectId);
+      if (!subject) return {};
+      const current = subject.config.hiddenYears ?? [];
+      const next = current.includes(year)
+        ? current.filter((y) => y !== year)
+        : [...current, year];
+      const updated: Subject = {
+        ...subject,
+        config: { ...subject.config, hiddenYears: next },
+      };
+      return {
+        workspace: replaceSubject(state.workspace, subjectId, updated),
+        dirty: true,
+      };
+    }),
+
+  setSubjectHiddenYears: (subjectId, hidden) =>
+    set((state) => {
+      const subject = state.workspace.subjects.find((s) => s.id === subjectId);
+      if (!subject) return {};
+      const updated: Subject = {
+        ...subject,
+        config: { ...subject.config, hiddenYears: hidden },
+      };
+      return {
+        workspace: replaceSubject(state.workspace, subjectId, updated),
+        dirty: true,
+      };
+    }),
+
+  setSubjectKeyStage: (subjectId, keyStage) =>
+    set((state) => {
+      const subject = state.workspace.subjects.find((s) => s.id === subjectId);
+      if (!subject) return {};
+      // `exactOptionalPropertyTypes` rejects `keyStage: undefined`; rebuild
+      // the meta object without the field when clearing.
+      let nextMeta: Subject["meta"];
+      if (keyStage === null) {
+        nextMeta = {
+          name: subject.meta.name,
+          colour: subject.meta.colour,
+          sourceFilename: subject.meta.sourceFilename,
+        };
+      } else {
+        nextMeta = { ...subject.meta, keyStage };
+      }
+      const updated: Subject = { ...subject, meta: nextMeta };
+      return {
+        workspace: replaceSubject(state.workspace, subjectId, updated),
+        dirty: true,
+      };
+    }),
 
   reapplyWorkspaceTemplateToAllSubjects: () => {
     const out = new Map<string, readonly import("@/model/types").PlacedBlock[]>();

@@ -28,7 +28,14 @@ const YEAR_BAND_COLOURS: Record<YearId, string> = {
 export function CalendarOverview({ subject }: CalendarOverviewProps): JSX.Element | null {
   const setCurrentTermId = useWorkspaceStore((s) => s.setCurrentTermId);
   const currentTermId = useWorkspaceStore((s) => s.currentTermId);
+  const toggleYearVisibility = useWorkspaceStore((s) => s.toggleYearVisibility);
+  const setSubjectHiddenYears = useWorkspaceStore((s) => s.setSubjectHiddenYears);
   const [expanded, setExpanded] = useState(true);
+
+  const hiddenYears = useMemo(
+    () => new Set(subject?.config.hiddenYears ?? []),
+    [subject?.config.hiddenYears]
+  );
 
   interface OverviewData {
     readonly years: readonly YearId[];
@@ -69,6 +76,11 @@ export function CalendarOverview({ subject }: CalendarOverviewProps): JSX.Elemen
         <span className="font-display text-ink">Calendar overview</span>
         <span className="text-[10px] text-ink-fade">
           {subject.timeline.halfTerms.length} half-terms across {years.join(", ") || "—"}
+          {hiddenYears.size > 0 && (
+            <span className="ml-2 text-warn">
+              · {hiddenYears.size} year{hiddenYears.size === 1 ? "" : "s"} hidden
+            </span>
+          )}
         </span>
         <span className="ml-auto text-ink-fade text-[10px]">
           {expanded ? "click to collapse" : "click to expand"}
@@ -77,11 +89,36 @@ export function CalendarOverview({ subject }: CalendarOverviewProps): JSX.Elemen
 
       {expanded && totalWeeks > 0 && (
         <div id="calendar-overview-strip" className="px-6 pb-2">
+          {hiddenYears.size > 0 && (
+            <div className="flex items-center justify-end mb-1">
+              <button
+                type="button"
+                onClick={() => setSubjectHiddenYears(subject.id, [])}
+                className="text-[10px] text-ink-fade hover:text-navy underline"
+                title="Show all year groups"
+              >
+                Show all years
+              </button>
+            </div>
+          )}
           <div className="flex flex-col gap-1">
             {years.map((year) => {
               const cells = byYear.get(year) ?? [];
+              const isHidden = hiddenYears.has(year);
               return (
-                <div key={year} className="flex items-center gap-2">
+                <div
+                  key={year}
+                  className={"flex items-center gap-2 " + (isHidden ? "opacity-40" : "")}
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleYearVisibility(subject.id, year)}
+                    className="w-5 text-[10px] hover:text-ink"
+                    title={isHidden ? `Show ${year}` : `Hide ${year}`}
+                    aria-label={isHidden ? `Show ${year}` : `Hide ${year}`}
+                  >
+                    {isHidden ? "👁" : "✕"}
+                  </button>
                   <span
                     className="font-mono text-[10px] w-7 text-ink-dim"
                     style={{ color: YEAR_BAND_COLOURS[year] }}
@@ -95,16 +132,18 @@ export function CalendarOverview({ subject }: CalendarOverviewProps): JSX.Elemen
                         <button
                           key={ht.id}
                           onClick={() => setCurrentTermId(ht.id)}
+                          disabled={isHidden}
                           className={
                             "flex-1 min-w-[24px] px-1 py-0.5 text-[9px] font-mono rounded transition truncate " +
                             (focused
                               ? "bg-navy text-bg ring-1 ring-navy"
-                              : "bg-bg text-ink-dim hover:bg-surface")
+                              : "bg-bg text-ink-dim hover:bg-surface") +
+                            (isHidden ? " cursor-not-allowed" : "")
                           }
                           style={{
                             borderLeft: `3px solid ${YEAR_BAND_COLOURS[year]}`,
                           }}
-                          title={`${year} ${ht.label}${ht.dates ? " · " + ht.dates : ""} · budget ${ht.budget}`}
+                          title={`${year} ${ht.label}${ht.dates ? " · " + ht.dates : ""} · budget ${ht.budget}${isHidden ? " · year hidden" : ""}`}
                         >
                           {ht.label}
                         </button>

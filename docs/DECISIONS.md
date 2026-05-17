@@ -1285,3 +1285,61 @@ The second question was how to handle the workspace template changing after subj
 - `src/components/SubjectTabs.tsx` ("📅 Edit calendar for this subject" tab menu item)
 - `src/App.tsx` (`calendarTarget` state, scope-routed modal rendering, reapply confirm flow)
 - [DEC-034](#dec-034) (parent: workspace-level template)
+
+---
+
+## DEC-036 — Key-stage classification + hideable year groups (render-time filter, not data deletion)
+**Date:** 2026-05-17
+**Session:** 21
+**Status:** Accepted
+
+### Context
+With YearId widening to Y7–Y13 (DEC-034), schools can have subjects spanning any UK key stage range. Two related needs surfaced:
+1. **Classification** — let teachers tag each subject with its key stage (KS3, KS4, KS5) so the system knows what it's looking at and can filter accordingly. Auto-detect from year groups present where unambiguous, but allow override.
+2. **Hideable year groups** — let a teacher focused on (say) GCSE Y10–Y11 visually hide Y9 (or any other year) from every view without deleting the underlying placements. Exports should also respect this — teachers don't want unwanted years in their xlsx output.
+
+The user explicitly chose "just hideable years, no combined view" — no multi-subject combined-timeline mode in this session. Each subject remains its own entity; the visibility filter is per-subject.
+
+### Decision
+**Classification:**
+- New `KeyStage = "KS3" | "KS4" | "KS5"` type and optional `Subject.meta.keyStage?: KeyStage`
+- `inferKeyStage(timeline)` in `timeline.ts` returns the KS when the timeline's years all fall within one KS range (KS3=Y7–Y9, KS4=Y9–Y11, KS5=Y12–Y13). Returns `null` when straddled (e.g. Y8+Y10) so the user can pick manually.
+- Auto-applied at import (both the spec import flow and the example-loader path) — derives from the timeline produced by the active calendar template.
+- Shown as a small badge next to the subject name in SubjectTabs.
+- Set manually via "Set key stage…" in the subject tab menu (prompt for KS3/KS4/KS5 or `(unset)`).
+
+**Hideable years:**
+- New `Subject.config.hiddenYears?: readonly YearId[]` — optional array of years the user has hidden FROM VIEWS AND EXPORTS, but not from the underlying timeline. Placements in hidden years are untouched.
+- `getVisibleTimelineYears(subject)` is the canonical helper for the render path; `getTimelineYears(timeline)` remains for the case where you genuinely want every year (e.g. the CalendarOverview, which shows hidden years too — but greyed out, with an eye toggle to unhide).
+- All four content views (TopicView, LessonView, SubTopicView via TimelineGrid, ObjectiveView via its row source) and the StatusBar now derive their year list from `getVisibleTimelineYears`.
+- CalendarOverview is the toggling surface: each year row has an eye icon (`✕` when visible, `👁` when hidden). A "Show all years" link appears when anything is hidden.
+- `computeCoverageStats(subject, { respectHiddenYears: true })` opts into the filter; the Cover sheet uses this. All four content sheets (Topic, Sub-topic, Lesson, Objective) call a `visibleHalfTerms(subject)` helper that skips hidden-year cells.
+
+**Deliberate non-scope:**
+- **No combined-multi-subject view** (user's choice). Each subject is still rendered alone; the hideable-years filter is per-subject, not workspace-wide.
+- **Spacing analytics still see hidden years.** "Unplaced" / "single-touch" warnings can include sub-topics that would belong to hidden-year cells. Acceptable for v1 — the analytics surface is informational, and filtering them by visibility would risk hiding genuine warnings the user wanted. Can revisit if it gets noisy in practice.
+- **No "this subject only teaches this key stage" hard constraint.** A KS4 subject can still have Y12 cells if the calendar template includes them; the badge is descriptive, not prescriptive.
+
+### Alternatives considered
+- **Workspace-level hidden years** (one filter for all subjects). Simpler but loses per-subject granularity — a teacher focused on Y10-Y11 in one subject might still want to see all years for another.
+- **Hidden = delete placements.** Aggressive; loses information. The render-time filter preserves the user's work and is reversible.
+- **KS as derived-only (not stored).** Re-derive from timeline at every read. Lossy when a Y9 spec is being taught as KS3 vs KS4 — the user's stated intent matters. Storing it explicitly with auto-detect as a default is the right balance.
+- **Per-view hideable years** (different hides in Topic vs Lesson view). Too granular; the user wants to focus on a slice, not toggle per-view.
+
+### Consequences
+- Existing `.curriculum` files load unchanged — both new optional fields are absent.
+- A teacher opening the example sees a `KS4` badge appear next to "GCSE Physics 1PH0 (example)" automatically.
+- Hiding Y9 collapses every Y9 row in every content view, removes Y9 from the per-year StatusBar bars, and excludes Y9 placements from any subsequent xlsx export.
+- Unhiding restores everything immediately (no data loss).
+- Future feature #1 (folder + weekly export) will respect hidden years by default — already covered by the `respectHiddenYears` plumbing.
+
+### Related
+- `SPEC.md` §1.1 (in-scope)
+- `src/model/types.ts` (`KeyStage`, `Subject.meta.keyStage?`, `Subject.config.hiddenYears?`)
+- `src/model/timeline.ts` (`inferKeyStage`, `getVisibleTimelineYears`)
+- `src/model/export.ts` (`computeCoverageStats({ respectHiddenYears })`, `visibleHalfTerms` shared helper)
+- `src/components/CalendarOverview.tsx` (eye toggles + "Show all years")
+- `src/components/SubjectTabs.tsx` (KS badge + Set key stage menu)
+- `src/store/useWorkspaceStore.ts` (`setSubjectKeyStage`, `toggleYearVisibility`, `setSubjectHiddenYears`)
+- All four views (`TopicView`, `LessonView`, `TimelineGrid`, `StatusBar`) refactored to `getVisibleTimelineYears`
+- [DEC-034](#dec-034) (parent: year-group widening)

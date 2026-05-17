@@ -47,6 +47,27 @@ test.describe("Workspace calendar settings", () => {
     await expect(dialog).toContainText(/Calendar for GCSE Physics/i);
   });
 
+  test("hiding a year via CalendarOverview eye-toggle removes its rows from Sub-topic view + StatusBar", async ({ app }) => {
+    await app.loadExample();
+    // Status bar starts with Y9, Y10, Y11 progress bars
+    await expect(app.page.getByText(/Y9/).first()).toBeVisible();
+    // Hide Y9 via its toggle in CalendarOverview
+    await app.page.getByRole("button", { name: /Hide Y9/i }).click();
+    // The Y9-A1 cell should no longer be visible in the Sub-topic view
+    await expect(app.page.getByTestId("halfterm-cell-Y9-A1")).toHaveCount(0);
+    // The overview shows the hidden-count badge
+    await expect(app.page.getByText(/1 year hidden/i)).toBeVisible();
+    // Unhide
+    await app.page.getByRole("button", { name: /Show Y9/i }).click();
+    await expect(app.page.getByTestId("halfterm-cell-Y9-A1")).toBeVisible();
+  });
+
+  test("loaded example auto-detects KS4 and shows the badge in the subject tab", async ({ app }) => {
+    await app.loadExample();
+    // The badge appears as a small KS4 chip next to the subject name
+    await expect(app.page.getByTitle("Key stage: KS4")).toBeVisible();
+  });
+
   test("Reset to LEHS default clears the template", async ({ app }) => {
     await app.loadExample();
     await app.page.getByRole("button", { name: /Workspace calendar settings/i }).click();

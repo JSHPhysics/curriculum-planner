@@ -57,15 +57,33 @@ export function exportSubjectToXlsx(
   return XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
 }
 
-export function computeCoverageStats(subject: Subject): CoverageStats {
+export interface CoverageStatsOptions {
+  /**
+   * If true, placements in years the user has hidden via
+   * `subject.config.hiddenYears` are excluded from `placedLessons`,
+   * `coveragePercent`, and `perYear`. The Cover sheet defaults to this so
+   * exports honour the user's visible-years filter (see DEC-036).
+   */
+  readonly respectHiddenYears?: boolean;
+}
+
+export function computeCoverageStats(
+  subject: Subject,
+  options: CoverageStatsOptions = {}
+): CoverageStats {
   let totalSpecLessons = 0;
   for (const t of subject.workingSpec.topics) {
     for (const st of t.subTopics) totalSpecLessons += st.lessons.length;
   }
 
+  const hidden = options.respectHiddenYears
+    ? new Set(subject.config.hiddenYears ?? [])
+    : new Set<YearId>();
+
   let placedLessons = 0;
   const perYear = new Map<YearId, { placed: number; budget: number }>();
   for (const ht of subject.timeline.halfTerms) {
+    if (hidden.has(ht.year)) continue;
     const slot = perYear.get(ht.year) ?? { placed: 0, budget: 0 };
     slot.budget += ht.budget;
     for (const pb of ht.placedBlocks) {
@@ -84,8 +102,18 @@ export function computeCoverageStats(subject: Subject): CoverageStats {
   return { totalSpecLessons, placedLessons, coveragePercent, perYear };
 }
 
+/**
+ * Half-terms the export should include — skips any year the user has hidden.
+ * All sheet builders use this so a single source of truth controls which
+ * placements end up in the exported workbook.
+ */
+function visibleHalfTerms(subject: Subject): readonly HalfTerm[] {
+  const hidden = new Set(subject.config.hiddenYears ?? []);
+  return subject.timeline.halfTerms.filter((ht) => !hidden.has(ht.year));
+}
+
 function buildCoverSheet(subject: Subject, now: Date): unknown[][] {
-  const stats = computeCoverageStats(subject);
+  const stats = computeCoverageStats(subject, { respectHiddenYears: true });
   const rows: unknown[][] = [
     ["Curriculum plan export"],
     [],
@@ -113,7 +141,7 @@ function buildTopicSheet(subject: Subject): unknown[][] {
   const rows: unknown[][] = [
     ["Year", "Half-term", "Topic code", "Topic name", "Lessons claimed", "Sub-topics included"],
   ];
-  for (const ht of subject.timeline.halfTerms) {
+  for (const ht of visibleHalfTerms(subject)) {
     const byTopic = groupByTopic(ht, subject.workingSpec);
     for (const { topic, blocks } of byTopic) {
       const totalLessons = blocks.reduce((s, b) => s + b.lessonsClaimed, 0);
@@ -145,7 +173,7 @@ function buildSubTopicSheet(subject: Subject): unknown[][] {
       "Practical(s)",
     ],
   ];
-  for (const ht of subject.timeline.halfTerms) {
+  for (const ht of visibleHalfTerms(subject)) {
     for (const pb of ht.placedBlocks) {
       if (pb.source.kind !== "sub-topic") continue;
       const found = findTopicAndSubTopic(subject.workingSpec, pb.source.subTopicCode);
@@ -183,7 +211,7 @@ function buildLessonSheet(subject: Subject): unknown[][] {
       "Separate only?",
     ],
   ];
-  for (const ht of subject.timeline.halfTerms) {
+  for (const ht of visibleHalfTerms(subject)) {
     for (const pb of ht.placedBlocks) {
       if (pb.source.kind !== "sub-topic") continue;
       const found = findTopicAndSubTopic(subject.workingSpec, pb.source.subTopicCode);
@@ -220,7 +248,7 @@ function buildObjectiveSheet(subject: Subject): unknown[][] {
       "Depth?",
     ],
   ];
-  for (const ht of subject.timeline.halfTerms) {
+  for (const ht of visibleHalfTerms(subject)) {
     for (const pb of ht.placedBlocks) {
       if (pb.source.kind !== "sub-topic") continue;
       const found = findTopicAndSubTopic(subject.workingSpec, pb.source.subTopicCode);

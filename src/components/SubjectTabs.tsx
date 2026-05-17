@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import type { Subject } from "@/model/types";
+import type { KeyStage, Subject } from "@/model/types";
 
 export interface SubjectTabsProps {
   readonly subjects: readonly Subject[];
@@ -11,6 +11,7 @@ export interface SubjectTabsProps {
   readonly onRename: (subjectId: string, newName: string) => void;
   readonly onRestore: (subjectId: string) => void;
   readonly onEditCalendar: (subjectId: string) => void;
+  readonly onSetKeyStage: (subjectId: string, keyStage: KeyStage | null) => void;
 }
 
 export function SubjectTabs({
@@ -22,6 +23,7 @@ export function SubjectTabs({
   onRename,
   onRestore,
   onEditCalendar,
+  onSetKeyStage,
 }: SubjectTabsProps): JSX.Element {
   const [menuFor, setMenuFor] = useState<string | null>(null);
 
@@ -56,6 +58,27 @@ export function SubjectTabs({
     setMenuFor(null);
   }
 
+  function handleSetKeyStage(subjectId: string, current: KeyStage | undefined): void {
+    const options = ["KS3", "KS4", "KS5", "(unset)"];
+    const message =
+      `Set key stage for this subject. Currently: ${current ?? "unset"}.\n\n` +
+      options.map((o, i) => `${i + 1}. ${o}`).join("\n");
+    const input = prompt(message, current ?? "");
+    if (input === null) {
+      setMenuFor(null);
+      return;
+    }
+    const normalised = input.trim().toUpperCase();
+    if (normalised === "" || normalised === "(UNSET)") {
+      onSetKeyStage(subjectId, null);
+    } else if (normalised === "KS3" || normalised === "KS4" || normalised === "KS5") {
+      onSetKeyStage(subjectId, normalised);
+    } else {
+      alert(`"${input}" isn't one of KS3 / KS4 / KS5. No change made.`);
+    }
+    setMenuFor(null);
+  }
+
   return (
     <div className="flex items-center gap-1">
       {subjects.map((s) => {
@@ -78,6 +101,14 @@ export function SubjectTabs({
                 style={{ backgroundColor: s.meta.colour }}
               />
               <span className="font-medium">{s.meta.name}</span>
+              {s.meta.keyStage && (
+                <span
+                  className="font-mono text-[9px] px-1 py-0.5 rounded bg-surface-2 text-ink-dim border border-line"
+                  title={`Key stage: ${s.meta.keyStage}`}
+                >
+                  {s.meta.keyStage}
+                </span>
+              )}
               <span
                 aria-hidden
                 role="button"
@@ -117,6 +148,12 @@ export function SubjectTabs({
                   className="w-full text-left px-3 py-1.5 hover:bg-surface-2"
                 >
                   📅 Edit calendar for this subject…
+                </button>
+                <button
+                  onClick={() => handleSetKeyStage(s.id, s.meta.keyStage)}
+                  className="w-full text-left px-3 py-1.5 hover:bg-surface-2"
+                >
+                  Set key stage… {s.meta.keyStage && <span className="text-ink-fade">({s.meta.keyStage})</span>}
                 </button>
                 <div className="border-t border-line my-1" />
                 <button

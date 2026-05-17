@@ -18,6 +18,7 @@ import {
   createDefaultTimeline,
   createEoHTBlocks,
   DEFAULT_CALENDAR_TEMPLATE,
+  inferKeyStage,
 } from "@/model/timeline";
 import type { PlacedBlock, Subject } from "@/model/types";
 import {
@@ -53,6 +54,7 @@ export function App(): JSX.Element {
   const reapplyWorkspaceTemplateToAllSubjects = useWorkspaceStore(
     (s) => s.reapplyWorkspaceTemplateToAllSubjects
   );
+  const setSubjectKeyStage = useWorkspaceStore((s) => s.setSubjectKeyStage);
   /**
    * Calendar modal target: null = closed; { kind:"workspace" } = editing the
    * workspace template; { kind:"subject", subjectId } = editing one subject's
@@ -121,7 +123,13 @@ export function App(): JSX.Element {
       ? applyCalendarTemplate(workspace.calendarTemplate)
       : createDefaultTimeline();
     const timeline = createEoHTBlocks(baseTimeline);
-    addSubject({ ...result.subject, timeline });
+    // Auto-detect key stage from the years present in the timeline; user
+    // can override via the subject tab menu.
+    const detectedKs = inferKeyStage(baseTimeline);
+    const meta = detectedKs
+      ? { ...result.subject.meta, keyStage: detectedKs }
+      : result.subject.meta;
+    addSubject({ ...result.subject, meta, timeline });
     if (result.warnings.length > 0) {
       console.warn(`[import] ${result.warnings.length} warnings:`, result.warnings);
     }
@@ -222,6 +230,7 @@ export function App(): JSX.Element {
         onExport={() => void handleExport()}
         onOpenCalendarSettings={() => setCalendarTarget({ kind: "workspace" })}
         onEditSubjectCalendar={(id) => setCalendarTarget({ kind: "subject", subjectId: id })}
+        onSetSubjectKeyStage={setSubjectKeyStage}
       />
       <StatusBar subject={activeSubject} onToggleConfig={updateActiveSubjectConfig} />
       <CalendarOverview subject={activeSubject} />

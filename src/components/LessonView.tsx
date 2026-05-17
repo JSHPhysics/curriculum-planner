@@ -10,7 +10,7 @@ import {
 import { useState } from "react";
 
 import { findTopicAndSubTopic, getTopicColour } from "@/model/queries";
-import { getTimelineYears } from "@/model/timeline";
+import { getVisibleTimelineYears } from "@/model/timeline";
 import type { HalfTerm, Subject, YearId } from "@/model/types";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
@@ -65,7 +65,7 @@ export function LessonView({ subject }: LessonViewProps): JSX.Element {
     extractAndMoveLesson(drag.placedBlockId, drag.localLessonIdx, drop.termId);
   }
 
-  const years = getTimelineYears(subject.timeline);
+  const years = getVisibleTimelineYears(subject);
   const byYear = new Map<YearId, HalfTerm[]>();
   for (const ht of subject.timeline.halfTerms) {
     const arr = byYear.get(ht.year) ?? [];

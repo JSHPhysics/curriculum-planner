@@ -1324,3 +1324,92 @@ Closes the three open questions from Session 19 in a single session.
 ### Open questions for the user
 - The reapply-confirm flow currently uses native `confirm`/`alert`. Worth investing in a richer modal that lists each orphan placement (sub-topic code, half-term it was in, lessons claimed) before discarding? Probably yes once we hit users in practice — defer until you've seen it in action.
 - The per-subject "Reset" reverts to the workspace template (or LEHS default). Is there a use-case for "Clear my override entirely — let this subject track future workspace template changes"? Currently a subject becomes "frozen" to its template once edited. Could add a sibling button "Clear override (track workspace)".
+
+---
+
+## Session 21 — KS classification + hideable year groups
+**Date:** 2026-05-17
+**Status:** Complete
+**Commit:** *(pending — see git log)*
+
+Per user's earlier choice: just hideable years, no combined-multi-subject view.
+
+### What was built
+**Data + helpers:**
+- `KeyStage = "KS3" | "KS4" | "KS5"` type
+- `Subject.meta.keyStage?: KeyStage` (optional, auto-detected at import, user-overridable)
+- `Subject.config.hiddenYears?: readonly YearId[]` (optional, render-time filter)
+- `inferKeyStage(timeline)` — returns the KS if all years fit inside one (KS3=Y7–Y9, KS4=Y9–Y11, KS5=Y12–Y13); null when straddled
+- `getVisibleTimelineYears(subject)` — getTimelineYears minus hiddenYears; the canonical helper every view should use
+
+**Views adapted** (TopicView, LessonView, TimelineGrid, StatusBar all switched from `getTimelineYears` → `getVisibleTimelineYears`):
+- Hidden year groups disappear from every render path
+- CalendarOverview keeps showing all years (so the user can see what they've hidden), but greyed out with an eye toggle to unhide
+
+**UI surfaces:**
+- **CalendarOverview** gains:
+  - Per-year eye toggle (`✕` when visible, `👁` when hidden)
+  - "Show all years" link in the header when anything is hidden
+  - Hidden year rows render at 40% opacity with disabled cell buttons
+  - Header shows "N years hidden" badge
+- **SubjectTabs**:
+  - KS badge (e.g. `KS4`) shown next to the subject name when set
+  - "Set key stage…" menu item (prompt-driven; supports KS3/KS4/KS5/`(unset)`)
+- **Auto-detection** in App.tsx + ViewPlaceholder: when adding a subject, infer KS from the timeline's years and stamp `meta.keyStage` accordingly
+
+**Store actions:**
+- `toggleYearVisibility(subjectId, year)` — flips a single year in/out of the hidden list
+- `setSubjectHiddenYears(subjectId, years)` — bulk replace (used by "Show all years" reset)
+- `setSubjectKeyStage(subjectId, ks | null)` — set/clear; null rebuilds meta without the field
+
+**Export filtering:**
+- `computeCoverageStats(subject, { respectHiddenYears: true })` — new option
+- `visibleHalfTerms(subject)` shared helper used by all four content sheet builders
+- Cover sheet uses the filtered stats; Topic/Sub-topic/Lesson/Objective sheets skip hidden-year placements
+
+### Exit criteria check
+- [x] KS metadata stored + auto-detected at import + manually overridable via tab menu
+- [x] KS badge visible on subject tab
+- [x] Hidden years removed from all four views + StatusBar + cover sheet + all four content sheets
+- [x] CalendarOverview shows hidden years differently with toggle
+- [x] "Show all years" reset works
+- [x] Existing `.curriculum` files load unchanged (both new fields optional)
+- [x] `npm run typecheck` clean
+- [x] `npm test` — 247/247 (was 235/235; +12 new unit tests)
+- [x] `npm run test:e2e` — 23/23 (was 21/21; +2 new tests for hide-year flow + KS auto-detect badge; one flake on retry but passed second run)
+- [x] `npm run build:renderer` clean
+
+### Deliberately not in scope this session (per user direction)
+- Combined multi-subject view (user picked "just hideable years")
+- Spacing analytics filtering by hidden years (the unplaced/single-touch flags still see content in hidden years; can revisit if noisy in practice)
+- Hard constraint that "this KS subject only uses this year range" (KS is descriptive, not prescriptive)
+- KS-based bulk operations (e.g. "set hidden years for all KS3 subjects")
+
+### Deviations from the plan
+- **Set Key Stage UX uses `prompt()`** instead of a custom dropdown — keeps the implementation tight; the menu only opens occasionally. Easy to upgrade to a proper picker in a polish pass.
+- **Auto-detect didn't gain its own helper file.** `inferKeyStage` lives in `timeline.ts` next to its sibling `getTimelineYears`. Could split into a separate `classification.ts` later if it grows.
+- **Spacing analytics still uses all years.** Considered filtering hidden years from the "unplaced" calculation — decided against it for v1 because the user can choose to hide a year specifically because they DON'T plan to teach it, in which case "T3a is unplaced" is the correct warning (just one they've actively dismissed by hiding the year). If the noise becomes a problem, filter it.
+
+### Decisions logged
+- [DEC-036](DECISIONS.md#dec-036) — KS classification + hideable year groups (render-time filter, not data deletion)
+
+### Surprises and gotchas
+- **The Sub-topic view's `TimelineGrid` was the load-bearing one** — needed the same `getVisibleTimelineYears` switch as TopicView/LessonView. Easy to miss because SubTopicView itself just renders `<TimelineGrid />` without touching years. Worth grepping for `getTimelineYears` after similar refactors.
+- **Cover sheet iteration order matters less than I thought.** `stats.perYear` is a Map built by iterating `subject.timeline.halfTerms`, which is calendar-ordered, so the Map's insertion order naturally produces Y9 → Y10 → Y11 (or Y7 → … → Y13). With `respectHiddenYears`, hidden years simply don't appear as keys.
+- **The Cover sheet's `(stats.perYear)` iteration** uses `for (const [year, slot] of stats.perYear)` — automatically respects the filter because `computeCoverageStats(subject, { respectHiddenYears: true })` already excludes them from the map.
+- **`exactOptionalPropertyTypes` again** with `Subject.meta.keyStage`. Same pattern as before: when clearing, rebuild the meta object without the field. Three optional fields on `SubjectMeta`/`SubjectConfig` now (keyStage, hiddenYears, retrievalWeights, spacingThresholds, calendarTemplate, …) — pattern is established; future contributors should follow.
+- **Flaky test in the spacing-retrieval suite** ("Tuning a spacing threshold re-evaluates the flags live") failed once in the suite, passed on retry and in isolation. Same pattern as the drag-related flakes — likely Vite HMR/dev-server timing. Worth investigating systematically if it becomes a regular nuisance.
+
+### What's usable now
+1. Import a spec, see a `KS4` (or `KS3`/`KS5`) badge appear automatically on its tab (when the timeline's years all fit one KS range)
+2. Right-click any subject tab → "Set key stage…" to manually pick or clear
+3. Click 📅 the Calendar overview chevron to expand; click the `✕` next to any year to hide it
+4. The Sub-topic / Topic / Lesson / Status bar views all collapse to show only visible years
+5. Click "Show all years" to restore everything in one click
+6. Export to Excel — the Cover sheet's per-year totals and all four content sheets exclude hidden-year placements
+7. Hidden years remain in the underlying timeline; unhiding restores them immediately
+
+### Open questions for the user
+- Spacing analytics: should they respect hiddenYears too? Pro: less noise when a user hides Y7/Y8 because they don't teach those. Con: hiding becomes a way to silence valid warnings about unplaced content. Currently spacing keeps seeing everything; happy to flip if the noise is problematic.
+- "Set key stage" uses a text prompt right now (typing "KS3"/"KS4"/"KS5"). A dropdown picker would be friendlier but adds ~50 LOC of custom UI. Worth doing now or in the polish pass?
+- KS metadata is currently descriptive only. Want it to inform anything else — e.g. filter subjects in the tab bar by KS, group exports by KS, etc.?
