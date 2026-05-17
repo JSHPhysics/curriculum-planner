@@ -11,20 +11,25 @@ import type {
 } from "@/model/types";
 import { ALL_YEAR_IDS } from "@/model/types";
 
+export type CalendarSettingsScope =
+  | { readonly kind: "workspace" }
+  | { readonly kind: "subject"; readonly subjectName: string };
+
 export interface CalendarSettingsModalProps {
   readonly current: CalendarTemplate | undefined;
+  readonly scope: CalendarSettingsScope;
   readonly onCancel: () => void;
   readonly onSave: (template: CalendarTemplate | null) => void;
 }
 
 /**
- * Edit the workspace-level calendar template that new subjects inherit.
- * Existing subjects keep their per-Subject timelines unchanged — that's a
- * separate concern (per-subject override is already supported by the data
- * model; UI affordance will land in a follow-up).
+ * Edit a calendar template — either the workspace-level template (inherited
+ * by new subjects) or a specific subject's per-subject override. The scope
+ * prop drives the title, footer copy, and the meaning of "Reset to default".
  */
 export function CalendarSettingsModal({
   current,
+  scope,
   onCancel,
   onSave,
 }: CalendarSettingsModalProps): JSX.Element {
@@ -143,8 +148,12 @@ export function CalendarSettingsModal({
   }
 
   function resetToDefault(): void {
-    if (!confirm("Replace your current settings with the LEHS default template?")) return;
-    onSave(null); // store action drops the field; new subjects use createDefaultTimeline
+    const msg =
+      scope.kind === "subject"
+        ? `Reset ${scope.subjectName}'s calendar to match the workspace template? Placements in cells the workspace template doesn't have will be flagged as orphans.`
+        : "Replace your current workspace template with the LEHS default? Existing subjects keep their current timelines.";
+    if (!confirm(msg)) return;
+    onSave(null); // caller decides what reset means in this scope
   }
 
   // Preview the derived budget for each half-term so the user can sanity-check
@@ -179,11 +188,25 @@ export function CalendarSettingsModal({
         onClick={(e) => e.stopPropagation()}
       >
         <header className="px-5 py-3 border-b border-line">
-          <h2 className="font-display text-lg text-ink">Workspace calendar</h2>
+          <h2 className="font-display text-lg text-ink">
+            {scope.kind === "subject"
+              ? `Calendar for ${scope.subjectName}`
+              : "Workspace calendar"}
+          </h2>
           <p className="text-[11px] text-ink-fade mt-1">
-            New subjects added after Save will use this calendar. Existing subjects keep their
-            current timelines unchanged. Per-half-term budget is calculated from lessons-per-cycle
-            × weeks ÷ cycle length.
+            {scope.kind === "subject" ? (
+              <>
+                Edits this subject's timeline. Placements in cells whose ids
+                survive the change are preserved; placements in cells that
+                disappear become orphans you'll be warned about before saving.
+              </>
+            ) : (
+              <>
+                New subjects added after Save will use this calendar. Existing subjects keep their
+                current timelines unchanged. Per-half-term budget is calculated from lessons-per-cycle
+                × weeks ÷ cycle length.
+              </>
+            )}
           </p>
         </header>
 
@@ -375,7 +398,7 @@ export function CalendarSettingsModal({
             className="px-3 py-1.5 text-sm border border-line text-ink-dim rounded hover:bg-surface-2"
             title="Replace these settings with the built-in LEHS default"
           >
-            Reset to LEHS default
+            {scope.kind === "subject" ? "Reset to workspace template" : "Reset to LEHS default"}
           </button>
           <div className="flex-1" />
           <button

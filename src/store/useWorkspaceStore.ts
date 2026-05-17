@@ -35,6 +35,7 @@ import type {
 } from "@/model/types";
 import {
   addSubject as wsAddSubject,
+  applyTemplateToSubject,
   createWorkspace,
   removeSubject as wsRemoveSubject,
   replaceSubject,
@@ -137,6 +138,25 @@ export interface WorkspaceStoreActions {
    * added after the template is set.
    */
   readonly setCalendarTemplate: (template: import("@/model/types").CalendarTemplate | null) => void;
+  /**
+   * Apply a CalendarTemplate to one specific subject. Regenerates the
+   * subject's timeline preserving placements whose half-term ids match;
+   * returns any orphaned placements so the caller can surface them.
+   * Persists the template on Subject.calendarTemplate for future edits.
+   */
+  readonly setSubjectCalendarTemplate: (
+    subjectId: string,
+    template: import("@/model/types").CalendarTemplate
+  ) => readonly import("@/model/types").PlacedBlock[];
+  /**
+   * Apply the workspace calendar template to every existing subject. Returns
+   * a map of subjectId → orphans so the UI can show a per-subject breakdown
+   * before/after the user confirms.
+   */
+  readonly reapplyWorkspaceTemplateToAllSubjects: () => ReadonlyMap<
+    string,
+    readonly import("@/model/types").PlacedBlock[]
+  >;
 }
 
 export type WorkspaceStore = WorkspaceStoreState & WorkspaceStoreActions;
@@ -529,6 +549,49 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set) => ({
       }
       return { workspace: next, dirty: true };
     }),
+
+  setSubjectCalendarTemplate: (subjectId, template) => {
+    let orphans: readonly import("@/model/types").PlacedBlock[] = [];
+    set((state) => {
+      const subject = state.workspace.subjects.find((s) => s.id === subjectId);
+      if (!subject) return {};
+      const result = applyTemplateToSubject(subject, template);
+      orphans = result.orphans;
+      const updated: Subject = {
+        ...subject,
+        timeline: result.timeline,
+        calendarTemplate: template,
+      };
+      return {
+        workspace: replaceSubject(state.workspace, subjectId, updated),
+        dirty: true,
+      };
+    });
+    return orphans;
+  },
+
+  reapplyWorkspaceTemplateToAllSubjects: () => {
+    const out = new Map<string, readonly import("@/model/types").PlacedBlock[]>();
+    set((state) => {
+      const ws = state.workspace;
+      if (!ws.calendarTemplate) return {};
+      const template = ws.calendarTemplate;
+      const nextSubjects = ws.subjects.map((subject): Subject => {
+        const result = applyTemplateToSubject(subject, template);
+        out.set(subject.id, result.orphans);
+        return {
+          ...subject,
+          timeline: result.timeline,
+          calendarTemplate: template,
+        };
+      });
+      return {
+        workspace: { ...ws, subjects: nextSubjects },
+        dirty: true,
+      };
+    });
+    return out;
+  },
 }));
 
 // ============================================================

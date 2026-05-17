@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { CalendarOverview } from "@/components/CalendarOverview";
 import { CalendarSettingsModal } from "@/components/CalendarSettingsModal";
 import { Header } from "@/components/Header";
 import { LessonView } from "@/components/LessonView";
@@ -16,6 +17,7 @@ import {
   applyCalendarTemplate,
   createDefaultTimeline,
   createEoHTBlocks,
+  DEFAULT_CALENDAR_TEMPLATE,
 } from "@/model/timeline";
 import type { PlacedBlock, Subject } from "@/model/types";
 import {
@@ -47,7 +49,20 @@ export function App(): JSX.Element {
   const setSavePath = useWorkspaceStore((s) => s.setSavePath);
   const markClean = useWorkspaceStore((s) => s.markClean);
   const setCalendarTemplate = useWorkspaceStore((s) => s.setCalendarTemplate);
-  const [calendarModalOpen, setCalendarModalOpen] = useState(false);
+  const setSubjectCalendarTemplate = useWorkspaceStore((s) => s.setSubjectCalendarTemplate);
+  const reapplyWorkspaceTemplateToAllSubjects = useWorkspaceStore(
+    (s) => s.reapplyWorkspaceTemplateToAllSubjects
+  );
+  /**
+   * Calendar modal target: null = closed; { kind:"workspace" } = editing the
+   * workspace template; { kind:"subject", subjectId } = editing one subject's
+   * own template (its own override of the workspace template).
+   */
+  const [calendarTarget, setCalendarTarget] = useState<
+    | { readonly kind: "workspace" }
+    | { readonly kind: "subject"; readonly subjectId: string }
+    | null
+  >(null);
 
   useEffect(() => {
     loadAutosaved();
@@ -205,9 +220,11 @@ export function App(): JSX.Element {
         onSave={() => void handleSave()}
         onSaveAs={() => void handleSaveAs()}
         onExport={() => void handleExport()}
-        onOpenCalendarSettings={() => setCalendarModalOpen(true)}
+        onOpenCalendarSettings={() => setCalendarTarget({ kind: "workspace" })}
+        onEditSubjectCalendar={(id) => setCalendarTarget({ kind: "subject", subjectId: id })}
       />
       <StatusBar subject={activeSubject} onToggleConfig={updateActiveSubjectConfig} />
+      <CalendarOverview subject={activeSubject} />
       <SpacingPanel subject={activeSubject} />
       <main className="flex-1 flex overflow-hidden">
         {activeSubject && currentView === "topic" ? (
@@ -230,16 +247,71 @@ export function App(): JSX.Element {
           onConfirm={confirmRestore}
         />
       )}
-      {calendarModalOpen && (
-        <CalendarSettingsModal
-          current={workspace.calendarTemplate}
-          onCancel={() => setCalendarModalOpen(false)}
-          onSave={(template) => {
-            setCalendarTemplate(template);
-            setCalendarModalOpen(false);
-          }}
-        />
-      )}
+      {calendarTarget && (() => {
+        if (calendarTarget.kind === "workspace") {
+          return (
+            <CalendarSettingsModal
+              current={workspace.calendarTemplate}
+              scope={{ kind: "workspace" }}
+              onCancel={() => setCalendarTarget(null)}
+              onSave={(template) => {
+                setCalendarTemplate(template);
+                // Offer to push the new template onto existing subjects too.
+                if (template !== null && workspace.subjects.length > 0) {
+                  const apply = confirm(
+                    `Workspace template saved. Also re-apply it to all ${workspace.subjects.length} existing subject${workspace.subjects.length === 1 ? "" : "s"}? Placements in cells that the new template doesn't have will become orphans and be discarded.`
+                  );
+                  if (apply) {
+                    const orphansBySubject = reapplyWorkspaceTemplateToAllSubjects();
+                    const totalOrphans = [...orphansBySubject.values()].reduce(
+                      (s, list) => s + list.length,
+                      0
+                    );
+                    if (totalOrphans > 0) {
+                      const breakdown = [...orphansBySubject.entries()]
+                        .filter(([, list]) => list.length > 0)
+                        .map(([sid, list]) => {
+                          const subj = workspace.subjects.find((s) => s.id === sid);
+                          return `  • ${subj?.meta.name ?? sid}: ${list.length}`;
+                        })
+                        .join("\n");
+                      alert(
+                        `Re-applied. ${totalOrphans} placement${totalOrphans === 1 ? " was" : "s were"} discarded:\n${breakdown}`
+                      );
+                    }
+                  }
+                }
+                setCalendarTarget(null);
+              }}
+            />
+          );
+        }
+        const targetSubject = workspace.subjects.find((s) => s.id === calendarTarget.subjectId);
+        if (!targetSubject) {
+          setCalendarTarget(null);
+          return null;
+        }
+        return (
+          <CalendarSettingsModal
+            current={targetSubject.calendarTemplate ?? workspace.calendarTemplate}
+            scope={{ kind: "subject", subjectName: targetSubject.meta.name }}
+            onCancel={() => setCalendarTarget(null)}
+            onSave={(template) => {
+              // In subject mode the "Reset" button passes null; we resolve
+              // that to the workspace template (if any) or the LEHS default.
+              const resolved =
+                template ?? workspace.calendarTemplate ?? DEFAULT_CALENDAR_TEMPLATE;
+              const orphans = setSubjectCalendarTemplate(targetSubject.id, resolved);
+              if (orphans.length > 0) {
+                alert(
+                  `Calendar applied. ${orphans.length} placement${orphans.length === 1 ? " was" : "s were"} discarded because their cells don't exist in the new template.`
+                );
+              }
+              setCalendarTarget(null);
+            }}
+          />
+        );
+      })()}
     </div>
   );
 }

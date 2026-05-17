@@ -1,7 +1,11 @@
+import { applyCalendarTemplate } from "./timeline";
 import type {
+  CalendarTemplate,
+  HalfTerm,
   PlacedBlock,
   Spec,
   Subject,
+  Timeline,
   Workspace,
 } from "./types";
 
@@ -158,6 +162,55 @@ export function restoreSubjectToImport(
     workspace: replaceSubject(workspace, subjectId, restored),
     orphans,
   };
+}
+
+export interface ApplyTemplateResult {
+  readonly timeline: Timeline;
+  readonly orphans: readonly PlacedBlock[];
+}
+
+/**
+ * Regenerate a subject's Timeline from a new CalendarTemplate, preserving
+ * placements whose half-term `id` exists in the new template. Placements
+ * whose ids are absent become orphans — returned separately so the UI can
+ * warn the user before committing.
+ *
+ * Does NOT mutate the subject. Caller decides whether to use the new
+ * timeline (and discard orphans) or back out.
+ */
+export function applyTemplateToSubject(
+  subject: Subject,
+  template: CalendarTemplate
+): ApplyTemplateResult {
+  const fresh = applyCalendarTemplate(template);
+  const orphans: PlacedBlock[] = [];
+  const placementsByCellId = new Map<string, PlacedBlock[]>();
+  for (const ht of subject.timeline.halfTerms) {
+    if (ht.placedBlocks.length === 0) continue;
+    placementsByCellId.set(ht.id, [...ht.placedBlocks]);
+  }
+  const halfTerms: HalfTerm[] = fresh.halfTerms.map((ht) => {
+    const existing = placementsByCellId.get(ht.id);
+    if (!existing) return ht;
+    placementsByCellId.delete(ht.id);
+    return { ...ht, placedBlocks: existing };
+  });
+  for (const blocks of placementsByCellId.values()) {
+    for (const block of blocks) orphans.push(block);
+  }
+  return { timeline: { halfTerms }, orphans };
+}
+
+/**
+ * Preview-only variant: returns the orphans that WOULD result from applying
+ * the template, without committing the new timeline. Useful for the
+ * confirmation modal that asks "this would lose N placements; continue?".
+ */
+export function previewApplyTemplateToSubject(
+  subject: Subject,
+  template: CalendarTemplate
+): readonly PlacedBlock[] {
+  return applyTemplateToSubject(subject, template).orphans;
 }
 
 function collectSubTopicCodes(spec: Spec): Set<string> {

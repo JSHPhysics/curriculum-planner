@@ -10,6 +10,7 @@ export interface SubjectTabsProps {
   readonly onClose: (subjectId: string) => void;
   readonly onRename: (subjectId: string, newName: string) => void;
   readonly onRestore: (subjectId: string) => void;
+  readonly onEditCalendar: (subjectId: string) => void;
 }
 
 export function SubjectTabs({
@@ -20,6 +21,7 @@ export function SubjectTabs({
   onClose,
   onRename,
   onRestore,
+  onEditCalendar,
 }: SubjectTabsProps): JSX.Element {
   const [menuFor, setMenuFor] = useState<string | null>(null);
 
@@ -106,6 +108,15 @@ export function SubjectTabs({
                   className="w-full text-left px-3 py-1.5 hover:bg-surface-2"
                 >
                   Restore to imported spec…
+                </button>
+                <button
+                  onClick={() => {
+                    onEditCalendar(s.id);
+                    setMenuFor(null);
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-surface-2"
+                >
+                  📅 Edit calendar for this subject…
                 </button>
                 <div className="border-t border-line my-1" />
                 <button

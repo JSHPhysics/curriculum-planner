@@ -20,6 +20,7 @@ export interface HeaderProps {
   readonly onSaveAs: () => void;
   readonly onExport: () => void;
   readonly onOpenCalendarSettings: () => void;
+  readonly onEditSubjectCalendar: (id: string) => void;
 }
 
 export function Header(props: HeaderProps): JSX.Element {
@@ -40,6 +41,7 @@ export function Header(props: HeaderProps): JSX.Element {
     onSaveAs,
     onExport,
     onOpenCalendarSettings,
+    onEditSubjectCalendar,
   } = props;
 
   const fileName = currentSavePath
@@ -65,6 +67,7 @@ export function Header(props: HeaderProps): JSX.Element {
           onClose={onCloseSubject}
           onRename={onRenameSubject}
           onRestore={onRestoreSubject}
+          onEditCalendar={onEditSubjectCalendar}
         />
       </div>
 

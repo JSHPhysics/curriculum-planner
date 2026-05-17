@@ -12,9 +12,11 @@ import {
   DeserializationError,
   FILE_VERSION,
   addSubject,
+  applyTemplateToSubject,
   createWorkspace,
   deserializeWorkspace,
   getActiveSubject,
+  previewApplyTemplateToSubject,
   previewRestoreSubjectToImport,
   removeSubject,
   replaceSubject,
@@ -283,6 +285,86 @@ describe("previewRestoreSubjectToImport", () => {
     let ws = createWorkspace();
     ws = addSubject(ws, loadExampleSubject("subj-1"));
     expect(() => previewRestoreSubjectToImport(ws, "ghost")).toThrow();
+  });
+});
+
+describe("applyTemplateToSubject", () => {
+  it("preserves placements whose half-term ids exist in the new template", () => {
+    let s = loadExampleSubject("subj-1");
+    s = {
+      ...s,
+      timeline: placeBlock(
+        s.timeline,
+        { kind: "sub-topic", subTopicCode: "T1a" },
+        "Y9-A1",
+        2,
+        { idGen: counterIdGen() }
+      ),
+    };
+    // New template still has Y9-A1 (same id, different name + weeks)
+    const template = {
+      cycleLengthInWeeks: 1 as const,
+      lessonsPerCyclePerYear: { Y9: 5 } as const,
+      halfTerms: [
+        { id: "Y9-A1", name: "Autumn first half", year: "Y9" as const, weeks: 7 },
+      ],
+    };
+    const result = applyTemplateToSubject(s, template);
+    expect(result.orphans).toHaveLength(0);
+    expect(result.timeline.halfTerms[0]?.placedBlocks).toHaveLength(1);
+    expect(result.timeline.halfTerms[0]?.label).toBe("Autumn first half");
+    expect(result.timeline.halfTerms[0]?.budget).toBe(35); // 5 * 7 / 1 = 35
+  });
+
+  it("returns orphans for placements in cells the new template doesn't have", () => {
+    let s = loadExampleSubject("subj-1");
+    s = {
+      ...s,
+      timeline: placeBlock(
+        s.timeline,
+        { kind: "sub-topic", subTopicCode: "T1a" },
+        "Y9-A1", // will be missing from the new template
+        2,
+        { idGen: counterIdGen() }
+      ),
+    };
+    const template = {
+      cycleLengthInWeeks: 1 as const,
+      lessonsPerCyclePerYear: { Y10: 5 } as const,
+      halfTerms: [
+        { id: "Y10-HT1", name: "Aut 1", year: "Y10" as const, weeks: 6 },
+      ],
+    };
+    const result = applyTemplateToSubject(s, template);
+    expect(result.orphans).toHaveLength(1);
+    expect(result.orphans[0]?.lessonsClaimed).toBe(2);
+    expect(result.timeline.halfTerms[0]?.placedBlocks).toHaveLength(0);
+  });
+
+  it("previewApplyTemplateToSubject returns the same orphans without committing", () => {
+    let s = loadExampleSubject("subj-1");
+    s = {
+      ...s,
+      timeline: placeBlock(
+        s.timeline,
+        { kind: "sub-topic", subTopicCode: "T1a" },
+        "Y9-A1",
+        2,
+        { idGen: counterIdGen() }
+      ),
+    };
+    const template = {
+      cycleLengthInWeeks: 1 as const,
+      lessonsPerCyclePerYear: { Y10: 5 } as const,
+      halfTerms: [
+        { id: "Y10-HT1", name: "Aut 1", year: "Y10" as const, weeks: 6 },
+      ],
+    };
+    const orphans = previewApplyTemplateToSubject(s, template);
+    expect(orphans).toHaveLength(1);
+    // Original subject is unchanged
+    const y9a1 = s.timeline.halfTerms.find((h) => h.id === "Y9-A1");
+    expect(y9a1?.placedBlocks.length).toBeGreaterThan(0);
   });
 });
 

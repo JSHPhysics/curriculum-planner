@@ -24,6 +24,29 @@ test.describe("Workspace calendar settings", () => {
     await expect(dialog).toBeHidden();
   });
 
+  test("Calendar overview strip appears below StatusBar once a subject is loaded", async ({ app }) => {
+    await app.loadExample();
+    const overview = app.page.getByRole("button", { name: /Calendar overview/i });
+    await expect(overview).toBeVisible();
+    // Default expanded — shows the year groups
+    await expect(app.page.locator("#calendar-overview-strip")).toBeVisible();
+    // Y9 row label is one of the visible chips
+    await expect(app.page.locator("#calendar-overview-strip")).toContainText(/Y9/i);
+  });
+
+  test("Edit calendar for this subject is reachable from the subject tab menu", async ({ app }) => {
+    await app.loadExample();
+    // Right-click the subject tab to open its menu
+    await app.page.getByRole("button", { name: /GCSE Physics/i }).click({ button: "right" });
+    const editCalendar = app.page.getByRole("button", { name: /Edit calendar for this subject/i });
+    await expect(editCalendar).toBeVisible();
+    await editCalendar.click();
+    // Modal opens in subject scope — title reflects the subject name
+    const dialog = app.page.getByRole("dialog", { name: /Calendar settings/i });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText(/Calendar for GCSE Physics/i);
+  });
+
   test("Reset to LEHS default clears the template", async ({ app }) => {
     await app.loadExample();
     await app.page.getByRole("button", { name: /Workspace calendar settings/i }).click();

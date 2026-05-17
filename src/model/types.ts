@@ -151,6 +151,14 @@ export interface Subject {
   readonly timeline: Timeline;
   readonly customBlocks: readonly CustomBlock[];
   readonly config: SubjectConfig;
+  /**
+   * Per-subject calendar override (see DEC-035). When unset, the subject
+   * inherits the workspace-level template at creation time; later workspace
+   * template edits don't retroactively change this subject unless the user
+   * explicitly re-applies. When set, this subject's timeline is regenerated
+   * from THIS template whenever it's edited via the calendar settings modal.
+   */
+  readonly calendarTemplate?: CalendarTemplate;
 }
 
 /**

@@ -1227,3 +1227,61 @@ Three architectural choices needed pinning down:
 - `src/components/TopicView.tsx`, `LessonView.tsx`, `TimelineGrid.tsx`, `StatusBar.tsx` (all refactored to derive years from data)
 - `src/store/useWorkspaceStore.ts` (`setCalendarTemplate`)
 - Future: feature #3 (first-startup wizard) will use `setCalendarTemplate` as its commit hook; feature #1 (folder + weekly export) will use the `startDate`/`endDate` fields for accurate weekly schedules.
+
+---
+
+## DEC-035 — Per-subject calendar overrides live on `Subject.calendarTemplate`; orphans surfaced before commit
+**Date:** 2026-05-17
+**Session:** 20
+**Status:** Accepted
+
+### Context
+DEC-034 established a workspace-level `CalendarTemplate` that new subjects inherit. Real schools have specialised subjects whose calendars diverge from the workspace default — A-level subjects might cover Y12–Y13 only while the workspace template is configured for Y9–Y11; a vocational subject might have a different cycle length; or a teacher might want to tweak one subject's half-term week-counts without touching others. The user explicitly requested per-subject editing as the first follow-up to DEC-034.
+
+The second question was how to handle the workspace template changing after subjects already exist. Today, the change only affects new subjects. The user agreed that existing subjects should optionally be brought along, but only with a clear preview of what would be lost (placements whose half-term ids disappear from the new template).
+
+### Decision
+**Per-subject template lives on `Subject.calendarTemplate?: CalendarTemplate`.**
+- Optional; when absent, the subject is "matching whatever the workspace template (or LEHS default) was at the time of subject creation".
+- When present, this template is the source of truth for the subject's calendar shape, used both for display (the modal opens seeded from it) and for re-application (e.g. if the user later edits the workspace template and chooses to re-apply, this subject's per-subject template gets replaced).
+- Stored alongside `Subject.timeline` (not derived from it) so the modal can faithfully edit cycle length and lessons-per-cycle, which aren't recoverable from the timeline alone.
+
+**`applyTemplateToSubject(subject, template)` is the canonical transform.**
+- Pure function: returns `{ timeline, orphans }`. Caller decides whether to commit.
+- Preserves placements whose half-term `id` exists in the new template; orphans the rest.
+- `previewApplyTemplateToSubject(subject, template)` returns just the orphans, for confirmation UI.
+
+**`CalendarSettingsModal` is dual-mode** via a `scope` prop:
+- `{ kind: "workspace" }` — edits `workspace.calendarTemplate`. "Reset" clears the workspace template; new subjects fall back to the LEHS default.
+- `{ kind: "subject", subjectName }` — edits `subject.calendarTemplate`. "Reset" reverts the subject to the workspace template (or LEHS default if none). Header copy adjusts to make the scope visible.
+
+**Re-apply-to-existing flow** via the workspace save path:
+- After saving a non-null workspace template, if any subjects exist, prompt: "Also re-apply to all N existing subjects?"
+- If yes: call `reapplyWorkspaceTemplateToAllSubjects()`, which iterates each subject through `applyTemplateToSubject` and returns a `Map<subjectId, orphans>`.
+- Show a per-subject breakdown of any orphans discarded.
+
+**`CalendarOverview` strip** sits below StatusBar — read-only horizontal layout showing the current subject's calendar structure, year-coloured chips per half-term, click to focus a cell. Collapsible.
+
+### Alternatives considered
+- **Per-subject template inferred from the timeline.** Lossy — cycle length and lessons-per-cycle aren't recoverable from per-cell budgets alone. Would force the modal to guess sensible defaults every time it opens, frustrating users who explicitly set a cycle length.
+- **Forbid per-subject overrides; only workspace-wide.** Simpler but blocks the legitimate use case of "A-level chemistry is Y12–Y13 only, GCSE physics is Y9–Y11".
+- **Auto-apply workspace template changes to all subjects, always.** Surprising — a teacher tweaking the workspace template (maybe to test a new cycle length) would silently lose all their per-subject placements. Manual opt-in with orphan preview is the right level of friction.
+- **Subject mode's "Reset" should revert to the LEHS default, not the workspace template.** Inconsistent with "subject inherits from workspace"; reverting to the workspace template is the principled meaning of "reset" in this scope.
+
+### Consequences
+- Existing `.curriculum` files load unchanged: `subject.calendarTemplate` is absent, behaves as before.
+- A subject that's never been calendar-edited shows the workspace template (or LEHS default) when opened in the editor.
+- A subject that's been calendar-edited persists its own template independently of later workspace template changes — until the user explicitly re-applies the workspace template.
+- The 📅 Calendar overview strip is always visible (and remembers its expanded state via component state, not localStorage — that's fine; it defaults to expanded which is the useful state).
+- Future feature #5 (KS classification + hideable year groups) will benefit from the per-subject template separation — a KS3 subject's template can have a different year-group set from a KS5 subject's.
+
+### Related
+- `SPEC.md` §1.1 (in-scope)
+- `src/model/types.ts` (`Subject.calendarTemplate?`)
+- `src/model/workspace.ts` (`applyTemplateToSubject`, `previewApplyTemplateToSubject`)
+- `src/store/useWorkspaceStore.ts` (`setSubjectCalendarTemplate`, `reapplyWorkspaceTemplateToAllSubjects`)
+- `src/components/CalendarSettingsModal.tsx` (`scope` prop, dual-mode copy)
+- `src/components/CalendarOverview.tsx`
+- `src/components/SubjectTabs.tsx` ("📅 Edit calendar for this subject" tab menu item)
+- `src/App.tsx` (`calendarTarget` state, scope-routed modal rendering, reapply confirm flow)
+- [DEC-034](#dec-034) (parent: workspace-level template)

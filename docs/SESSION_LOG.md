@@ -1259,3 +1259,68 @@ First of four big-feature sessions (per user's roadmap: #2 calendar → #1 folde
 - The "edit an existing subject's calendar" affordance is still missing (the data model supports it; no UI yet). Worth adding before the first-run wizard, or fine to defer?
 - Auto-rewriting existing subjects when the workspace template changes — should the modal offer a "Also apply to existing subjects (review orphans first)" checkbox? Or always-stays-as-template-for-new-subjects-only (current behaviour)?
 - Now that the calendar is editable, do we want a "Calendar overview" panel showing the timeline structure visually (week markers, term boundaries)? Or is the in-modal preview enough?
+
+---
+
+## Session 20 — Calendar polish: per-subject editing + overview strip + re-apply-with-orphans
+**Date:** 2026-05-17
+**Status:** Complete
+**Commit:** *(pending — see git log)*
+
+Closes the three open questions from Session 19 in a single session.
+
+### What was built
+**Data + helpers:**
+- `Subject.calendarTemplate?: CalendarTemplate` — optional per-subject calendar override (see [DEC-035](DECISIONS.md#dec-035))
+- `applyTemplateToSubject(subject, template) → { timeline, orphans }` in `src/model/workspace.ts` — pure helper that regenerates a subject's timeline from a new template, preserving placements whose half-term `id`s survive and surfacing orphans for those that don't
+- `previewApplyTemplateToSubject(subject, template) → orphans[]` — preview variant for confirmation UI
+
+**Store actions:**
+- `setSubjectCalendarTemplate(subjectId, template) → orphans[]` — applies + persists; returns discarded placements
+- `reapplyWorkspaceTemplateToAllSubjects() → Map<subjectId, orphans>` — pushes the workspace template to every existing subject with per-subject orphan breakdown
+
+**UI:**
+- **CalendarSettingsModal** gains a `scope` prop:
+  - `{ kind: "workspace" }` — edits the workspace template (existing behaviour)
+  - `{ kind: "subject", subjectName }` — edits a single subject's calendar. Title, header copy, and Reset button label all adapt.
+- **SubjectTabs** menu gains a "📅 Edit calendar for this subject…" action
+- **CalendarOverview** (new component, ~120 LOC) — collapsible read-only horizontal strip below StatusBar showing year-coloured chips per half-term. Click a chip to focus that cell via `setCurrentTermId`. Defaults to expanded; per-component state.
+- **App.tsx** orchestrates: `calendarTarget` state (null | workspace | subject mode), routes to the right modal config, runs the orphan-preview confirm after a workspace save, and falls back per scope when the modal's Reset returns null.
+
+**Tests:**
+- `tests/model/workspace.test.ts` — +3 unit tests covering `applyTemplateToSubject` happy path, orphan path, and `preview*` non-mutating behaviour
+- `tests/e2e/calendar-settings.spec.ts` — +2 E2E scenarios: CalendarOverview strip visible after loading example; "Edit calendar for this subject" reachable from the tab menu with the subject-scoped title
+
+### Exit criteria check
+- [x] Per-subject calendar edit reachable from the tab menu
+- [x] Modal dual-mode works (workspace + subject) with scope-aware copy
+- [x] Workspace template save offers the "also re-apply to existing subjects" path with orphan summary
+- [x] CalendarOverview strip visible and interactive (click a chip → focus)
+- [x] `npm run typecheck` clean
+- [x] `npm test` — 235/235 (was 232/232; +3 new unit tests)
+- [x] `npm run test:e2e` — 21/21 (was 19/19; +2 new calendar-settings tests; +1 fix to the pre-existing drag-and-edit test which the new CalendarOverview chips broke via a brittle selector)
+- [x] `npm run build:renderer` clean
+- [x] Backwards-compatible — existing `.curriculum` files load identically; missing `Subject.calendarTemplate` field is fine
+
+### Deviations from the plan
+- **Did not build a dedicated orphan-preview modal.** Used a `confirm()` + `alert()` pair for both the "re-apply to existing subjects" decision and the per-subject orphan summary. Reason: the existing RestoreToImportModal isn't quite the right shape (it's tied to "restore from imported spec" semantics), and a new modal would have been ~150 more LOC for an edge-case flow. The current UX is functional and consistent with the rest of the modals' confirm-style flows. Easy to upgrade to a richer modal later if the rough-edge feedback comes in.
+- **Pre-existing drag-and-edit test broke** because of the new CalendarOverview chips containing "Aut 1" text — the test's `.locator("div", { has: ... "Aut 1" }).first()` selector got confused. Fixed by switching to the stable `getByTestId("halfterm-cell-Y9-A1")` we added in Session 17. Marked as a "brittle selector → stable testid" cleanup.
+
+### Decisions logged
+- [DEC-035](DECISIONS.md#dec-035) — Per-subject calendar overrides on `Subject.calendarTemplate`; orphans surfaced before commit; CalendarSettingsModal dual-mode via `scope` prop
+
+### Surprises and gotchas
+- **"Reset" in subject mode** needs a sensible fallback. If the workspace has no template (still using LEHS defaults), the user clicking "Reset to workspace template" should land on the LEHS default. App.tsx threads `workspace.calendarTemplate ?? DEFAULT_CALENDAR_TEMPLATE` to keep this honest.
+- **`exactOptionalPropertyTypes` × Subject.calendarTemplate**: same pattern as DEC-032/DEC-033's other optional fields — when storing on Subject, the field is included; when clearing (not currently exposed in UI), the parent would have to build a new Subject without it. We don't expose a "clear per-subject override" action in this session; the user instead resets to workspace template, which always lands a concrete template on the subject.
+- **CalendarOverview cell ordering**: relied on `subject.timeline.halfTerms` being calendar-ordered (which it is, both for the LEHS default and for any template applied via `applyCalendarTemplate`). If a future flow ever inserts half-terms out of order, the overview will reflect that disorder honestly — but I think we want to keep that invariant elsewhere too.
+- **No localStorage persistence for the overview's expanded state.** Considered, but it defaults to expanded (the useful state) and toggles cheaply. Adding persistence is one localStorage key + a useEffect if it becomes annoying.
+- **The reapply flow uses `confirm()` and `alert()` even on Electron**, which uses the OS native dialogs there. Acceptable; if it feels heavy, the next polish can move to in-app modals.
+
+### What's usable now
+1. Right-click any subject tab → "📅 Edit calendar for this subject…" → modal opens scoped to that subject. Edit cycle/years/half-terms; on save, the subject's timeline is regenerated, surviving placements preserved, orphans alerted.
+2. Click 📅 in the header → workspace template editor. On save, confirm offers to re-apply the new template to every existing subject (with orphan summary).
+3. Calendar overview strip beneath the StatusBar — collapsible. Year-coloured chips for every half-term. Click any chip to focus that cell.
+
+### Open questions for the user
+- The reapply-confirm flow currently uses native `confirm`/`alert`. Worth investing in a richer modal that lists each orphan placement (sub-topic code, half-term it was in, lessons claimed) before discarding? Probably yes once we hit users in practice — defer until you've seen it in action.
+- The per-subject "Reset" reverts to the workspace template (or LEHS default). Is there a use-case for "Clear my override entirely — let this subject track future workspace template changes"? Currently a subject becomes "frozen" to its template once edited. Could add a sibling button "Clear override (track workspace)".

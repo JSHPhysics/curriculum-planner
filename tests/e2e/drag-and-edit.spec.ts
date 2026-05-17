@@ -8,10 +8,10 @@ test.describe("Drag a block + edit it", () => {
     const source = app.page.locator("div.touch-none", { hasText: "T1a" }).first();
     await expect(source).toBeVisible();
 
-    // Target: Y9-A1 cell. Pick the first half-term cell by its label "Aut 1".
-    const target = app.page
-      .locator("div", { has: app.page.locator("header", { hasText: "Aut 1" }) })
-      .first();
+    // Target: Y9-A1 cell located by its stable data-testid (added Session 17).
+    // The earlier "first div containing 'Aut 1'" selector was brittle and got
+    // confused after CalendarOverview added more 'Aut 1' chips to the DOM.
+    const target = app.page.getByTestId("halfterm-cell-Y9-A1");
     await expect(target).toBeVisible();
 
     // dnd-kit uses PointerSensor with activationConstraint distance: 4px, so we
