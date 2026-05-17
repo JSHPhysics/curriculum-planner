@@ -1170,3 +1170,60 @@ The four defaults' pedagogical justifications (summarised; full prose in `docs/P
 - `src/model/spacing.ts` (`DEFAULT_SPACING_THRESHOLDS`, `resolveSpacingThresholds`, refactored `getSpacingFlags`)
 - `src/components/SpacingPanel.tsx` (`ThresholdsEditor`, `ThresholdRow`)
 - [DEC-031](#dec-031), [DEC-032](#dec-032) (sibling decisions on the retrieval side)
+
+---
+
+## DEC-034 — Calendar template is workspace-level; YearId widens to Y7–Y13; per-cell `budgetOverride` rescues hand-tuned lesson counts
+**Date:** 2026-05-17
+**Session:** 19
+**Status:** Accepted
+
+### Context
+SPEC §1.1 originally hardcoded a single LEHS calendar (17 half-terms across Y9–Y11 with hand-tuned per-cell lesson budgets). To support other schools — primary, KS3-only, KS5, schools with different cycle frequencies, different term lengths, different bank-holiday patterns — the calendar needs to be user-configurable. The user explicitly asked for this as feature #2 ahead of #3 (the first-startup wizard) so the wizard has machinery to write to.
+
+Three architectural choices needed pinning down:
+1. **Year-group scope**: which year groups to support
+2. **Calendar storage**: per-subject or workspace-level
+3. **How to express per-cell capacity** when the simple formula doesn't capture real-world irregularities (bank holidays, INSET days)
+
+### Decision
+**Year groups: widen to Y7–Y13 (UK secondary range).**
+- `YearId = "Y7" | "Y8" | "Y9" | "Y10" | "Y11" | "Y12" | "Y13"`
+- New `ALL_YEAR_IDS` constant for UI iteration
+- Existing `.curriculum` files with Y9/Y10/Y11 values validate unchanged
+- Views (TopicView, LessonView, StatusBar, TimelineGrid) now derive their year list from `getTimelineYears(timeline)` — a new helper that returns years actually present in the timeline, sorted in canonical Y7→Y13 order. Schools that teach only KS3 see only Y7–Y9 rows; KS5-only schools see Y12–Y13; etc.
+
+**Calendar storage: workspace-level template, per-subject override.**
+- `workspace.calendarTemplate?: CalendarTemplate` (optional). New subjects inherit the template via `applyCalendarTemplate()`; existing subjects keep their per-Subject timelines unchanged.
+- Per-subject override is implicit: each Subject still owns its `Timeline`, so a teacher can edit one subject's calendar without affecting others. The workspace template is the *initial value* for new subjects, not a runtime constraint.
+- Migration: workspaces without `calendarTemplate` (legacy `.curriculum` files) behave as before — `createDefaultTimeline()` produces the LEHS structure via `applyCalendarTemplate(DEFAULT_CALENDAR_TEMPLATE)`.
+
+**Per-cell capacity: derived by formula, override per cell.**
+- Template defines `cycleLengthInWeeks` (1, 2, or 3 — the school's timetable cycle) and `lessonsPerCyclePerYear` (a `Partial<Record<YearId, number>>`).
+- Each `CalendarHalfTerm` has `weeks` and an optional `budgetOverride: number`. Derived budget = `ceil(lessonsPerCycle × weeks ÷ cycleLength)`; override (if set) takes precedence.
+- Why override exists: real schools have irregular cells (a 5-week half-term might actually fit 11 lessons not 10 because of when INSET days fall; an exam fortnight might give 14 lessons of teaching despite being labelled 6 weeks). Forcing teachers to pick between "principled formula" and "accurate counts" would be hostile. The default LEHS template uses overrides for every cell to reproduce the original hand-tuned values exactly.
+
+### Alternatives considered
+- **Fully arbitrary year labels** (any string: "Y9", "P5", "S3", "Grade 11"). More flexible but exhaustive switch statements lose safety, and the canonical Y7→Y13 ordering depends on the union. Defer to a future iteration if international users need it.
+- **Per-subject calendar with a "Copy from existing subject" action**. Simpler model but high friction for schools with many subjects on one calendar. Workspace-level template + per-subject override is the right default.
+- **No `budgetOverride`; force users to express everything through the cycle/weeks formula.** Mathematically clean but loses information — bank holidays vary year-by-year and cell-by-cell, and a teacher who knows "I actually get 11 lessons in this cell" shouldn't have to fudge the cycle length to make it work.
+- **Calendar as a separate top-level entity rather than embedded in Workspace.** Adds indirection without buying anything; the Workspace already owns the activeSubjectId and other workspace-scope state.
+
+### Consequences
+- Existing `.curriculum` files load unchanged: `calendarTemplate` is absent, fall-through to LEHS default
+- New subjects added after a template is set use the configured calendar
+- Existing subjects are NOT auto-rewritten — they keep their per-Subject timelines until the user explicitly edits them. (Auto-rewrite would clobber placements; needs a "preview orphans" UX which is deferred.)
+- The four views all support arbitrary year ranges automatically — no hardcoded `["Y9", "Y10", "Y11"]` arrays anywhere in the renderer
+- The `📅 Calendar` button in the header opens `CalendarSettingsModal` for editing the workspace template
+- LEHS users see no behavioural change — `DEFAULT_CALENDAR_TEMPLATE` uses `budgetOverride` for every Y9–Y11 cell to reproduce the original 12/12/11/9/13/9 etc. budgets exactly
+
+### Related
+- `SPEC.md` §1.1 (in-scope)
+- `BUILD_PLAN.md` (no entry — this is post-v1 work)
+- `src/model/types.ts` (`YearId`, `ALL_YEAR_IDS`, `CalendarHalfTerm`, `CalendarTemplate`, `Workspace.calendarTemplate`)
+- `src/model/timeline.ts` (`DEFAULT_CALENDAR_TEMPLATE`, `applyCalendarTemplate`, `getTimelineYears`, refactored `createDefaultTimeline`)
+- `src/components/CalendarSettingsModal.tsx`
+- `src/components/Header.tsx` (📅 button)
+- `src/components/TopicView.tsx`, `LessonView.tsx`, `TimelineGrid.tsx`, `StatusBar.tsx` (all refactored to derive years from data)
+- `src/store/useWorkspaceStore.ts` (`setCalendarTemplate`)
+- Future: feature #3 (first-startup wizard) will use `setCalendarTemplate` as its commit hook; feature #1 (folder + weekly export) will use the `startDate`/`endDate` fields for accurate weekly schedules.

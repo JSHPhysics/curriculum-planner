@@ -218,6 +218,22 @@ describe("placement actions delegate to the active subject's timeline", () => {
     expect(useWorkspaceStore.getState().dirty).toBe(true);
   });
 
+  it("setCalendarTemplate stores the template and marks dirty; null clears it cleanly", () => {
+    const store = useWorkspaceStore.getState();
+    store.setCalendarTemplate({
+      cycleLengthInWeeks: 1,
+      lessonsPerCyclePerYear: { Y9: 5 },
+      halfTerms: [{ id: "Y9-HT1", name: "Aut 1", year: "Y9", weeks: 6 }],
+    });
+    expect(useWorkspaceStore.getState().workspace.calendarTemplate?.cycleLengthInWeeks).toBe(1);
+    expect(useWorkspaceStore.getState().dirty).toBe(true);
+
+    store.setCalendarTemplate(null);
+    // Field should be ABSENT after clear, not present-as-undefined — keeps
+    // the "no template configured" semantics clean.
+    expect("calendarTemplate" in useWorkspaceStore.getState().workspace).toBe(false);
+  });
+
   it("updateCustomBlock is a no-op for unknown id", () => {
     const store = useWorkspaceStore.getState();
     store.addSubject(loadExampleSubject("subj-1"));

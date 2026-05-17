@@ -10,14 +10,13 @@ import {
 import { useState } from "react";
 
 import { findTopicAndSubTopic, getTopicColour } from "@/model/queries";
+import { getTimelineYears } from "@/model/timeline";
 import type { HalfTerm, Subject, YearId } from "@/model/types";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
 import { BlockEditModal } from "./BlockEditModal";
 import { LessonEditModal } from "./LessonEditModal";
 import { LessonHalfTermCell } from "./LessonHalfTermCell";
-
-const YEARS: readonly YearId[] = ["Y9", "Y10", "Y11"];
 
 interface DragLessonPayload {
   readonly kind: "lesson";
@@ -66,6 +65,7 @@ export function LessonView({ subject }: LessonViewProps): JSX.Element {
     extractAndMoveLesson(drag.placedBlockId, drag.localLessonIdx, drop.termId);
   }
 
+  const years = getTimelineYears(subject.timeline);
   const byYear = new Map<YearId, HalfTerm[]>();
   for (const ht of subject.timeline.halfTerms) {
     const arr = byYear.get(ht.year) ?? [];
@@ -77,7 +77,7 @@ export function LessonView({ subject }: LessonViewProps): JSX.Element {
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="flex-1 overflow-auto p-4">
         <div className="flex flex-col gap-6 min-w-[1100px]">
-          {YEARS.map((year) => {
+          {years.map((year) => {
             const terms = byYear.get(year) ?? [];
             return (
               <section key={year}>

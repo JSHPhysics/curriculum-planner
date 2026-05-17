@@ -130,6 +130,13 @@ export interface WorkspaceStoreActions {
   readonly setSavePath: (path: string | null) => void;
   readonly markClean: () => void;
   readonly clearWorkspace: () => void;
+  /**
+   * Replace the workspace-level calendar template that new subjects inherit
+   * from. Passing `null` clears it (subjects fall back to the LEHS default).
+   * Existing subjects' timelines are unchanged — this only affects subjects
+   * added after the template is set.
+   */
+  readonly setCalendarTemplate: (template: import("@/model/types").CalendarTemplate | null) => void;
 }
 
 export type WorkspaceStore = WorkspaceStoreState & WorkspaceStoreActions;
@@ -506,6 +513,22 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set) => ({
   setSavePath: (path) => set({ currentSavePath: path }),
   markClean: () => set({ dirty: false }),
   clearWorkspace: () => set({ ...initialState }),
+
+  setCalendarTemplate: (template) =>
+    set((state) => {
+      const ws = state.workspace;
+      // When clearing, build a Workspace without the field at all — keeps
+      // `null` out of serialised output and preserves the "no template
+      // configured" semantics. `exactOptionalPropertyTypes` rejects
+      // `{ ...ws, calendarTemplate: undefined }`.
+      let next: Workspace;
+      if (template === null) {
+        next = { activeSubjectId: ws.activeSubjectId, subjects: ws.subjects };
+      } else {
+        next = { ...ws, calendarTemplate: template };
+      }
+      return { workspace: next, dirty: true };
+    }),
 }));
 
 // ============================================================

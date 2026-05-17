@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { createDefaultTimeline, createEoHTBlocks, halfTermRoom, halfTermUsed } from "@/model/timeline";
+import {
+  applyCalendarTemplate,
+  createDefaultTimeline,
+  createEoHTBlocks,
+  DEFAULT_CALENDAR_TEMPLATE,
+  getTimelineYears,
+  halfTermRoom,
+  halfTermUsed,
+} from "@/model/timeline";
+import type { CalendarTemplate } from "@/model/types";
 
 function counterIdGen(): () => string {
   let n = 0;
@@ -129,8 +138,9 @@ describe("halfTermUsed and halfTermRoom", () => {
 
   it("clamps halfTermRoom to 0 when over-budget", () => {
     const tl = createDefaultTimeline();
+    const baseHt = tl.halfTerms[3]!;
     const ht = {
-      ...tl.halfTerms[3]!,
+      ...baseHt,
       placedBlocks: [
         {
           id: "a",
@@ -144,5 +154,91 @@ describe("halfTermUsed and halfTermRoom", () => {
       ],
     };
     expect(halfTermRoom(ht)).toBe(0);
+  });
+});
+
+describe("applyCalendarTemplate", () => {
+  it("derives per-cell budgets from lessons-per-cycle × weeks ÷ cycle-length", () => {
+    const template: CalendarTemplate = {
+      cycleLengthInWeeks: 2,
+      lessonsPerCyclePerYear: { Y9: 4 },
+      halfTerms: [
+        { id: "Y9-HT1", name: "Aut 1", year: "Y9", weeks: 6 }, // 4*6/2 = 12
+        { id: "Y9-HT2", name: "Aut 2", year: "Y9", weeks: 5 }, // 4*5/2 = 10
+        { id: "Y9-HT3", name: "Spr 1", year: "Y9", weeks: 4 }, // 4*4/2 = 8
+      ],
+    };
+    const tl = applyCalendarTemplate(template);
+    expect(tl.halfTerms.map((h) => h.budget)).toEqual([12, 10, 8]);
+  });
+
+  it("honours budgetOverride when present", () => {
+    const template: CalendarTemplate = {
+      cycleLengthInWeeks: 2,
+      lessonsPerCyclePerYear: { Y9: 4 },
+      halfTerms: [
+        { id: "Y9-HT1", name: "Aut 1", year: "Y9", weeks: 6, budgetOverride: 11 },
+      ],
+    };
+    const tl = applyCalendarTemplate(template);
+    expect(tl.halfTerms[0]?.budget).toBe(11); // overrides derived 12
+  });
+
+  it("treats years with no lessons-per-cycle entry as 0-budget cells", () => {
+    const template: CalendarTemplate = {
+      cycleLengthInWeeks: 2,
+      lessonsPerCyclePerYear: {}, // none configured
+      halfTerms: [{ id: "Y9-HT1", name: "Aut 1", year: "Y9", weeks: 6 }],
+    };
+    const tl = applyCalendarTemplate(template);
+    expect(tl.halfTerms[0]?.budget).toBe(0);
+  });
+
+  it("formats date ranges into a human-readable display string", () => {
+    const template: CalendarTemplate = {
+      cycleLengthInWeeks: 2,
+      lessonsPerCyclePerYear: { Y9: 4 },
+      halfTerms: [
+        {
+          id: "Y9-HT1",
+          name: "Aut 1",
+          year: "Y9",
+          weeks: 6,
+          startDate: "2025-09-04",
+          endDate: "2025-10-16",
+        },
+      ],
+    };
+    const tl = applyCalendarTemplate(template);
+    expect(tl.halfTerms[0]?.dates).toBe("4 Sep – 16 Oct");
+  });
+
+  it("creates Timeline whose budgets reproduce the LEHS hand-tuned defaults", () => {
+    const tl = applyCalendarTemplate(DEFAULT_CALENDAR_TEMPLATE);
+    const y9Budgets = tl.halfTerms.filter((h) => h.year === "Y9").map((h) => h.budget);
+    expect(y9Budgets).toEqual([12, 12, 11, 9, 13, 9]); // matches the original LEHS values
+    const y10Total = tl.halfTerms.filter((h) => h.year === "Y10").reduce((s, h) => s + h.budget, 0);
+    expect(y10Total).toBe(105);
+  });
+});
+
+describe("getTimelineYears", () => {
+  it("returns years present in canonical Y7→Y13 order", () => {
+    const tl = createDefaultTimeline();
+    expect(getTimelineYears(tl)).toEqual(["Y9", "Y10", "Y11"]);
+  });
+
+  it("supports KS3 (Y7–Y9) and KS5 (Y12–Y13) timelines", () => {
+    const ks3: CalendarTemplate = {
+      cycleLengthInWeeks: 1,
+      lessonsPerCyclePerYear: { Y7: 3, Y8: 3, Y9: 3 },
+      halfTerms: [
+        { id: "Y8-HT1", name: "HT1", year: "Y8", weeks: 6 },
+        { id: "Y7-HT1", name: "HT1", year: "Y7", weeks: 6 },
+        { id: "Y9-HT1", name: "HT1", year: "Y9", weeks: 6 },
+      ],
+    };
+    // Output ignores insertion order — always canonical
+    expect(getTimelineYears(applyCalendarTemplate(ks3))).toEqual(["Y7", "Y8", "Y9"]);
   });
 });

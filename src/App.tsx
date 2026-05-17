@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { CalendarSettingsModal } from "@/components/CalendarSettingsModal";
 import { Header } from "@/components/Header";
 import { LessonView } from "@/components/LessonView";
 import { ObjectiveView } from "@/components/ObjectiveView";
@@ -11,7 +12,11 @@ import { TopicView } from "@/components/TopicView";
 import { ViewPlaceholder } from "@/components/ViewPlaceholder";
 import { exportSubjectToXlsx } from "@/model/export";
 import { importSpec } from "@/model/import";
-import { createDefaultTimeline, createEoHTBlocks } from "@/model/timeline";
+import {
+  applyCalendarTemplate,
+  createDefaultTimeline,
+  createEoHTBlocks,
+} from "@/model/timeline";
 import type { PlacedBlock, Subject } from "@/model/types";
 import {
   deserializeWorkspace,
@@ -41,6 +46,8 @@ export function App(): JSX.Element {
   const setWorkspace = useWorkspaceStore((s) => s.setWorkspace);
   const setSavePath = useWorkspaceStore((s) => s.setSavePath);
   const markClean = useWorkspaceStore((s) => s.markClean);
+  const setCalendarTemplate = useWorkspaceStore((s) => s.setCalendarTemplate);
+  const [calendarModalOpen, setCalendarModalOpen] = useState(false);
 
   useEffect(() => {
     loadAutosaved();
@@ -92,12 +99,18 @@ export function App(): JSX.Element {
       );
       return;
     }
-    const timeline = createEoHTBlocks(createDefaultTimeline());
+    // New subjects inherit the workspace calendar template if one is set;
+    // otherwise fall back to the LEHS default. Existing subjects are
+    // untouched.
+    const baseTimeline = workspace.calendarTemplate
+      ? applyCalendarTemplate(workspace.calendarTemplate)
+      : createDefaultTimeline();
+    const timeline = createEoHTBlocks(baseTimeline);
     addSubject({ ...result.subject, timeline });
     if (result.warnings.length > 0) {
       console.warn(`[import] ${result.warnings.length} warnings:`, result.warnings);
     }
-  }, [addSubject]);
+  }, [addSubject, workspace.calendarTemplate]);
 
   const handleOpen = useCallback(async () => {
     if (typeof window.api === "undefined") {
@@ -192,6 +205,7 @@ export function App(): JSX.Element {
         onSave={() => void handleSave()}
         onSaveAs={() => void handleSaveAs()}
         onExport={() => void handleExport()}
+        onOpenCalendarSettings={() => setCalendarModalOpen(true)}
       />
       <StatusBar subject={activeSubject} onToggleConfig={updateActiveSubjectConfig} />
       <SpacingPanel subject={activeSubject} />
@@ -214,6 +228,16 @@ export function App(): JSX.Element {
           orphans={restorePending.orphans}
           onCancel={() => setRestorePending(null)}
           onConfirm={confirmRestore}
+        />
+      )}
+      {calendarModalOpen && (
+        <CalendarSettingsModal
+          current={workspace.calendarTemplate}
+          onCancel={() => setCalendarModalOpen(false)}
+          onSave={(template) => {
+            setCalendarTemplate(template);
+            setCalendarModalOpen(false);
+          }}
         />
       )}
     </div>

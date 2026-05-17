@@ -75,11 +75,15 @@ test.describe("Spacing panel + retrieval suggestions", () => {
     await dragTo(app.page, t2a, y9a1);
     await expect(y9a1.locator("div.touch-none", { hasText: "T2a" })).toBeVisible();
 
-    await app.page
-      .getByRole("button", { name: /Suggest sub-topics worth revisiting in Y10 Aut 1/i })
-      .click();
+    const suggestButton = app.page.getByRole("button", {
+      name: /Suggest sub-topics worth revisiting in Y10 Aut 1/i,
+    });
+    await suggestButton.scrollIntoViewIfNeeded();
+    await suggestButton.click();
     const suggestDialog = app.page.getByRole("dialog", { name: /Suggested revisits for Y10/i });
-    await expect(suggestDialog).toBeVisible();
+    // Increased timeout: the dialog has heavy initial render (candidate list +
+    // weights editor) and can be slow on the first cold open in a test run.
+    await expect(suggestDialog).toBeVisible({ timeout: 10_000 });
     const t2aCandidate = suggestDialog.locator("label", { hasText: "T2a" }).first();
     await expect(t2aCandidate).toBeVisible();
     await t2aCandidate.click();

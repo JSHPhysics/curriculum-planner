@@ -19,6 +19,7 @@ export interface HeaderProps {
   readonly onSave: () => void;
   readonly onSaveAs: () => void;
   readonly onExport: () => void;
+  readonly onOpenCalendarSettings: () => void;
 }
 
 export function Header(props: HeaderProps): JSX.Element {
@@ -38,6 +39,7 @@ export function Header(props: HeaderProps): JSX.Element {
     onSave,
     onSaveAs,
     onExport,
+    onOpenCalendarSettings,
   } = props;
 
   const fileName = currentSavePath
@@ -71,6 +73,15 @@ export function Header(props: HeaderProps): JSX.Element {
       </div>
 
       <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={onOpenCalendarSettings}
+          aria-label="Workspace calendar settings"
+          title="Workspace calendar settings"
+          className="px-2 py-1 text-base text-ink-dim hover:text-ink hover:bg-surface-2 rounded transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
+        >
+          📅
+        </button>
         <ActionButton onClick={onOpen} label="Open" />
         <ActionButton onClick={onSave} label="Save" disabled={!dirty && !!currentSavePath} />
         <ActionButton onClick={onSaveAs} label="Save as…" />

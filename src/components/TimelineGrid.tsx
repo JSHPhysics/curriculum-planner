@@ -1,4 +1,4 @@
-import { halfTermUsed } from "@/model/timeline";
+import { getTimelineYears, halfTermUsed } from "@/model/timeline";
 import type { HalfTerm, Subject, YearId } from "@/model/types";
 
 import { HalfTermCell } from "./HalfTermCell";
@@ -8,9 +8,8 @@ export interface TimelineGridProps {
   readonly onBlockClick: (placedBlockId: string) => void;
 }
 
-const YEARS: readonly YearId[] = ["Y9", "Y10", "Y11"];
-
 export function TimelineGrid({ subject, onBlockClick }: TimelineGridProps): JSX.Element {
+  const years = getTimelineYears(subject.timeline);
   const byYear = new Map<YearId, HalfTerm[]>();
   for (const ht of subject.timeline.halfTerms) {
     const arr = byYear.get(ht.year) ?? [];
@@ -21,7 +20,7 @@ export function TimelineGrid({ subject, onBlockClick }: TimelineGridProps): JSX.
   return (
     <div className="flex-1 overflow-auto p-4">
       <div className="flex flex-col gap-6 min-w-[1100px]">
-        {YEARS.map((year) => {
+        {years.map((year) => {
           const terms = byYear.get(year) ?? [];
           const placed = terms.reduce((s, t) => s + halfTermUsed(t), 0);
           const budget = terms.reduce((s, t) => s + t.budget, 0);

@@ -33,6 +33,7 @@ A desktop curriculum planning tool for teachers. The user imports an Excel file 
 - "Include depth" toggle (adds depth-flagged lessons to totals)
 - Spacing + interleaving analytics surfaced as health flags on the plan (subject-agnostic, deterministic, no AI — see [DEC-031](DECISIONS.md#dec-031))
 - Retrieval-candidate suggestion engine: given a half-term, surface sub-topics worth revisiting based on placement gap, depth flag, difficulty, and revisit history
+- Workspace-level calendar template configurable per school (cycle length, year groups Y7–Y13, lessons per cycle per year, half-term names + weeks + dates + per-cell budget overrides) — see [DEC-034](DECISIONS.md#dec-034)
 
 ### 1.2 Explicitly out of scope (v1)
 - Any AI or LLM features

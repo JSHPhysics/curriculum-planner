@@ -365,6 +365,32 @@ describe("serializeWorkspace / deserializeWorkspace", () => {
     expect(() => deserializeWorkspace(json)).toThrow();
   });
 
+  it("round-trips a workspace with a calendarTemplate", () => {
+    const ws = addSubject(createWorkspace(), loadExampleSubject("subj-1"));
+    const withTemplate = {
+      ...ws,
+      calendarTemplate: {
+        cycleLengthInWeeks: 2 as const,
+        lessonsPerCyclePerYear: { Y9: 5, Y10: 6 } as const,
+        halfTerms: [
+          { id: "Y9-HT1", name: "Aut 1", year: "Y9" as const, weeks: 6 },
+          { id: "Y10-HT1", name: "Aut 1", year: "Y10" as const, weeks: 6 },
+        ],
+      },
+    };
+    const json = serializeWorkspace(withTemplate);
+    const restored = deserializeWorkspace(json);
+    expect(restored.calendarTemplate?.cycleLengthInWeeks).toBe(2);
+    expect(restored.calendarTemplate?.halfTerms.length).toBe(2);
+  });
+
+  it("round-trips a workspace without a calendarTemplate (legacy file)", () => {
+    const ws = addSubject(createWorkspace(), loadExampleSubject("subj-1"));
+    const json = serializeWorkspace(ws);
+    const restored = deserializeWorkspace(json);
+    expect(restored.calendarTemplate).toBeUndefined();
+  });
+
   it("round-trips a CustomBlock with no `kind` field (pre-Session-15 .curriculum)", () => {
     // Simulates a `.curriculum` file saved before the CustomBlock kind +
     // revisits fields were added. The deserialiser must preserve the absence

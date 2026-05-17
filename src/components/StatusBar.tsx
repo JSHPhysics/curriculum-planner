@@ -1,12 +1,11 @@
 import { computeCoverageStats } from "@/model/export";
-import type { Subject, SubjectConfig, YearId } from "@/model/types";
+import { getTimelineYears } from "@/model/timeline";
+import type { Subject, SubjectConfig } from "@/model/types";
 
 export interface StatusBarProps {
   readonly subject: Subject | null;
   readonly onToggleConfig: (partial: Partial<SubjectConfig>) => void;
 }
-
-const YEARS: readonly YearId[] = ["Y9", "Y10", "Y11"];
 
 export function StatusBar({ subject, onToggleConfig }: StatusBarProps): JSX.Element {
   if (!subject) {
@@ -20,11 +19,12 @@ export function StatusBar({ subject, onToggleConfig }: StatusBarProps): JSX.Elem
   const stats = computeCoverageStats(subject);
   const unplaced = stats.totalSpecLessons - stats.placedLessons;
   const cfg = subject.config;
+  const years = getTimelineYears(subject.timeline);
 
   return (
     <div className="px-6 py-2 flex items-center gap-6 border-b border-line bg-surface-2 text-xs">
       <div className="flex items-center gap-4">
-        {YEARS.map((year) => {
+        {years.map((year) => {
           const slot = stats.perYear.get(year) ?? { placed: 0, budget: 0 };
           const pct = slot.budget === 0 ? 0 : Math.min(100, (slot.placed / slot.budget) * 100);
           const over = slot.placed > slot.budget;

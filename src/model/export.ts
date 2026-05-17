@@ -101,8 +101,9 @@ function buildCoverSheet(subject: Subject, now: Date): unknown[][] {
     ["Per-year placement"],
     ["Year", "Lessons placed", "Total budget"],
   ];
-  for (const year of ["Y9", "Y10", "Y11"] as const) {
-    const slot = stats.perYear.get(year) ?? { placed: 0, budget: 0 };
+  // Iterate years actually present in the subject's timeline, not a fixed
+  // Y9/Y10/Y11 trio — supports schools that teach KS3, KS5, etc.
+  for (const [year, slot] of stats.perYear) {
     rows.push([year, slot.placed, slot.budget]);
   }
   return rows;

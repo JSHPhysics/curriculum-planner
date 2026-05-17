@@ -1,6 +1,15 @@
 export type ViewType = "topic" | "sub-topic" | "lesson" | "objective";
 
-export type YearId = "Y9" | "Y10" | "Y11";
+/**
+ * UK secondary year groups, in sequential order. Year labels are stable IDs
+ * used as the canonical key for grouping placements by year. Schools that
+ * teach only a subset (e.g. KS3 = Y7–Y9, KS4 = Y10–Y11) populate only those
+ * subsets in their calendar template — unused years simply don't appear in
+ * the timeline.
+ */
+export type YearId = "Y7" | "Y8" | "Y9" | "Y10" | "Y11" | "Y12" | "Y13";
+
+export const ALL_YEAR_IDS: readonly YearId[] = ["Y7", "Y8", "Y9", "Y10", "Y11", "Y12", "Y13"];
 
 export interface Objective {
   readonly id: string;
@@ -144,9 +153,48 @@ export interface Subject {
   readonly config: SubjectConfig;
 }
 
+/**
+ * One half-term entry in a workspace-level calendar template (see DEC-034).
+ * `weeks` × (lessons/cycle for this year) ÷ `cycleLengthInWeeks` = the
+ * derived budget when the template is applied to a fresh Timeline.
+ * `id` is stable across templates so existing placements that reference an
+ * id (e.g. `Y9-A1`) keep working after a template edit.
+ */
+export interface CalendarHalfTerm {
+  readonly id: string;
+  readonly name: string;
+  readonly year: YearId;
+  readonly weeks: number;
+  readonly startDate?: string;
+  readonly endDate?: string;
+  /**
+   * If set, this lesson count is used as the cell's budget verbatim instead
+   * of the derived `lessons-per-cycle × weeks ÷ cycle-length` calculation.
+   * Use when a half-term has a known irregularity (bank holiday, INSET day,
+   * exam week) that the formula can't capture.
+   */
+  readonly budgetOverride?: number;
+}
+
+/**
+ * Workspace-level calendar configuration. New subjects added via `+ Add
+ * subject` use `applyCalendarTemplate` to produce their Timeline. Existing
+ * subjects retain their per-Subject timelines unchanged (no auto-migration).
+ *
+ * `lessonsPerCyclePerYear` is partial — only years the school actually
+ * teaches need an entry. Years with no entry contribute zero lessons (i.e.
+ * the year is effectively absent from the timeline).
+ */
+export interface CalendarTemplate {
+  readonly cycleLengthInWeeks: number;
+  readonly lessonsPerCyclePerYear: Partial<Record<YearId, number>>;
+  readonly halfTerms: readonly CalendarHalfTerm[];
+}
+
 export interface Workspace {
   readonly activeSubjectId: string | null;
   readonly subjects: readonly Subject[];
+  readonly calendarTemplate?: CalendarTemplate;
 }
 
 export interface ValidationError {
