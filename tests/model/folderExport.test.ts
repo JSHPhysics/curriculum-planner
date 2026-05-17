@@ -391,20 +391,21 @@ describe("packBundleAsZip", () => {
 
   it("works with the per-topic bundle too", async () => {
     const subject = loadExample();
-    // Need placements for per-topic to emit any files.
-    const placed: Subject = {
-      ...subject,
-      timeline: createDefaultTimeline(),
-      config: { ...subject.config, includeDepth: true },
-    };
-    // Manually place T1a so per-topic has something to emit.
-    placed.timeline = placeBlock(
-      placed.timeline,
+    // Need placements for per-topic to emit any files. Build the seeded
+    // timeline first, then construct the Subject (Subject.timeline is readonly
+    // so we can't mutate in place).
+    const seededTimeline = placeBlock(
+      createDefaultTimeline(),
       { kind: "sub-topic", subTopicCode: "T1a" } as PlacedBlockSource,
       "Y9-A1",
       2,
       { idGen: counterIdGen() }
     );
+    const placed: Subject = {
+      ...subject,
+      timeline: seededTimeline,
+      config: { ...subject.config, includeDepth: true },
+    };
     const bundle = exportByTopicFolder(placed);
     const zipped = await packBundleAsZip(bundle);
     expect(zipped.suggestedFilename).toContain("by topic");
