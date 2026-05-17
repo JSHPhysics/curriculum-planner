@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { findTopicAndSubTopic } from "@/model/queries";
 import { getSpacingFlags } from "@/model/spacing";
@@ -9,15 +9,38 @@ export interface SpacingPanelProps {
   readonly subject: Subject | null;
 }
 
+const EXPANDED_STORAGE_KEY = "curriculum-planner-spacing-panel-expanded-v1";
+
+function readExpandedFromStorage(): boolean {
+  if (typeof localStorage === "undefined") return false;
+  try {
+    return localStorage.getItem(EXPANDED_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Collapsible diagnostic panel showing rolled-up spacing/interleaving health.
  * Reads pure analytics from `getSpacingFlags` — no store mutations, just
  * surfacing what's already there. Click a sub-topic chip to nothing (yet);
  * click a blocked-cell chip to focus that half-term via `setCurrentTermId`.
+ *
+ * Expanded state is persisted to localStorage so the user's preference
+ * survives reloads.
  */
 export function SpacingPanel({ subject }: SpacingPanelProps): JSX.Element | null {
   const setCurrentTermId = useWorkspaceStore((s) => s.setCurrentTermId);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState<boolean>(readExpandedFromStorage);
+
+  useEffect(() => {
+    if (typeof localStorage === "undefined") return;
+    try {
+      localStorage.setItem(EXPANDED_STORAGE_KEY, expanded ? "1" : "0");
+    } catch {
+      /* localStorage full / disabled — ignore */
+    }
+  }, [expanded]);
 
   const flags = useMemo(() => (subject ? getSpacingFlags(subject) : null), [subject]);
 
@@ -89,6 +112,26 @@ export function SpacingPanel({ subject }: SpacingPanelProps): JSX.Element | null
           <Section
             title="Single-touch"
             description="Placed once — consider scheduling a retrieval pass."
+            rationale={
+              <>
+                <p>
+                  Sub-topics placed exactly once get no spaced retrieval — the only practice
+                  happens within the original teaching block. By exam time that's months or
+                  years of forgetting with no reinforcement.
+                </p>
+                <p>
+                  Foundational content that subsequent topics depend on is usually fine
+                  (it gets revisited <em>implicitly</em> when applied). Depth-extension or
+                  higher-difficulty content that doesn't get implicit revisit is the
+                  bigger concern — these are the items worth wrapping in a later retrieval
+                  block.
+                </p>
+                <p className="text-[10px] text-ink-fade">
+                  Reference: Cepeda et al. 2006 (spaced practice meta-analysis); Roediger &
+                  Karpicke 2006 (testing effect). Full rationale in <code>docs/PEDAGOGY.md</code> §3.
+                </p>
+              </>
+            }
             empty="None"
           >
             {flags.singleTouch.map((code) => (
@@ -99,6 +142,20 @@ export function SpacingPanel({ subject }: SpacingPanelProps): JSX.Element | null
           <Section
             title="Unplaced"
             description="Not yet anywhere in the calendar."
+            rationale={
+              <>
+                <p>
+                  Spec content with no calendar slot is content not taught — a coverage
+                  gap rather than a spacing one. The panel surfaces it here because it
+                  shares the same "is this on the plan?" question.
+                </p>
+                <p>
+                  If the omission is deliberate (e.g. an optional triple-only topic for a
+                  foundation cohort, or content you've decided to skip), the warning is
+                  informational and safe to leave.
+                </p>
+              </>
+            }
             empty="Everything is placed"
           >
             {flags.unplaced.map((code) => (
@@ -109,6 +166,27 @@ export function SpacingPanel({ subject }: SpacingPanelProps): JSX.Element | null
           <Section
             title="Blocked cells"
             description="One topic dominates ≥80% of the lessons in the cell."
+            rationale={
+              <>
+                <p>
+                  Cells dominated by a single topic give students extended <em>blocked</em>
+                  practice — they build in-session fluency but lose the within-session
+                  opportunity to contrast with neighbouring topics, which is the
+                  discriminating skill exam questions test.
+                </p>
+                <p>
+                  Rohrer's lab work consistently shows <em>interleaved</em> practice produces
+                  stronger transfer for mathematics-like material; the effect generalises
+                  to most subjects with discriminable categories. Click any flagged cell
+                  to focus it; consider splitting the dominant sub-topic across two
+                  half-terms with another topic interleaved between.
+                </p>
+                <p className="text-[10px] text-ink-fade">
+                  Reference: Rohrer & Taylor 2007; Bjork's "desirable difficulties" (1994).
+                  Full rationale in <code>docs/PEDAGOGY.md</code> §3.
+                </p>
+              </>
+            }
             empty="No cells dominated by a single topic"
           >
             {flags.blockedCells.map((cell) => (
@@ -126,6 +204,21 @@ export function SpacingPanel({ subject }: SpacingPanelProps): JSX.Element | null
           <Section
             title="Well-spaced"
             description="3+ placements with mean gap ≥4 half-terms."
+            rationale={
+              <>
+                <p>
+                  A positive flag. This configuration approximates spaced practice: the
+                  sub-topic is encountered repeatedly at intervals long enough for
+                  forgetting to begin, which is when retrieval payoff is highest
+                  (Bjork's "desirable difficulties").
+                </p>
+                <p>
+                  Use these as templates for other high-priority sub-topics — if a
+                  pattern of "Y9 introduction → Y10 deepening → Y11 retrieval" works for
+                  one topic, it likely works for similar ones.
+                </p>
+              </>
+            }
             empty="Nothing well-spaced yet"
           >
             {flags.wellSpaced.map((code) => (
@@ -164,16 +257,27 @@ function Pill({ label, tone, title }: PillProps): JSX.Element {
 interface SectionProps {
   readonly title: string;
   readonly description: string;
+  readonly rationale?: React.ReactNode;
   readonly empty: string;
   readonly children: React.ReactNode;
 }
 
-function Section({ title, description, empty, children }: SectionProps): JSX.Element {
+function Section({ title, description, rationale, empty, children }: SectionProps): JSX.Element {
   const isEmpty = Array.isArray(children) ? children.length === 0 : !children;
   return (
     <div>
       <div className="font-display text-ink text-[12px] mb-0.5">{title}</div>
-      <div className="text-ink-fade text-[10px] mb-1.5 leading-snug">{description}</div>
+      <div className="text-ink-fade text-[10px] mb-1 leading-snug">{description}</div>
+      {rationale && (
+        <details className="mb-1.5 group">
+          <summary className="cursor-pointer text-[10px] text-ink-fade hover:text-ink select-none">
+            Why this matters →
+          </summary>
+          <div className="text-[11px] text-ink-dim mt-1 leading-snug pl-2 border-l-2 border-line-2 space-y-1.5">
+            {rationale}
+          </div>
+        </details>
+      )}
       <div className="flex flex-wrap gap-1">
         {isEmpty ? (
           <span className="text-[11px] text-ink-fade italic">{empty}</span>

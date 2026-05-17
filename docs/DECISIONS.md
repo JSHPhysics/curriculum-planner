@@ -1077,3 +1077,51 @@ All weights and the gap normalisation constant live at the top of the file as na
 - `src/model/retrievalSuggestions.ts`
 - `src/model/spacing.ts` (provides the underlying `getPlacementHistory` data)
 - `tests/model/retrievalSuggestions.test.ts`
+
+---
+
+## DEC-032 — Retrieval weights are tunable per-subject via `subject.config.retrievalWeights`; canonical pedagogical rationale lives in `docs/PEDAGOGY.md`
+**Date:** 2026-05-17
+**Session:** 17
+**Status:** Accepted
+
+### Context
+[DEC-031](#dec-031) shipped the retrieval-suggestion engine with hard-coded weights ("v1 deliberately simple, tunable in one file"). After real use, the user asked for two things:
+1. The ability to adjust the weights themselves from within the UI, per subject (different subjects might weight depth differently — a Maths plan probably cares less about the "depth" flag than a Triple Science plan)
+2. Explicit, in-app pedagogical justification for every weight — written for a pedagogically competent reader (Bjork's desirable difficulties, Cepeda's spacing meta-analysis, Roediger's testing effect — not consumer-tier "studies show…" hand-waving)
+
+### Decision
+**Tunability:**
+- Add `RetrievalWeights` type (all fields optional) to `src/model/types.ts`.
+- Extend `SubjectConfig` with optional `retrievalWeights?: RetrievalWeights`. Optional everywhere — existing `.curriculum` files load unchanged with all weights falling through to defaults.
+- Export `DEFAULT_RETRIEVAL_WEIGHTS: Required<RetrievalWeights>` and `resolveRetrievalWeights(subject, options?)` from `src/model/retrievalSuggestions.ts`. The resolution order is: `options.weights` (per-call override) → `subject.config.retrievalWeights` (persistent per-subject) → `DEFAULT_RETRIEVAL_WEIGHTS`, field-by-field.
+- UI: a collapsible `WeightsEditor` inside `RetrievalSuggestionPopover` with sliders + numeric inputs + "Reset to defaults" button. Edits flow through `updateActiveSubjectConfig({ retrievalWeights: { ... } })` and immediately re-rank the candidate list above the editor.
+
+**Pedagogical surface:**
+- A new `docs/PEDAGOGY.md` is the canonical reference, written in pedagogical prose with bibliography. Sections cover: the two principles (spacing + interleaving), why the planner surfaces them as structural concerns, what each spacing-panel flag means, and what each retrieval-weight does, plus what the engine deliberately does NOT do.
+- Every weight in the `WeightsEditor` ships with a `<details>` "Why this weight?" disclosure summarising the docs entry — same content, condensed.
+- Every section in the `SpacingPanel` ships with a `<details>` "Why this matters →" disclosure with 1–3 paragraphs of pedagogical reasoning, citing the same sources as the docs.
+- Both `<details>` use the native browser disclosure widget — no animation/JS framework, accessible by default.
+
+### Alternatives considered
+- **User-global retrieval weights** (one tuning across all subjects). Simpler storage but loses the per-subject pedagogical flexibility the user explicitly asked for. Subject is the right granularity because the depth/difficulty flags themselves are spec-authored per subject.
+- **Workspace-level weights** (one tuning that affects every subject in the workspace). Same downside as user-global, with worse storage semantics.
+- **Inline rationale text in the UI without a separate `docs/PEDAGOGY.md`.** Considered, but the prose grew long enough to merit a single canonical file; the UI now condenses, the docs explain in depth. This also lets contributors and readers find the reasoning without running the app.
+- **A modal-in-modal weights editor** rather than inline `<details>`. Considered, but stacking modals is fiddly and the editor is short enough to live inline. Also: the user is likely tuning weights *in response to* the candidate list they're looking at — having both on screen simultaneously is the right UX.
+- **Auto-tune weights by classroom outcomes.** Out of scope per SPEC.md §1.2 (no AI/ML); even if it were in scope, the planner has no student-performance signal.
+
+### Consequences
+- Per-subject weights persist in `subject.config`, so they round-trip through `.curriculum` files. A subject saved with custom weights opens with those weights everywhere it loads.
+- Existing `.curriculum` files load unchanged: missing `retrievalWeights` falls through to defaults, and the deserialiser doesn't touch the new optional field.
+- The pedagogical disclosures are progressive: the casual reader sees one-line section descriptions; clicking "Why this matters →" reveals 1–3 paragraphs with sources; `docs/PEDAGOGY.md` is one further click away (file path mentioned in the disclosure).
+- Future contributors can re-tune defaults by editing the `DEFAULT_RETRIEVAL_WEIGHTS` constant. Per-user/per-subject preferences override.
+- All weights are deterministic constants — no ML, no learned values — preserving DEC-031's auditability guarantee.
+
+### Related
+- `SPEC.md` §1.1 (in-scope), §1.2 (no AI)
+- `docs/PEDAGOGY.md` (canonical reference)
+- `src/model/types.ts` (`RetrievalWeights`, `SubjectConfig.retrievalWeights`)
+- `src/model/retrievalSuggestions.ts` (`DEFAULT_RETRIEVAL_WEIGHTS`, `resolveRetrievalWeights`)
+- `src/components/RetrievalSuggestionPopover.tsx` (`WeightsEditor`, `WeightRow`)
+- `src/components/SpacingPanel.tsx` (`Section` rationale disclosures)
+- [DEC-031](#dec-031) (parent: the engine itself)

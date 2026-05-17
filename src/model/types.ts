@@ -100,10 +100,25 @@ export interface SubjectMeta {
   readonly sourceFilename: string | null;
 }
 
+/**
+ * Per-subject overrides for the retrieval-suggestion scoring algorithm
+ * (see DEC-031). All four fields are optional; missing fields fall back to
+ * `DEFAULT_RETRIEVAL_WEIGHTS` in `src/model/retrievalSuggestions.ts`. The
+ * shape is documented in `docs/PEDAGOGY.md` so the teacher can reason about
+ * which knob to turn for which classroom outcome.
+ */
+export interface RetrievalWeights {
+  readonly peakGapHalfTerms?: number;
+  readonly depthBonus?: number;
+  readonly difficultyBonusPerLevel?: number;
+  readonly repeatedPlacementPenalty?: number;
+}
+
 export interface SubjectConfig {
   readonly includeDepth: boolean;
   readonly lostLessonBuffer: boolean;
   readonly autoSpillover: boolean;
+  readonly retrievalWeights?: RetrievalWeights;
 }
 
 export interface Subject {

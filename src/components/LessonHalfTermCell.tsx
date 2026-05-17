@@ -1,4 +1,5 @@
 import { useDroppable } from "@dnd-kit/core";
+import { useState } from "react";
 
 import {
   findTopicAndSubTopic,
@@ -9,6 +10,7 @@ import { halfTermUsed } from "@/model/timeline";
 import type { HalfTerm, PlacedBlock, Subject } from "@/model/types";
 
 import { LessonCard } from "./LessonCard";
+import { RetrievalSuggestionPopover } from "./RetrievalSuggestionPopover";
 
 export interface LessonHalfTermCellProps {
   readonly subject: Subject;
@@ -28,12 +30,14 @@ export function LessonHalfTermCell({
     data: { kind: "term", termId: halfTerm.id },
   });
 
+  const [suggestOpen, setSuggestOpen] = useState(false);
   const used = halfTermUsed(halfTerm);
   const over = used > halfTerm.budget;
 
   return (
     <div
       ref={setNodeRef}
+      data-testid={`lesson-halfterm-cell-${halfTerm.id}`}
       className={
         "flex flex-col rounded-card border bg-surface min-h-[140px] transition " +
         (isOver ? "ring-2 ring-navy bg-surface-2 border-navy" : "border-line")
@@ -66,6 +70,22 @@ export function LessonHalfTermCell({
           </div>
         )}
       </div>
+      <button
+        type="button"
+        onClick={() => setSuggestOpen(true)}
+        className="w-full px-2 py-1 text-[10px] text-ink-fade hover:text-gold hover:bg-gold/5 border-t border-line transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-inset"
+        aria-label={`Suggest sub-topics worth revisiting in ${halfTerm.year} ${halfTerm.label}`}
+        title={`Suggest sub-topics worth revisiting in ${halfTerm.year} ${halfTerm.label}`}
+      >
+        ↺ Suggest revisits
+      </button>
+      {suggestOpen && (
+        <RetrievalSuggestionPopover
+          subject={subject}
+          halfTerm={halfTerm}
+          onClose={() => setSuggestOpen(false)}
+        />
+      )}
     </div>
   );
 }

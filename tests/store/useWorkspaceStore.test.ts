@@ -198,6 +198,34 @@ describe("placement actions delegate to the active subject's timeline", () => {
     expect(useWorkspaceStore.getState().dirty).toBe(false);
   });
 
+  it("updateCustomBlock patches an existing custom block and marks dirty", () => {
+    const store = useWorkspaceStore.getState();
+    store.addSubject(loadExampleSubject("subj-1"));
+    store.addCustomBlock({
+      id: "cb-test",
+      name: "Mock exam",
+      lessons: 2,
+      colour: "#B85C5C",
+      isEoHT: false,
+    });
+    store.markClean();
+    store.updateCustomBlock("cb-test", { kind: "retrieval", revisits: ["T2a", "T3b"] });
+    const subj = useWorkspaceStore.getState().workspace.subjects[0]!;
+    const cb = subj.customBlocks.find((c) => c.id === "cb-test");
+    expect(cb?.kind).toBe("retrieval");
+    expect(cb?.revisits).toEqual(["T2a", "T3b"]);
+    expect(cb?.name).toBe("Mock exam"); // unchanged
+    expect(useWorkspaceStore.getState().dirty).toBe(true);
+  });
+
+  it("updateCustomBlock is a no-op for unknown id", () => {
+    const store = useWorkspaceStore.getState();
+    store.addSubject(loadExampleSubject("subj-1"));
+    store.markClean();
+    store.updateCustomBlock("ghost", { name: "X" });
+    expect(useWorkspaceStore.getState().dirty).toBe(false);
+  });
+
   it("placement actions are no-ops when no active subject exists", () => {
     const before = useWorkspaceStore.getState().workspace;
     useWorkspaceStore.getState().placeBlock({ kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 2);

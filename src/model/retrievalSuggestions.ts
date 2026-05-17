@@ -1,9 +1,11 @@
 import { getPlacementHistory } from "./spacing";
-import type { Subject } from "./types";
+import type { RetrievalWeights, Subject } from "./types";
 
 // ============================================================
 // Tunable scoring weights — see DEC-031 for the rationale of the v1
-// algorithm. Adjust here without re-shaping the algorithm.
+// algorithm. Per-subject overrides land in `subject.config.retrievalWeights`;
+// missing fields fall back to these defaults. See docs/PEDAGOGY.md for the
+// pedagogical reasoning behind each knob.
 // ============================================================
 
 /**
@@ -12,12 +14,44 @@ import type { Subject } from "./types";
  * that's ~72 weeks — comfortably inside Bjork's "desirable difficulty"
  * window for long-term retention practice.
  */
-const PEAK_GAP_HALF_TERMS = 12;
-const DEPTH_BONUS = 0.15;
-const DIFFICULTY_BONUS_PER_LEVEL = 0.1; // 0 for d=1, 0.1 for d=2, 0.2 for d=3
-const REPEATED_PLACEMENT_PENALTY = -0.1; // applied if totalPlacementsToDate > 1
+export const DEFAULT_RETRIEVAL_WEIGHTS: Required<RetrievalWeights> = {
+  peakGapHalfTerms: 12,
+  depthBonus: 0.15,
+  difficultyBonusPerLevel: 0.1, // 0 for d=1, 0.1 for d=2, 0.2 for d=3
+  repeatedPlacementPenalty: -0.1, // applied if totalPlacementsToDate > 1
+};
+
 const DEFAULT_MAX_CANDIDATES = 8;
 const DEFAULT_MIN_HALF_TERMS_SINCE_TOUCH = 1;
+
+/**
+ * Resolve a complete `Required<RetrievalWeights>` by layering:
+ *   options.weights → subject.config.retrievalWeights → DEFAULT_RETRIEVAL_WEIGHTS
+ * Missing fields at each layer fall through to the next. Exposed so the
+ * UI (weights editor) can read the same effective values the engine uses.
+ */
+export function resolveRetrievalWeights(
+  subject: Subject,
+  override?: RetrievalWeights
+): Required<RetrievalWeights> {
+  const fromConfig = subject.config.retrievalWeights ?? {};
+  return {
+    peakGapHalfTerms:
+      override?.peakGapHalfTerms ??
+      fromConfig.peakGapHalfTerms ??
+      DEFAULT_RETRIEVAL_WEIGHTS.peakGapHalfTerms,
+    depthBonus:
+      override?.depthBonus ?? fromConfig.depthBonus ?? DEFAULT_RETRIEVAL_WEIGHTS.depthBonus,
+    difficultyBonusPerLevel:
+      override?.difficultyBonusPerLevel ??
+      fromConfig.difficultyBonusPerLevel ??
+      DEFAULT_RETRIEVAL_WEIGHTS.difficultyBonusPerLevel,
+    repeatedPlacementPenalty:
+      override?.repeatedPlacementPenalty ??
+      fromConfig.repeatedPlacementPenalty ??
+      DEFAULT_RETRIEVAL_WEIGHTS.repeatedPlacementPenalty,
+  };
+}
 
 // ============================================================
 // Types
@@ -47,6 +81,12 @@ export interface SuggestRetrievalOptions {
   readonly includeUnplaced?: boolean;
   /** Minimum half-terms since last touch to include in suggestions. Default 1. */
   readonly minHalfTermsSinceTouch?: number;
+  /**
+   * Per-call weight overrides. Layered over `subject.config.retrievalWeights`
+   * and then `DEFAULT_RETRIEVAL_WEIGHTS`. Useful for UI previews where the
+   * user is dragging a slider before saving.
+   */
+  readonly weights?: RetrievalWeights;
 }
 
 // ============================================================
@@ -74,6 +114,7 @@ export function suggestRetrievalCandidates(
   const max = options.maxCandidates ?? DEFAULT_MAX_CANDIDATES;
   const minHTs = options.minHalfTermsSinceTouch ?? DEFAULT_MIN_HALF_TERMS_SINCE_TOUCH;
   const includeUnplaced = options.includeUnplaced ?? false;
+  const weights = resolveRetrievalWeights(subject, options.weights);
 
   const contextIdx = subject.timeline.halfTerms.findIndex((ht) => ht.id === contextHalfTermId);
   if (contextIdx === -1) return [];
@@ -94,9 +135,10 @@ export function suggestRetrievalCandidates(
           subTopic,
           topic,
           lastPlacementHalfTermId: "—",
-          halfTermsSinceLastTouch: PEAK_GAP_HALF_TERMS,
+          halfTermsSinceLastTouch: weights.peakGapHalfTerms,
           totalPlacementsToDate: 0,
           specOrder,
+          weights,
         });
         candidates.push(candidate);
         continue;
@@ -114,21 +156,14 @@ export function suggestRetrievalCandidates(
           halfTermsSinceLastTouch,
           totalPlacementsToDate: before.length,
           specOrder,
+          weights,
         })
       );
     }
   }
 
-  // Sort by score desc, then by spec order asc for ties (deterministic).
-  candidates.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
-    // Fall back to spec-order tiebreak by re-locating each in workingSpec.
-    // Cheaper: encode spec order into a secondary sort key during build.
-    return 0;
-  });
-
-  // Stable sort: TypeScript's sort is stable in V8 since Node 12, and we
-  // pushed in spec order, so equal-score items retain spec order naturally.
+  // Sort by score desc; stable so equal-score items retain spec push order.
+  candidates.sort((a, b) => b.score - a.score);
   return candidates.slice(0, max);
 }
 
@@ -139,15 +174,16 @@ interface BuildCandidateArgs {
   readonly halfTermsSinceLastTouch: number;
   readonly totalPlacementsToDate: number;
   readonly specOrder: number;
+  readonly weights: Required<RetrievalWeights>;
 }
 
 function buildCandidate(args: BuildCandidateArgs): RetrievalCandidate {
-  const { subTopic, topic, lastPlacementHalfTermId, halfTermsSinceLastTouch, totalPlacementsToDate } = args;
+  const { subTopic, topic, lastPlacementHalfTermId, halfTermsSinceLastTouch, totalPlacementsToDate, weights } = args;
   const hasDepthContent = subTopic.isDepth || subTopic.lessons.some((l) => l.isDepth);
-  const gapScore = clamp(halfTermsSinceLastTouch / PEAK_GAP_HALF_TERMS, 0, 1);
-  const depthBonus = hasDepthContent ? DEPTH_BONUS : 0;
-  const difficultyBonus = (subTopic.difficulty - 1) * DIFFICULTY_BONUS_PER_LEVEL;
-  const recentnessPenalty = totalPlacementsToDate > 1 ? REPEATED_PLACEMENT_PENALTY : 0;
+  const gapScore = clamp(halfTermsSinceLastTouch / weights.peakGapHalfTerms, 0, 1);
+  const depthBonus = hasDepthContent ? weights.depthBonus : 0;
+  const difficultyBonus = (subTopic.difficulty - 1) * weights.difficultyBonusPerLevel;
+  const recentnessPenalty = totalPlacementsToDate > 1 ? weights.repeatedPlacementPenalty : 0;
   const score = clamp(gapScore + depthBonus + difficultyBonus + recentnessPenalty, 0, 1);
 
   return {

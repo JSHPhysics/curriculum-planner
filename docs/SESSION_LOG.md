@@ -1025,3 +1025,97 @@ Run the app, load the example. You'll see:
 - Want a way to **edit the revisits list** on an existing retrieval block (currently view-only in BlockEditModal)? Small follow-up.
 - Should the Spacing panel **persist its expanded state** across sessions (localStorage), or always start collapsed? Currently always collapsed on app load.
 - Should the Suggest button on each cell also live in the **Lesson view** cells (it currently doesn't — only Sub-topic view's `HalfTermCell`)?
+
+---
+
+## Session 17 — Tunable retrieval weights, edit-revisits, persisted panel state, pedagogical rationale
+**Date:** 2026-05-17
+**Status:** Complete
+**Commit:** *(pending — see git log)*
+
+### What was built
+All three open questions from Session 16 answered "yes" and shipped. Plus the user-requested addition: explicit in-app pedagogical rationale for both the spacing panel and the retrieval scoring, with adjustable weights.
+
+#### Backend
+- `src/model/types.ts` — new `RetrievalWeights` interface (all fields optional) and `SubjectConfig.retrievalWeights?: RetrievalWeights`. Backwards-compatible: existing `.curriculum` files load with `retrievalWeights` absent, engine falls through to defaults.
+- `src/model/retrievalSuggestions.ts`:
+  - `DEFAULT_RETRIEVAL_WEIGHTS: Required<RetrievalWeights>` exported
+  - New `resolveRetrievalWeights(subject, override?)` layers per-call → subject config → defaults, field-by-field. Exposed so the UI weights editor reads the same effective values the engine uses.
+  - `suggestRetrievalCandidates` now accepts `options.weights` for UI preview overrides; reads from subject.config by default
+  - `buildCandidate` threaded with weights through `BuildCandidateArgs.weights`
+- `src/store/useWorkspaceStore.ts` — new `updateCustomBlock(customBlockId, patch)` action. Safely no-ops on unknown id; preserves `id` field even if patch attempts to override.
+
+#### UI components
+- `src/components/SpacingPanel.tsx`:
+  - **Persists expanded state to localStorage** via `EXPANDED_STORAGE_KEY = "curriculum-planner-spacing-panel-expanded-v1"`. Read on mount, written on toggle. Silently handles localStorage unavailability.
+  - Each of the four sections gains a `<details>` "Why this matters →" disclosure with 1–3 paragraphs of pedagogical rationale citing Cepeda, Rohrer, Bjork, Roediger, with `docs/PEDAGOGY.md` referenced for the full version
+- `src/components/RetrievalSuggestionPopover.tsx`:
+  - New `WeightsEditor` component (~120 LOC inline) with a slider + numeric input + "edited" badge for each of the four weights. Reset button disabled until the subject has any override
+  - Each weight has its own `<details>` "Why this weight?" disclosure with a paragraph of rationale
+  - Edits flow through `updateActiveSubjectConfig({ retrievalWeights: { ... } })`. The candidate list above re-ranks immediately because the engine reads from subject.config
+  - Popover width grew slightly (600 → 640px) to accommodate the editor; `max-h-[90vh]` already in place
+- `src/components/RevisitsPicker.tsx` — extracted from CustomBlockModal into a shared component so BlockEditModal can reuse it
+- `src/components/CustomBlockModal.tsx` — now imports the shared `RevisitsPicker`; inline copy deleted
+- `src/components/BlockEditModal.tsx`:
+  - When the placed block is a retrieval custom block, renders the `RevisitsPicker` pre-populated with the block's `revisits`
+  - New optional prop `onUpdateRevisits?: (customBlockId, revisits) => void`. If absent, the picker shows the revisits as read-only text
+  - Wrapper made `flex flex-col max-h-[90vh]` + body `overflow-y-auto` so the modal scrolls when content grows
+  - `SubTopicView` and `LessonView` both pass `onUpdateRevisits` wired to `updateCustomBlock(cbId, { revisits })`
+- `src/components/LessonHalfTermCell.tsx` — gains the same "↺ Suggest revisits" button + `RetrievalSuggestionPopover` integration as the Sub-topic view's `HalfTermCell`. Cell gets `data-testid="lesson-halfterm-cell-{id}"` for test stability
+
+#### Documentation
+- **`docs/PEDAGOGY.md`** — new ~3KB canonical reference, written in pedagogical prose with a brief bibliography (Cepeda 2006, Rohrer & Taylor 2007, Roediger & Karpicke 2006, Bjork 1994, Craik & Lockhart 1972, Karpicke & Roediger 2008). Sections:
+  1. The two principles (spacing, interleaving, retrieval practice)
+  2. Why the planner surfaces these as structural concerns
+  3. What each spacing-panel flag means (single-touch, unplaced, blocked cells, well-spaced)
+  4. What each retrieval-weight does (gapScore, depthBonus, difficultyBonus, recentnessPenalty)
+  5. What the engine deliberately doesn't do (no per-student simulation, no specific activities, no auto-placement, no AI)
+  6. Bibliography
+  7. Where each weight is implemented
+
+#### Tests
+- `tests/model/retrievalSuggestions.test.ts` — +3 tests: subject-config weight overrides change ranking; per-call options.weights override subject config; `resolveRetrievalWeights` layers correctly
+- `tests/store/useWorkspaceStore.test.ts` — +2 tests for `updateCustomBlock` (happy path + unknown-id no-op)
+- `tests/e2e/spacing-and-retrieval.spec.ts` — +3 tests: clicking a retrieval block opens BlockEditModal with editable picker; lesson-view cells expose the Suggest button; SpacingPanel expanded state persists across reload
+
+### Exit criteria check
+- [x] All three open questions answered "yes" and shipped
+- [x] Retrieval weights are user-adjustable via the popover's `<details>` editor
+- [x] Each weight has an inline pedagogical rationale
+- [x] Each SpacingPanel section has an inline pedagogical rationale
+- [x] Canonical `docs/PEDAGOGY.md` written for a pedagogically competent reader
+- [x] `npm run typecheck` clean
+- [x] `npm test` passes — 218/218 (was 212/212; +6 new unit tests)
+- [x] `npm run test:e2e` passes — 15/15 (was 12/12; +3 new E2E scenarios)
+- [x] `npm run build:renderer` clean
+- [x] No new runtime deps; no breaking schema changes (`retrievalWeights` optional, `kind`/`revisits` already optional from Session 15)
+
+### Deviations from the plan
+None of substance. Implementation details worth noting:
+- **`WeightsEditor` is inline in the popover via `<details>`** rather than a separate modal. Simpler UX (editor + candidate list visible together), less DOM, native disclosure behaviour.
+- **`docs/PEDAGOGY.md` deliberately exists alongside in-app disclosures** rather than replacing them. The UI gives a 1–3-paragraph "why?" right where the user is; the docs file has the bibliography and the implementation pointers. They share content but have different audiences (the user mid-decision vs the reader who wants depth).
+- **The `<details>` for the WeightsEditor itself** (the outer "⚙ Tune scoring for this subject") tracks open state in React state so the open/close toggle is reactive. The per-weight "Why this weight?" `<details>` use native browser state since they don't need to coordinate with anything else.
+- **Reset behaviour:** `resetWeights` calls `updateActiveSubjectConfig({ retrievalWeights: {} })` — sets the field to an empty object, so resolution falls through to defaults for every weight. Subject still owns the field (it's no longer undefined), but the effective values are the defaults. Net behaviour is "as if no override exists".
+
+### Decisions logged
+- [DEC-032](DECISIONS.md#dec-032) — Per-subject tunable weights via SubjectConfig; canonical pedagogical reference in docs/PEDAGOGY.md
+
+### Surprises and gotchas
+- **TS narrowing through `block.source.kind === "custom"` doesn't survive across statements.** First draft of BlockEditModal accessed `block.source.customBlockId` directly inside a ternary; TS reported "Property 'customBlockId' does not exist" because the narrowing was reset. Same pattern as session 8 — alias to a `const customBlockId` after the narrowing, then use the alias. Should consider documenting this as a project-level lint rule eventually.
+- **Playwright's `getByRole("dialog")` returns the OUTERMOST matching dialog.** When BlockEditModal opens on top of the (closed) suggest popover, multiple dialogs can be in the DOM if the popover hadn't fully unmounted. Using `.last()` (or asserting `toBeHidden` on the previous one first) avoids the strict-mode violation.
+- **dnd-kit drop completion timing.** The failing test became reproducible only without an explicit `await expect(...).toBeVisible()` between drag and the next click. dnd-kit may have outstanding state updates pending; the visibility assertion forces Playwright to wait until the React render cycle settles. Pattern: always assert the post-drag state before continuing.
+- **`<details>` element accessibility is good out of the box.** The native disclosure widget is keyboard-navigable, announces correctly to screen readers, and persists open state per-element without any JS. The CSS `[open]` selector lets you style the expanded state. For text-heavy disclosures (per-weight rationale), this is much better than a custom expander.
+- **Pedagogical content vs UX text — different drafts.** The `docs/PEDAGOGY.md` prose is the canonical version, written in essay style with full sentences. The in-UI disclosures are condensed: same ideas, shorter sentences, no citations inline (citations stay in the docs file). Writing them together kept them consistent. Worth noting for future content work: write the canonical version first, then condense for UI.
+- **Subject.config schema growth.** This is the second optional field added to `SubjectConfig` (after `retrievalWeights` was first considered). Pattern is fine but worth keeping an eye on: as more pedagogical preferences accumulate, the config may want a sub-object (e.g. `config.pedagogy.retrievalWeights`). Defer until there are 3+ pedagogy-related preferences.
+
+### What's usable now
+Open the app and load the example. Then:
+1. **Spacing panel — pedagogical rationale.** Click "Plan health" to expand. Under each of the four sections, click "Why this matters →" to see 1–3 paragraphs explaining (in pedagogical terminology, with sources) why this metric is worth tracking and what to do about it. The panel's expanded state survives a reload.
+2. **Retrieval suggestions — tunable weights.** Click any cell's "↺ Suggest revisits" button. In the popover, scroll past the candidates to the "⚙ Tune scoring for this subject" disclosure. Open it to see sliders for each of the four weights. Each has a "Why this weight?" disclosure with rationale. Edits re-rank the candidates above immediately. "Reset to defaults" clears any subject-level overrides.
+3. **Edit existing retrieval blocks.** Click a placed retrieval block to open BlockEditModal. The same `RevisitsPicker` appears with the block's current revisits pre-checked. Add or remove sub-topics; click Save. The block's display name updates to reflect the new revisits list.
+4. **Lesson view has the Suggest button too.** Switch to Lesson view; every cell has the same "↺ Suggest revisits" button at the bottom. Same popover, same engine.
+5. **Canonical reference.** Open `docs/PEDAGOGY.md` for the full pedagogical writeup with bibliography. Useful when teaching a colleague how the planner thinks about retention.
+
+### Open questions for the user
+- The Spacing panel's threshold constants (`BLOCKED_CELL_MIN_LESSONS = 4`, etc., in `src/model/spacing.ts`) are not currently UI-tunable like the retrieval weights are. Worth exposing? My take: only if it's been a real friction point in use. Easy to add when needed.
+- Should `docs/PEDAGOGY.md` be linkable from within the app (a "Read the rationale →" button on the Spacing panel and the WeightsEditor)? Currently the path is mentioned in the disclosures but not clickable.

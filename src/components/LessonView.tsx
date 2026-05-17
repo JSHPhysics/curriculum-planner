@@ -38,6 +38,7 @@ export function LessonView({ subject }: LessonViewProps): JSX.Element {
   const editBlockLessons = useWorkspaceStore((s) => s.editBlockLessons);
   const editLesson = useWorkspaceStore((s) => s.editLesson);
   const setLessonObjectives = useWorkspaceStore((s) => s.setLessonObjectives);
+  const updateCustomBlock = useWorkspaceStore((s) => s.updateCustomBlock);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } })
@@ -125,6 +126,7 @@ export function LessonView({ subject }: LessonViewProps): JSX.Element {
           onSplit={(at) => splitBlock(openModal.placedBlockId, at)}
           onRecombine={() => recombineBlock(openModal.placedBlockId)}
           onRemove={() => removeBlock(openModal.placedBlockId)}
+          onUpdateRevisits={(cbId, revisits) => updateCustomBlock(cbId, { revisits })}
         />
       )}
       {openModal?.kind === "lesson" && (

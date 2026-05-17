@@ -65,4 +65,75 @@ test.describe("Spacing panel + retrieval suggestions", () => {
     await expect(retrievalBlock).toBeVisible();
     await expect(retrievalBlock).toContainText(/T2a/);
   });
+
+  test("clicking a retrieval block opens BlockEditModal with an editable RevisitsPicker", async ({ app }) => {
+    await app.loadExample();
+
+    // Set up: place T2a in Y9-A1, then create a retrieval block in Y10-A1 referencing T2a
+    const t2a = app.page.locator("div.touch-none", { hasText: "T2a" }).first();
+    const y9a1 = app.page.getByTestId("halfterm-cell-Y9-A1");
+    await dragTo(app.page, t2a, y9a1);
+    await expect(y9a1.locator("div.touch-none", { hasText: "T2a" })).toBeVisible();
+
+    await app.page
+      .getByRole("button", { name: /Suggest sub-topics worth revisiting in Y10 Aut 1/i })
+      .click();
+    const suggestDialog = app.page.getByRole("dialog", { name: /Suggested revisits for Y10/i });
+    await expect(suggestDialog).toBeVisible();
+    const t2aCandidate = suggestDialog.locator("label", { hasText: "T2a" }).first();
+    await expect(t2aCandidate).toBeVisible();
+    await t2aCandidate.click();
+    await suggestDialog.getByRole("button", { name: /Create retrieval block/i }).click();
+    await expect(suggestDialog).toBeHidden();
+
+    // Now click the retrieval block to open BlockEditModal
+    const y10a1 = app.page.getByTestId("halfterm-cell-Y10-A1");
+    await y10a1.locator("div.touch-none", { hasText: "↺" }).first().click();
+
+    // Edit modal opens and shows the RevisitsPicker with T2a pre-checked
+    const editDialog = app.page.getByRole("dialog").last();
+    await expect(editDialog).toBeVisible();
+    await expect(editDialog).toContainText(/Revisits/i);
+    const t2aCheckbox = editDialog.locator("label", { hasText: "T2a" }).locator("input[type='checkbox']").first();
+    await expect(t2aCheckbox).toBeChecked();
+
+    // Add T3b and save
+    const t3bCheckbox = editDialog.locator("label", { hasText: "T3b" }).locator("input[type='checkbox']").first();
+    await t3bCheckbox.check();
+    await editDialog.getByRole("button", { name: /^Save$/ }).click();
+
+    // The block's display name updates to include both
+    await expect(y10a1.locator("div.touch-none", { hasText: "↺" }).first()).toContainText(/T3b/);
+  });
+
+  test("Suggest revisits button is also available on Lesson view cells", async ({ app }) => {
+    await app.loadExample();
+
+    await app.switchView("Lesson");
+    // Lesson cells have their own testid; the suggest button is per-cell
+    await expect(app.page.getByTestId("lesson-halfterm-cell-Y9-A1")).toBeVisible();
+    await app.page
+      .getByRole("button", { name: /Suggest sub-topics worth revisiting in Y9 Aut 1/i })
+      .first()
+      .click();
+    // Opening the popover with no prior placements simply shows "Nothing to revisit yet…"
+    const dialog = app.page.getByRole("dialog", { name: /Suggested revisits for Y9/i });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText(/Nothing to revisit yet/i);
+  });
+
+  test("SpacingPanel expanded state persists across a reload", async ({ app }) => {
+    await app.loadExample();
+    const trigger = app.page.getByRole("button", { name: /Plan health/i });
+    await trigger.click();
+    await expect(app.page.locator("#spacing-panel-details")).toBeVisible();
+
+    // Wait past the workspace-autosave debounce (500ms) so the subject
+    // restores after reload; the panel's expanded state is written
+    // synchronously on toggle, no debounce needed for that.
+    await app.page.waitForTimeout(800);
+    await app.page.reload();
+    // Subject is restored AND the panel comes up expanded because of localStorage
+    await expect(app.page.locator("#spacing-panel-details")).toBeVisible();
+  });
 });

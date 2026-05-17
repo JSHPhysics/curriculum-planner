@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { placeBlock } from "@/model/placement";
-import { suggestRetrievalCandidates } from "@/model/retrievalSuggestions";
+import {
+  DEFAULT_RETRIEVAL_WEIGHTS,
+  resolveRetrievalWeights,
+  suggestRetrievalCandidates,
+} from "@/model/retrievalSuggestions";
 import { createDefaultTimeline } from "@/model/timeline";
 import type { Spec, Subject } from "@/model/types";
 
@@ -162,5 +166,80 @@ describe("suggestRetrievalCandidates", () => {
     const t1b = first.find((c) => c.subTopicCode === "T1b");
     expect(t1b?.reason).toMatch(/depth/i);
     expect(t1b?.reason).toMatch(/high difficulty/i);
+  });
+
+  it("respects subject.config.retrievalWeights overrides", () => {
+    const subject = makeSubject();
+    let tl = placeBlock(subject.timeline, { kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 1);
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T1b" }, "Y9-A1", 1);
+    const baseSubject: Subject = { ...subject, timeline: tl };
+
+    // With defaults: T1a (no depth, difficulty 2) vs T1b (depth + difficulty 3)
+    // Both have the same gap (~9 HT to Y10-A1, idx 6 - 0 = 6). T1b should outscore T1a.
+    const withDefaults = suggestRetrievalCandidates(baseSubject, "Y10-A1");
+    const t1bDefault = withDefaults.find((c) => c.subTopicCode === "T1b")!;
+    const t1aDefault = withDefaults.find((c) => c.subTopicCode === "T1a")!;
+    expect(t1bDefault.score).toBeGreaterThan(t1aDefault.score);
+
+    // Now zero out depth + difficulty bonuses via subject.config override.
+    // Both candidates should now have identical scores (same gap).
+    const subjectWithFlatScoring: Subject = {
+      ...baseSubject,
+      config: {
+        ...baseSubject.config,
+        retrievalWeights: { depthBonus: 0, difficultyBonusPerLevel: 0 },
+      },
+    };
+    const flat = suggestRetrievalCandidates(subjectWithFlatScoring, "Y10-A1");
+    const t1bFlat = flat.find((c) => c.subTopicCode === "T1b")!;
+    const t1aFlat = flat.find((c) => c.subTopicCode === "T1a")!;
+    expect(t1bFlat.score).toBe(t1aFlat.score);
+  });
+
+  it("per-call options.weights override subject config (UI preview path)", () => {
+    const subject = makeSubject();
+    const tl = placeBlock(subject.timeline, { kind: "sub-topic", subTopicCode: "T1b" }, "Y9-A1", 1);
+    const subjectWithConfig: Subject = {
+      ...subject,
+      timeline: tl,
+      config: {
+        ...subject.config,
+        retrievalWeights: { depthBonus: 0 }, // config says no depth bonus
+      },
+    };
+
+    const fromConfig = suggestRetrievalCandidates(subjectWithConfig, "Y10-A1");
+    const fromCallOverride = suggestRetrievalCandidates(subjectWithConfig, "Y10-A1", {
+      weights: { depthBonus: 0.5 }, // UI preview: depth bonus restored at higher value
+    });
+    const t1bFromConfig = fromConfig.find((c) => c.subTopicCode === "T1b")!;
+    const t1bFromOverride = fromCallOverride.find((c) => c.subTopicCode === "T1b")!;
+    expect(t1bFromOverride.score).toBeGreaterThan(t1bFromConfig.score);
+  });
+});
+
+describe("resolveRetrievalWeights", () => {
+  it("returns DEFAULT_RETRIEVAL_WEIGHTS when no overrides are set", () => {
+    const subject = makeSubject();
+    expect(resolveRetrievalWeights(subject)).toEqual(DEFAULT_RETRIEVAL_WEIGHTS);
+  });
+
+  it("layers options over subject.config over defaults, field-by-field", () => {
+    const subject: Subject = {
+      ...makeSubject(),
+      config: {
+        includeDepth: false,
+        lostLessonBuffer: false,
+        autoSpillover: true,
+        retrievalWeights: { peakGapHalfTerms: 6, depthBonus: 0.3 },
+      },
+    };
+    const resolved = resolveRetrievalWeights(subject, { peakGapHalfTerms: 10 });
+    expect(resolved).toEqual({
+      peakGapHalfTerms: 10, // from options
+      depthBonus: 0.3, // from config
+      difficultyBonusPerLevel: DEFAULT_RETRIEVAL_WEIGHTS.difficultyBonusPerLevel,
+      repeatedPlacementPenalty: DEFAULT_RETRIEVAL_WEIGHTS.repeatedPlacementPenalty,
+    });
   });
 });

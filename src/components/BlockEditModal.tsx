@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 
 import { findTopicAndSubTopic, getTopicColour } from "@/model/queries";
 import { findPlacedBlock } from "@/model/placement";
-import type { Subject } from "@/model/types";
+import type { CustomBlock, Subject } from "@/model/types";
+
+import { RevisitsPicker } from "./RevisitsPicker";
 
 export interface BlockEditModalProps {
   readonly subject: Subject;
@@ -12,19 +14,47 @@ export interface BlockEditModalProps {
   readonly onSplit: (atLessonIdx: number) => void;
   readonly onRecombine: () => void;
   readonly onRemove: () => void;
+  /**
+   * Optional: only required when editing a retrieval custom block. If absent
+   * and the block is a retrieval, the revisits picker is shown read-only.
+   */
+  readonly onUpdateRevisits?: (customBlockId: string, revisits: readonly string[]) => void;
 }
 
 export function BlockEditModal(props: BlockEditModalProps): JSX.Element | null {
-  const { subject, placedBlockId, onClose, onEditLessons, onSplit, onRecombine, onRemove } = props;
+  const { subject, placedBlockId, onClose, onEditLessons, onSplit, onRecombine, onRemove, onUpdateRevisits } = props;
 
   const found = findPlacedBlock(subject.timeline, placedBlockId);
   const block = found?.block ?? null;
 
   const [lessons, setLessons] = useState<number>(block?.lessonsClaimed ?? 0);
+  const [revisitsDraft, setRevisitsDraft] = useState<readonly string[]>([]);
+  const [revisitsDirty, setRevisitsDirty] = useState(false);
+
+  // Resolve the underlying custom block (if any) for retrieval-kind editing.
+  // TS can't see through the closure-narrowed source.kind narrative, so
+  // alias the customBlockId before the lookup (same trick noted in sessions 8/9).
+  const customBlockId =
+    block && block.source.kind === "custom" ? block.source.customBlockId : null;
+  const customBlock: CustomBlock | null = customBlockId
+    ? subject.customBlocks.find((c) => c.id === customBlockId) ?? null
+    : null;
+  const isRetrieval = customBlock?.kind === "retrieval";
 
   useEffect(() => {
     setLessons(block?.lessonsClaimed ?? 0);
   }, [block?.lessonsClaimed, placedBlockId]);
+
+  // Re-seed revisits draft whenever the underlying retrieval block changes.
+  useEffect(() => {
+    if (isRetrieval && customBlock?.revisits) {
+      setRevisitsDraft(customBlock.revisits);
+      setRevisitsDirty(false);
+    } else {
+      setRevisitsDraft([]);
+      setRevisitsDirty(false);
+    }
+  }, [customBlock?.id, isRetrieval, customBlock?.revisits]);
 
   if (!block) return null;
 
@@ -33,8 +63,18 @@ export function BlockEditModal(props: BlockEditModalProps): JSX.Element | null {
   const canRecombine = block.splitFrom !== null;
   const naturalLessons = naturalLessonCount(block, subject);
 
+  function toggleRevisit(code: string): void {
+    setRevisitsDirty(true);
+    setRevisitsDraft((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
+    );
+  }
+
   function handleSave(): void {
     if (lessons !== block!.lessonsClaimed) onEditLessons(lessons);
+    if (revisitsDirty && isRetrieval && customBlock && onUpdateRevisits) {
+      onUpdateRevisits(customBlock.id, revisitsDraft);
+    }
     onClose();
   }
 
@@ -77,7 +117,7 @@ export function BlockEditModal(props: BlockEditModalProps): JSX.Element | null {
       onClick={onClose}
     >
       <div
-        className="bg-bg rounded-card border border-line w-[460px] max-w-[90vw] shadow-xl"
+        className="bg-bg rounded-card border border-line w-[460px] max-w-[90vw] max-h-[90vh] flex flex-col shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="px-5 py-3 border-b border-line">
@@ -101,7 +141,7 @@ export function BlockEditModal(props: BlockEditModalProps): JSX.Element | null {
           )}
         </header>
 
-        <div className="px-5 py-4 space-y-4">
+        <div className="px-5 py-4 space-y-4 overflow-y-auto">
           <div>
             <label className="block text-xs text-ink-dim mb-1">Lessons claimed</label>
             <div className="flex items-center gap-2">
@@ -151,6 +191,22 @@ export function BlockEditModal(props: BlockEditModalProps): JSX.Element | null {
           {description.note && (
             <div className="text-xs text-ink-dim bg-surface-2 p-2 rounded border border-line">
               {description.note}
+            </div>
+          )}
+
+          {isRetrieval && customBlock && (
+            <div className="border-t border-line pt-4">
+              {onUpdateRevisits ? (
+                <RevisitsPicker
+                  subject={subject}
+                  selected={revisitsDraft}
+                  onToggle={toggleRevisit}
+                />
+              ) : (
+                <p className="text-[11px] text-ink-fade italic">
+                  Revisits: {customBlock.revisits?.join(", ") || "none"} (read-only)
+                </p>
+              )}
             </div>
           )}
         </div>

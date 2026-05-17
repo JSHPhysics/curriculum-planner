@@ -1,10 +1,17 @@
 import { useMemo, useState } from "react";
 
 import {
+  DEFAULT_RETRIEVAL_WEIGHTS,
+  resolveRetrievalWeights,
   suggestRetrievalCandidates,
   type RetrievalCandidate,
 } from "@/model/retrievalSuggestions";
-import type { CustomBlock, HalfTerm, Subject } from "@/model/types";
+import type {
+  CustomBlock,
+  HalfTerm,
+  RetrievalWeights,
+  Subject,
+} from "@/model/types";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
 export interface RetrievalSuggestionPopoverProps {
@@ -21,6 +28,9 @@ const DEFAULT_LESSONS = 1;
  * half-term. The user picks one or more sub-topics they want to revisit;
  * clicking "Create retrieval block" wraps the selection into a single
  * CustomBlock (kind: "retrieval") and places it in this cell.
+ *
+ * The "Tune scoring" section lets the user adjust the engine's weights for
+ * this subject. See docs/PEDAGOGY.md for the rationale behind each knob.
  */
 export function RetrievalSuggestionPopover({
   subject,
@@ -29,6 +39,9 @@ export function RetrievalSuggestionPopover({
 }: RetrievalSuggestionPopoverProps): JSX.Element {
   const addCustomBlock = useWorkspaceStore((s) => s.addCustomBlock);
   const placeBlock = useWorkspaceStore((s) => s.placeBlock);
+  const updateActiveSubjectConfig = useWorkspaceStore((s) => s.updateActiveSubjectConfig);
+
+  const effectiveWeights = useMemo(() => resolveRetrievalWeights(subject), [subject]);
 
   const candidates = useMemo(
     () => suggestRetrievalCandidates(subject, halfTerm.id, { maxCandidates: MAX_CANDIDATES }),
@@ -37,6 +50,7 @@ export function RetrievalSuggestionPopover({
 
   const [selected, setSelected] = useState<readonly string[]>([]);
   const [lessons, setLessons] = useState(DEFAULT_LESSONS);
+  const [tuneOpen, setTuneOpen] = useState(false);
 
   function toggle(code: string): void {
     setSelected((prev) =>
@@ -64,6 +78,16 @@ export function RetrievalSuggestionPopover({
     onClose();
   }
 
+  function patchWeights(patch: Partial<RetrievalWeights>): void {
+    updateActiveSubjectConfig({
+      retrievalWeights: { ...(subject.config.retrievalWeights ?? {}), ...patch },
+    });
+  }
+
+  function resetWeights(): void {
+    updateActiveSubjectConfig({ retrievalWeights: {} });
+  }
+
   return (
     <div
       role="dialog"
@@ -73,7 +97,7 @@ export function RetrievalSuggestionPopover({
       onClick={onClose}
     >
       <div
-        className="bg-bg rounded-card border border-line w-[600px] max-w-[95vw] max-h-[85vh] overflow-hidden flex flex-col shadow-xl"
+        className="bg-bg rounded-card border border-line w-[640px] max-w-[95vw] max-h-[90vh] overflow-hidden flex flex-col shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="px-5 py-3 border-b border-line">
@@ -108,6 +132,25 @@ export function RetrievalSuggestionPopover({
               ))}
             </ul>
           )}
+
+          <details
+            className="mt-5 border-t border-line pt-3"
+            open={tuneOpen}
+            onToggle={(e) => setTuneOpen((e.target as HTMLDetailsElement).open)}
+          >
+            <summary className="cursor-pointer text-xs text-ink-dim hover:text-ink select-none">
+              ⚙ Tune scoring for this subject
+            </summary>
+            <WeightsEditor
+              weights={effectiveWeights}
+              onChange={patchWeights}
+              onReset={resetWeights}
+              hasOverrides={
+                subject.config.retrievalWeights !== undefined &&
+                Object.keys(subject.config.retrievalWeights).length > 0
+              }
+            />
+          </details>
         </div>
 
         <footer className="px-5 py-3 border-t border-line flex items-center gap-3">
@@ -182,6 +225,150 @@ function CandidateRow({ candidate, selected, onToggle }: CandidateRowProps): JSX
         </div>
       </div>
     </label>
+  );
+}
+
+interface WeightsEditorProps {
+  readonly weights: Required<RetrievalWeights>;
+  readonly onChange: (patch: Partial<RetrievalWeights>) => void;
+  readonly onReset: () => void;
+  readonly hasOverrides: boolean;
+}
+
+function WeightsEditor({
+  weights,
+  onChange,
+  onReset,
+  hasOverrides,
+}: WeightsEditorProps): JSX.Element {
+  return (
+    <div className="mt-3 space-y-3 bg-surface-2/40 p-3 rounded border border-line text-xs">
+      <p className="text-ink-dim text-[11px] leading-snug">
+        Changes here apply only to this subject and re-rank the candidate list above immediately.
+        See <code className="font-mono">docs/PEDAGOGY.md</code> for the full rationale behind each
+        weight.
+      </p>
+      <WeightRow
+        label="Peak gap (half-terms)"
+        value={weights.peakGapHalfTerms}
+        defaultValue={DEFAULT_RETRIEVAL_WEIGHTS.peakGapHalfTerms}
+        min={1}
+        max={20}
+        step={1}
+        onChange={(v) => onChange({ peakGapHalfTerms: v })}
+        rationale="Half-terms-since-last-touch that maps to a peak gapScore of 1. The dominant signal in the formula. Lower = the engine prioritises recently-taught content; higher = only flag genuinely earlier-in-the-year content. Default 12 (~one school year) sits inside Cepeda et al.'s optimal ISI window for year-end retention."
+      />
+      <WeightRow
+        label="Depth bonus"
+        value={weights.depthBonus}
+        defaultValue={DEFAULT_RETRIEVAL_WEIGHTS.depthBonus}
+        min={0}
+        max={0.5}
+        step={0.05}
+        onChange={(v) => onChange({ depthBonus: v })}
+        rationale="Flat bonus when the sub-topic (or any of its lessons) carries the Extra-depth flag from import. Depth content tends to receive less implicit revisit through subsequent teaching, so spaced retrieval matters more for retention. Set to 0 if your import's depth flags aren't pedagogically meaningful."
+      />
+      <WeightRow
+        label="Difficulty bonus per level"
+        value={weights.difficultyBonusPerLevel}
+        defaultValue={DEFAULT_RETRIEVAL_WEIGHTS.difficultyBonusPerLevel}
+        min={0}
+        max={0.3}
+        step={0.05}
+        onChange={(v) => onChange({ difficultyBonusPerLevel: v })}
+        rationale="Multiplied by (difficulty - 1), so Difficulty=1 gets 0, =2 gets one bonus, =3 gets two. Harder content produces stronger encoding through effortful retrieval (Craik & Lockhart 1972; Bjork). Kept small relative to gapScore because difficulty is an authoring signal, not a student-performance signal."
+      />
+      <WeightRow
+        label="Repeated placement penalty"
+        value={weights.repeatedPlacementPenalty}
+        defaultValue={DEFAULT_RETRIEVAL_WEIGHTS.repeatedPlacementPenalty}
+        min={-0.5}
+        max={0}
+        step={0.05}
+        onChange={(v) => onChange({ repeatedPlacementPenalty: v })}
+        rationale="Applied (once) when the sub-topic has been taught more than once before this cell. Nudges the engine to surface neglected content first. The forgetting curve flattens with successive successful retrievals, so revisits beyond the third have diminishing returns. Adjust further negative to aggressively de-prioritise already-revisited content."
+      />
+      <div className="flex items-center justify-end pt-1">
+        <button
+          type="button"
+          onClick={onReset}
+          disabled={!hasOverrides}
+          className="text-[11px] px-2 py-1 border border-line rounded hover:bg-surface disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Restore the four weights to their built-in defaults"
+        >
+          Reset to defaults
+        </button>
+      </div>
+    </div>
+  );
+}
+
+interface WeightRowProps {
+  readonly label: string;
+  readonly value: number;
+  readonly defaultValue: number;
+  readonly min: number;
+  readonly max: number;
+  readonly step: number;
+  readonly onChange: (v: number) => void;
+  readonly rationale: string;
+}
+
+function WeightRow({
+  label,
+  value,
+  defaultValue,
+  min,
+  max,
+  step,
+  onChange,
+  rationale,
+}: WeightRowProps): JSX.Element {
+  const isCustom = value !== defaultValue;
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-ink-dim flex-1">{label}</span>
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="w-32 accent-gold"
+          aria-label={label}
+        />
+        <input
+          type="number"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            if (Number.isFinite(n)) onChange(n);
+          }}
+          className={
+            "w-16 px-1.5 py-0.5 border rounded font-mono text-[11px] " +
+            (isCustom ? "border-gold bg-gold/10" : "border-line")
+          }
+        />
+        {isCustom && (
+          <span className="text-[10px] text-gold font-mono" title={`Default: ${defaultValue}`}>
+            edited
+          </span>
+        )}
+      </div>
+      <details className="ml-1">
+        <summary className="cursor-pointer text-[10px] text-ink-fade hover:text-ink select-none">
+          Why this weight?
+        </summary>
+        <p className="text-[11px] text-ink-dim mt-1 leading-snug pl-3 border-l-2 border-line-2">
+          {rationale}
+        </p>
+      </details>
+    </div>
   );
 }
 

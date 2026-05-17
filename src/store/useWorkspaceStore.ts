@@ -65,6 +65,10 @@ export interface WorkspaceStoreActions {
   ) => void;
   readonly addCustomBlock: (block: CustomBlock) => void;
   readonly removeCustomBlock: (customBlockId: string) => void;
+  readonly updateCustomBlock: (
+    customBlockId: string,
+    patch: Partial<Omit<CustomBlock, "id">>
+  ) => void;
   // Placement (operates on the active subject)
   readonly placeBlock: (
     source: PlacedBlockSource,
@@ -221,6 +225,26 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set) => ({
       const updated: Subject = {
         ...subject,
         customBlocks: [...subject.customBlocks, block],
+      };
+      return {
+        workspace: replaceSubject(state.workspace, id, updated),
+        dirty: true,
+      };
+    }),
+
+  updateCustomBlock: (customBlockId, patch) =>
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      const existing = subject.customBlocks.find((c) => c.id === customBlockId);
+      if (!existing) return {};
+      const updated: Subject = {
+        ...subject,
+        customBlocks: subject.customBlocks.map((c) =>
+          c.id === customBlockId ? { ...c, ...patch, id: c.id } : c
+        ),
       };
       return {
         workspace: replaceSubject(state.workspace, id, updated),

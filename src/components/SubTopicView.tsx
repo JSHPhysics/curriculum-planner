@@ -45,6 +45,7 @@ export function SubTopicView({ subject }: SubTopicViewProps): JSX.Element {
   const recombineBlock = useWorkspaceStore((s) => s.recombineBlock);
   const editBlockLessons = useWorkspaceStore((s) => s.editBlockLessons);
   const addCustomBlock = useWorkspaceStore((s) => s.addCustomBlock);
+  const updateCustomBlock = useWorkspaceStore((s) => s.updateCustomBlock);
 
   const [activeDrag, setActiveDrag] = useState<DragPayload | null>(null);
   const [openModal, setOpenModal] = useState<
@@ -116,6 +117,7 @@ export function SubTopicView({ subject }: SubTopicViewProps): JSX.Element {
           onSplit={(at) => splitBlock(openModal.placedBlockId, at)}
           onRecombine={() => recombineBlock(openModal.placedBlockId)}
           onRemove={() => removeBlock(openModal.placedBlockId)}
+          onUpdateRevisits={(cbId, revisits) => updateCustomBlock(cbId, { revisits })}
         />
       )}
       {openModal?.kind === "custom" && (
