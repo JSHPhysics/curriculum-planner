@@ -91,7 +91,7 @@ describe("Cover sheet", () => {
     expect(find("Subject name")?.[1]).toBe("GCSE Physics 1PH0");
     expect(find("Source spec file")?.[1]).toBe("example_physics_spec.xlsx");
     expect(find("Exported")?.[1]).toBe("2026-05-15T10:00:00.000Z");
-    expect(find("Total spec lessons")?.[1]).toBe(25);
+    expect(find("Total spec lessons")?.[1]).toBe(66);
     expect(find("Lessons placed")?.[1]).toBe(9);
   });
 
@@ -115,9 +115,10 @@ describe("computeCoverageStats", () => {
   it("computes coverage % as placed / total, rounded to 1 decimal place", () => {
     const subj = placeSomeBlocks(loadExample());
     const stats = computeCoverageStats(subj);
-    expect(stats.totalSpecLessons).toBe(25);
+    expect(stats.totalSpecLessons).toBe(66);
     expect(stats.placedLessons).toBe(9);
-    expect(stats.coveragePercent).toBe(36);
+    // 9 / 66 ≈ 13.636… → 13.6 (1 dp). Was 36 (= 9/25) before the demo spec expanded.
+    expect(stats.coveragePercent).toBe(13.6);
   });
 
   it("returns 0% when there are no spec lessons", () => {

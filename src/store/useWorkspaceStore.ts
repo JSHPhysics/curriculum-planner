@@ -10,6 +10,7 @@ import {
   removeBlock as plRemoveBlock,
   splitBlock as plSplitBlock,
 } from "@/model/placement";
+import { applyPreset, type PresetId } from "@/model/presets";
 import { findObjectiveLocation } from "@/model/objectives";
 import { getPlacedBlockIdsForTopicInCell } from "@/model/topics";
 import {
@@ -183,6 +184,15 @@ export interface WorkspaceStoreActions {
     subjectId: string,
     keyStage: import("@/model/types").KeyStage | null
   ) => void;
+  /**
+   * Apply a preset layout to the active subject. Wipes existing sub-topic
+   * placements (EoHTs and custom blocks are preserved) and rebuilds the
+   * timeline from the preset algorithm. The UI is expected to confirm
+   * with the user BEFORE invoking this — there is no built-in undo for
+   * the wipe (save the workspace first if you want a checkpoint).
+   * No-op when no subject is active.
+   */
+  readonly applyPresetLayout: (presetId: PresetId) => void;
 }
 
 export type WorkspaceStore = WorkspaceStoreState & WorkspaceStoreActions;
@@ -647,6 +657,20 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set) => ({
       const updated: Subject = { ...subject, meta: nextMeta };
       return {
         workspace: replaceSubject(state.workspace, subjectId, updated),
+        dirty: true,
+      };
+    }),
+
+  applyPresetLayout: (presetId) =>
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      const nextTimeline = applyPreset(subject, presetId);
+      const updated: Subject = { ...subject, timeline: nextTimeline };
+      return {
+        workspace: replaceSubject(state.workspace, id, updated),
         dirty: true,
       };
     }),

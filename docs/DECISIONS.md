@@ -1408,3 +1408,67 @@ Two related concerns:
 - `src/components/RetrievalSuggestionPopover.tsx` ("Include cross-KS revisits" checkbox)
 - `src/components/SubjectTabs.tsx` (inline KS radio-button row)
 - [DEC-036](#dec-036) (parent: KS classification + hideable years), [DEC-031](#dec-031) (retrieval engine), [DEC-033](#dec-033) (spacing thresholds)
+
+## DEC-038 — Preset layouts: three deterministic placement algorithms with replace-and-rebuild semantics
+**Date:** 2026-05-17
+**Session:** 22
+**Status:** Accepted
+
+### Context
+A planner that starts every subject empty pushes the teacher into a sea of drag-and-drop choices with no anchor. The "right" first plan depends on pedagogy — spacing (Bjork), interleaving (Rohrer), or coverage-first frontloading — but the user shouldn't have to know the literature to get a starting point. We want to ship three opinionated layout algorithms that turn an imported spec into a complete, deterministic plan in one click, then let the user drag-and-drop to refine.
+
+Constraints:
+1. **Subject-agnostic.** The algorithms use only structural data: spec-row order, depth flags, lesson counts. No LLM, no learned weights, no per-subject heuristics.
+2. **Deterministic.** Same input → same output every time. Tests assert this.
+3. **Bounded scope.** Each algorithm is ~50 LOC, all weights in one file, tunable in one place. Pedagogical opinions should be readable from the code.
+
+### Decision
+Three presets ship under `src/model/presets.ts`:
+
+1. **`three-spiral`** — each foundation sub-topic placed THREE times across thirds of the timeline. Depth sub-topics (when `includeDepth` is on) placed twice (passes 2 and 3 only). Per-pass lesson counts split N as `(ceil, mid, floor)` — first pass slightly larger when N isn't divisible by 3. Strong spacing; weakest depth-per-pass.
+2. **`frontloaded`** — single linear pass. Foundation sub-topics in source order across the front of the timeline; depth sub-topics across the back third. Maximises depth-per-treatment; weakest spacing.
+3. **`interleaved`** — single linear pass via round-robin across topics: T1.a, T2.a, T3.a, …, T1.b, T2.b, … Neighbouring placements come from different topics whenever possible. Strong topic-contrast; same coverage as frontloaded with different ordering.
+
+**Replace-and-rebuild semantics.** `applyPreset(subject, presetId)` returns a fresh Timeline: existing sub-topic placements are dropped, EoHT blocks and custom blocks are preserved at their current locations. The UI confirms before invoking, exposing the existing-placement count so the user can't accidentally wipe hand-tuned work. Per user choice: "Replace (with confirm)" over "Apply only if empty" or "Merge into empty cells only" — simpler mental model, easier-to-explain semantics, easy to revert via save-restore.
+
+**Algorithm-level honoured config:**
+- `subject.config.includeDepth` — when false, depth sub-topics are skipped entirely regardless of preset.
+- `subject.config.hiddenYears` — hidden years receive no placements; the visible-cell list is computed once at the top of `applyPreset` and threaded through.
+- `subject.config.autoSpillover` — implicitly honoured because the algorithms use `placeBlockWithSpillover` for all placements.
+
+**A `summarisePreset(subject, presetId)` preview helper** is exposed alongside `applyPreset`, used by `PresetPickerModal` to show placement count / total lessons / depth-skipped warnings before commit. This lets the teacher compare the three options without applying-then-undoing.
+
+**Demo spec expansion (companion change).** The bundled `example_physics_spec.xlsx` was 25 lessons across 5 topics — enough to test import paths but not to make the preset layouts visually distinct. Expanded to 66 lessons across all 15 Edexcel 1PH0 topics and 33 sub-topics. A new `scripts/build-example-spec.mjs` (Node, uses xlsx) replaces the Python `build_example.py` as the cross-platform source-of-truth; wired into `npm run build:example-spec`. Output committed to both `examples/` (reference) and `public/` (fetched by `EmptyWorkspace`).
+
+### Alternatives considered
+
+- **"Apply only if empty"** semantics. Safer (no overwrite) but adds a frustrating "you need to Restore first" step every time the user wants to compare two presets. Rejected.
+
+- **"Merge into empty cells only"**. Most flexible but the resulting layout depends on what's already there — the same preset on two subjects looks different, defeating the "opinionated starting point" intent. Rejected.
+
+- **One preset that the user tunes** (e.g. a single algorithm with sliders for spacing intensity / depth distribution). More elegant in theory; in practice teachers don't have time to learn the parameter space. Three discrete options with one-line descriptions ship the pedagogy more honestly.
+
+- **A "blank canvas" preset** that just places one block per cell. Considered as a starter for users who want to plan manually but still want a "fill the cells" affordance. Decided against — the empty timeline + drag-from-pool flow already covers this case.
+
+- **Configurable round-robin width for interleaved** (mix 2-at-a-time vs 3-at-a-time vs every topic). Adds a parameter for a barely-perceptible change to most users. Rejected; v1 is "every topic, every round."
+
+### Known sharp edges (documented in code)
+- **Spillover into hidden years.** `placeBlockWithSpillover` advances through the underlying timeline.halfTerms — if a visible cell overflows AND the very next physical cell is hidden, spillover dumps lessons into the hidden cell. In practice hidden years are usually contiguous at the start/end so this is rare; the user sees it immediately if it happens. Fix would require teaching the placement engine about hidden years; deferred until somebody hits it.
+- **Pass count = 3 hard-coded** in `three-spiral`. Tuning to 2-pass or 4-pass would be a single-line change but no UX surface exposes it. Could add a "spiral depth" slider later if requested.
+- **Depth sub-topics in `three-spiral`** appear in passes 2+3 only. The choice (vs all-three-passes) is a pedagogical bet: build the foundation before stretching into depth. Adjustable in the code if real-world use suggests otherwise.
+
+### Consequences
+- New users can go from "import spec" to "complete-looking plan" in two clicks (load example → apply preset). The teacher sees what a spiral plan vs frontloaded plan vs interleaved plan actually looks like in their own context.
+- The expanded demo spec gives presets enough material to be visually distinct: ~99 placements for three-spiral, ~33 for frontloaded/interleaved on the demo. Without this, presets looked indistinguishable on the 25-lesson v1 demo.
+- The Spacing Panel and retrieval-suggestion popover now have meaningful signal on the example: a freshly three-spiraled physics spec triggers the well-spaced flag for ~half of sub-topics, frontloaded flags many as single-touch.
+- StatusBar now carries an extra button ("📐 Preset layout…"). Considered crowded — happy to move it elsewhere if it competes with the toggles.
+
+### Related
+- `SPEC.md` §1.1 (in-scope — preset layouts now an explicit feature)
+- `docs/PEDAGOGY.md` (will gain §7 explaining when each preset is the right starting point at next polish)
+- `src/model/presets.ts` (the three algorithms + descriptors + summarise helper)
+- `src/components/PresetPickerModal.tsx` (radio-style picker with per-preset preview)
+- `src/components/StatusBar.tsx` ("📐 Preset layout…" trigger)
+- `src/store/useWorkspaceStore.ts` (`applyPresetLayout` action)
+- `scripts/build-example-spec.mjs` (cross-platform demo-spec generator; replaces `examples/build_example.py`)
+- [DEC-031](#dec-031) (retrieval engine — shares the "deterministic, no AI" philosophy), [DEC-033](#dec-033) (spacing thresholds — same "weights in one file" pattern)

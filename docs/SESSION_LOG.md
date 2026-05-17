@@ -1496,3 +1496,93 @@ Direct response to the three open questions raised at the bottom of the Session 
 - PEDAGOGY.md §6 (KS scoping rationale): deferred — write it after living with the UI for a session or two?
 - Cross-KS retrieval: are there subjects where Y8 → Y10 revisits are genuinely useful (cumulative concepts like number sense, scientific method)? If so, we might want a per-subject "default to cross-KS" preference instead of always defaulting to restricted.
 - DECISIONS.md is starting to feel like a substantial doc — should we add a short index/TOC at the top, or trust the file's own search affordances?
+
+---
+
+## Session 22 (Part B) — Preset layouts + demo spec expansion
+**Date:** 2026-05-17
+**Status:** Complete
+**Commit:** *(pending — see git log)*
+
+This is the "originally planned Session 22" follow-up after the Session 21 polish that landed earlier today (KS-scoped analytics). The user picked the sequence 20→21→22→23→24→25; this session ships the preset-layouts piece plus a fuller demo spec to make the presets visibly distinct.
+
+### What was built
+
+**Demo spec expansion:**
+- `examples/example_physics_spec.xlsx` and `public/example_physics_spec.xlsx` regenerated: 25 lessons → 66 lessons, 5 topics → 15 topics, 13 sub-topics → 33 sub-topics. Covers all Edexcel 1PH0 topics (T1–T15) including the previously absent T5 (light/EM), T7 (astronomy), T8 (work/power), T9 (forces/effects), T10 (electricity), T11 (static), T12–T13 (magnetism/induction), T14 (particle model), T15 (forces/matter).
+- New `scripts/build-example-spec.mjs` (Node ESM, uses xlsx) replaces the legacy `examples/build_example.py` as the cross-platform source-of-truth. Wired into `npm run build:example-spec`. Old Python script kept on disk as historical reference but no longer the canonical generator.
+- Existing tests updated to match the new counts (import.test.ts expects 15 topics / 33 sub-topics / 66 lessons; export.test.ts expects 66 total spec lessons + 13.6% coverage).
+
+**Preset engine — `src/model/presets.ts` (~370 LOC):**
+- `PRESET_DESCRIPTORS` — three preset descriptors with id / name / subtitle / description / "best for" copy.
+- `PresetId = "three-spiral" | "frontloaded" | "interleaved"`
+- `applyPreset(subject, presetId, options?): Timeline` — pure function. Clears sub-topic placements (preserves EoHTs + customs), builds a per-preset placement plan, executes it via `placeBlockWithSpillover`. Honours `config.includeDepth` (depth sub-topics dropped when off) and `config.hiddenYears` (no placements into hidden years).
+- Algorithms:
+  - **three-spiral**: per-sub-topic split into 3 passes (`ceil, mid, floor`); foundation gets all 3 passes, depth gets passes 2+3 only; each pass anchored to a different third of the timeline.
+  - **frontloaded**: each sub-topic placed once; foundation first in source order, then depth across the back third.
+  - **interleaved**: each sub-topic placed once via round-robin across topics (T1.a, T2.a, T3.a, …, T1.b, T2.b, …).
+- `summarisePreset(subject, presetId)` — preview helper returning placement count / total lessons / depth-skipped codes; used by the modal to render a "what would this do?" preview.
+
+**Store action — `useWorkspaceStore.applyPresetLayout(presetId)`:**
+- Dispatches `applyPreset` against the active subject; sets dirty.
+- No-op when no subject is active. UI is responsible for confirming with the user before invoking (no built-in undo).
+
+**UI — `PresetPickerModal` + StatusBar trigger:**
+- `📐 Preset layout…` button in StatusBar (between subject pills and config toggles, separated by a divider).
+- `PresetPickerModal` opens centred over the workspace. Radio-style list of three presets with name / subtitle / description / "best for" / live summary (`N placements · M lessons total · K sub-topics · depth-skipped`).
+- Modal warns when existing placements will be wiped (orange-text count in the header).
+- Confirm button label dynamically shows the chosen preset name. Cancel + click-outside dismiss.
+
+**Tests added (+39 unit, +3 E2E):**
+- `tests/model/presets.test.ts`:
+  - `PRESET_DESCRIPTORS` shape (3 presets in canonical order; lookup; unknown id throws)
+  - Per-preset invariants (×3 presets × 7 invariants = 21 tests): never touches EoHTs, clears existing sub-topic placements, preserves customs, honours `includeDepth=false`, honours `hiddenYears`, deterministic with fixed idGen, no-op on empty spec
+  - Per-preset structural assertions (4 spiral, 4 frontloaded, 4 interleaved): exact pass counts, lesson totals, calendar-order ordering, depth-placement constraints
+  - `summarisePreset` — placement/lesson counts; depth-skipped reporting
+- `tests/e2e/preset-layouts.spec.ts`:
+  - Picker opens / lists three options / Cancel discards
+  - Apply spiral → placement count jumps from 0 to >30
+  - Switch + re-apply replaces previous layout (spiral count > frontloaded count, consistent with the algorithms' expected output)
+- Pre-existing tests had to update fixture counts: `import.test.ts` (5→15 topics, 13→33 sub-topics, 25→66 lessons); `export.test.ts` (totalSpecLessons 25→66, coverage 36%→13.6%).
+
+### Exit criteria check
+- [x] Three preset algorithms shipping — all pure, deterministic, subject-agnostic, no AI
+- [x] StatusBar button + modal with per-preset preview
+- [x] "Replace with confirm" semantics — wiped-count shown in header
+- [x] Demo spec expanded to all 15 Edexcel topics (representative ~75 lessons; landed at 66)
+- [x] Cross-platform Node-based regenerator script
+- [x] `npm run typecheck` clean (renderer + electron)
+- [x] `npm test` — 299/299 (was 260/260; +39 new)
+- [x] `npm run test:e2e` — 26/26 (was 23/23; +3 new)
+- [x] `npm run build:renderer` clean
+- [x] DEC-038 with full rationale + alternatives + known sharp edges
+
+### Deviations from the plan
+- **Demo spec landed at 66 lessons not 75.** Hit "complete topic coverage" target before "exactly 75". Topic weights reflect realistic curriculum proportions (T2 mechanics gets 9; T11 static electricity gets 2). The difference vs the user's "~75" estimate is well within the noise of subjective sizing.
+- **No SPEC.md edits.** Presets are an in-scope feature, but the SPEC's §1.1 is high-level enough that "Preset layouts (3 deterministic algorithms)" would fit under "Drag-and-drop placement" without contradiction. Captured in DEC-038 only; will fold into SPEC.md at next consolidation pass.
+- **`examples/build_example.py` left on disk but no longer canonical.** Considered deleting it but it has historical context (the original Python author's column-width math, sheet styling notes) that the Node script doesn't preserve. Kept as reference; `scripts/build-example-spec.mjs` is the new generator.
+
+### Decisions logged
+- [DEC-038](DECISIONS.md#dec-038) — Preset layouts: three deterministic placement algorithms with replace-and-rebuild semantics
+
+### Surprises and gotchas
+- **`countSubTopicPlacements` E2E helper miscounted EoHTs.** First version of the test counted every `.touch-none` draggable in cells — but EoHTs share that class with sub-topic blocks (17 EoHT placements pre-seeded by `createEoHTBlocks`). Fix: filter out blocks containing `.border-dashed` (the EoHT styling discriminator from `Block.tsx`). A more robust path would be a dedicated `data-testid="placed-block-{kind}"` attribute on the Block component — flagged for a future polish pass.
+- **Tests had to update counts in TWO unrelated files** after the demo spec expanded — import.test.ts and export.test.ts. Both held hand-coded expected totals (25 lessons, 36% coverage). Not a problem in itself, just a reminder that "the demo fixture is load-bearing" — anything that asserts against its content needs updating in lockstep.
+- **`exactOptionalPropertyTypes` rejected `idGen?` in a single-line spread.** Same pattern as Sessions 19-22A — when forwarding optional options through, the options object must be built without the field when it's absent, not spread-with-undefined. Already accounted for in the `placeBlockWithSpillover` signature; just had to remember to thread the type through.
+- **The plan summary was strict about `ceil/mid/floor` lesson-count splitting** for three-spiral. Initial attempt was `(floor, floor, floor + rem)` which led to depth sub-topics getting 0 lessons in pass 2 (because `floor(2/3) = 0`). Refactored to `(ceil, mid, floor)` so pass 1 always gets ≥ 1 lesson; for depth content (which only emits passes 2+3) I do `ceil(N/2) + floor(N/2)` so passes 2 and 3 split the depth content roughly evenly.
+- **PresetPickerModal layout is dense with three presets each carrying ~5 lines of text.** Modal width set to 640px to make it readable; on a 1280px screen it's fine. If a future preset (e.g. "interleaved-light" or user-defined custom) is added, the modal may need to switch to a 2-column grid or a master/detail pane.
+
+### What's usable now
+1. Open the workspace, load the bundled example → 66 lessons across 15 topics imported
+2. Click `📐 Preset layout…` in the StatusBar → modal opens with three layout options
+3. Pick **Three-spiral** → every sub-topic placed three times across thirds of the timeline (foundation + depth + revisits); ~99 placements
+4. Switch to **Frontloaded** → foundation in front 2/3, depth in back 1/3, single pass
+5. Switch to **Interleaved** → single pass round-robin: T1.a, T2.a, T3.a, … then T1.b, T2.b, T3.b, …
+6. Re-open the modal at any time — header shows existing-placement count in warn-orange so you know what's being wiped
+7. The Spacing Panel + retrieval popover now have meaningful signal on the example: spiraling triggers well-spaced on ~half the sub-topics; frontloaded flags many as single-touch
+
+### Open questions for the user
+- The `📐 Preset layout…` button lives in the StatusBar between subject pills and config toggles. Considered putting it in the Header (near Export) but StatusBar felt right because it's a subject-level action. Move it if you prefer.
+- Three-spiral defaults to passes 2+3 for depth content. A pure pedagogical case can be made for passes 1+2+3 (depth gets the same spacing as foundation) or pass 3 only (depth is "stretch" content, only when foundation is firmly in). Easy to flip; flag if you have a preference after using it.
+- The Python `build_example.py` script is still on disk. Delete it now that the Node script is canonical, or leave it as a reference for the original sheet-styling choices?
+- Next per the original roadmap: **Session 23** — folder + weekly-Excel export (two separate exports: timeline-organized and topic-organized). The new 66-lesson demo will give it more meaningful content to export.

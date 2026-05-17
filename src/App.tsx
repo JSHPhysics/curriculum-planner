@@ -5,6 +5,7 @@ import { CalendarSettingsModal } from "@/components/CalendarSettingsModal";
 import { Header } from "@/components/Header";
 import { LessonView } from "@/components/LessonView";
 import { ObjectiveView } from "@/components/ObjectiveView";
+import { PresetPickerModal } from "@/components/PresetPickerModal";
 import { RestoreToImportModal } from "@/components/RestoreToImportModal";
 import { SpacingPanel } from "@/components/SpacingPanel";
 import { StatusBar } from "@/components/StatusBar";
@@ -55,6 +56,7 @@ export function App(): JSX.Element {
     (s) => s.reapplyWorkspaceTemplateToAllSubjects
   );
   const setSubjectKeyStage = useWorkspaceStore((s) => s.setSubjectKeyStage);
+  const applyPresetLayout = useWorkspaceStore((s) => s.applyPresetLayout);
   /**
    * Calendar modal target: null = closed; { kind:"workspace" } = editing the
    * workspace template; { kind:"subject", subjectId } = editing one subject's
@@ -65,6 +67,7 @@ export function App(): JSX.Element {
     | { readonly kind: "subject"; readonly subjectId: string }
     | null
   >(null);
+  const [presetPickerOpen, setPresetPickerOpen] = useState(false);
 
   useEffect(() => {
     loadAutosaved();
@@ -232,7 +235,11 @@ export function App(): JSX.Element {
         onEditSubjectCalendar={(id) => setCalendarTarget({ kind: "subject", subjectId: id })}
         onSetSubjectKeyStage={setSubjectKeyStage}
       />
-      <StatusBar subject={activeSubject} onToggleConfig={updateActiveSubjectConfig} />
+      <StatusBar
+        subject={activeSubject}
+        onToggleConfig={updateActiveSubjectConfig}
+        onOpenPresetPicker={() => setPresetPickerOpen(true)}
+      />
       <CalendarOverview subject={activeSubject} />
       <SpacingPanel subject={activeSubject} />
       <main className="flex-1 flex overflow-hidden">
@@ -254,6 +261,16 @@ export function App(): JSX.Element {
           orphans={restorePending.orphans}
           onCancel={() => setRestorePending(null)}
           onConfirm={confirmRestore}
+        />
+      )}
+      {presetPickerOpen && activeSubject && (
+        <PresetPickerModal
+          subject={activeSubject}
+          onCancel={() => setPresetPickerOpen(false)}
+          onConfirm={(presetId) => {
+            applyPresetLayout(presetId);
+            setPresetPickerOpen(false);
+          }}
         />
       )}
       {calendarTarget && (() => {

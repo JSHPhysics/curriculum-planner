@@ -65,23 +65,26 @@ describe("importSpec — happy path against example_physics_spec.xlsx", () => {
     expect(result.subject.meta.sourceFilename).toBe("example_physics_spec.xlsx");
   });
 
-  it("counts 5 topics, 13 sub-topics, 25 lessons", () => {
+  it("counts 15 topics, 33 sub-topics, 66 lessons", () => {
     if (!result.ok) throw new Error("import failed");
     const spec = result.subject.importedSpec;
-    expect(spec.topics).toHaveLength(5);
+    expect(spec.topics).toHaveLength(15);
     const subCount = spec.topics.reduce((s, t) => s + t.subTopics.length, 0);
-    expect(subCount).toBe(13);
+    expect(subCount).toBe(33);
     const lessonCount = spec.topics.reduce(
       (s, t) => s + t.subTopics.reduce((ss, st) => ss + st.lessons.length, 0),
       0
     );
-    expect(lessonCount).toBe(25);
+    expect(lessonCount).toBe(66);
   });
 
-  it("assigns topic codes T1..T5 in import order", () => {
+  it("assigns topic codes T1..T15 in import order", () => {
     if (!result.ok) throw new Error("import failed");
     const codes = result.subject.importedSpec.topics.map((t) => t.code);
-    expect(codes).toEqual(["T1", "T2", "T3", "T4", "T5"]);
+    expect(codes).toEqual([
+      "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8",
+      "T9", "T10", "T11", "T12", "T13", "T14", "T15",
+    ]);
   });
 
   it("assigns sub-topic codes T2a..T2d in import order within Motion and forces", () => {

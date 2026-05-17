@@ -5,9 +5,14 @@ import type { Subject, SubjectConfig } from "@/model/types";
 export interface StatusBarProps {
   readonly subject: Subject | null;
   readonly onToggleConfig: (partial: Partial<SubjectConfig>) => void;
+  readonly onOpenPresetPicker: () => void;
 }
 
-export function StatusBar({ subject, onToggleConfig }: StatusBarProps): JSX.Element {
+export function StatusBar({
+  subject,
+  onToggleConfig,
+  onOpenPresetPicker,
+}: StatusBarProps): JSX.Element {
   if (!subject) {
     return (
       <div className="px-6 py-2 text-xs text-ink-fade border-b border-line bg-surface-2">
@@ -50,6 +55,15 @@ export function StatusBar({ subject, onToggleConfig }: StatusBarProps): JSX.Elem
       </div>
 
       <div className="ml-auto flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onOpenPresetPicker}
+          title="Apply a preset layout (spiral / frontloaded / interleaved) to this subject"
+          className="px-2 py-1 text-ink-dim hover:text-ink hover:bg-surface rounded border border-line transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy text-[11px] font-medium"
+        >
+          📐 Preset layout…
+        </button>
+        <span className="text-line">|</span>
         <ConfigToggle
           label="Show depth"
           title="Include the ★ depth-extension lessons in placement counts"
