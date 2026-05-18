@@ -20,6 +20,7 @@ export interface HeaderProps {
   readonly onSaveAs: () => void;
   readonly onExport: () => void;
   readonly onOpenCalendarSettings: () => void;
+  readonly onOpenImportGuide: () => void;
   readonly onEditSubjectCalendar: (id: string) => void;
   readonly onSetSubjectKeyStage: (id: string, keyStage: KeyStage | null) => void;
 }
@@ -42,6 +43,7 @@ export function Header(props: HeaderProps): JSX.Element {
     onSaveAs,
     onExport,
     onOpenCalendarSettings,
+    onOpenImportGuide,
     onEditSubjectCalendar,
     onSetSubjectKeyStage,
   } = props;
@@ -79,6 +81,15 @@ export function Header(props: HeaderProps): JSX.Element {
       </div>
 
       <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={onOpenImportGuide}
+          aria-label="How to prepare your import file"
+          title="How to prepare your import file"
+          className="w-7 h-7 flex items-center justify-center text-sm text-ink-dim hover:text-ink hover:bg-surface-2 rounded transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
+        >
+          ?
+        </button>
         <button
           type="button"
           onClick={onOpenCalendarSettings}

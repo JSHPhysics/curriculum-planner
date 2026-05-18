@@ -25,11 +25,16 @@ const SESSIONS: Record<ViewType, string> = {
 export interface ViewPlaceholderProps {
   readonly view: ViewType;
   readonly hasSubject: boolean;
+  readonly onOpenImportGuide: () => void;
 }
 
-export function ViewPlaceholder({ view, hasSubject }: ViewPlaceholderProps): JSX.Element {
+export function ViewPlaceholder({
+  view,
+  hasSubject,
+  onOpenImportGuide,
+}: ViewPlaceholderProps): JSX.Element {
   if (!hasSubject) {
-    return <EmptyWorkspace />;
+    return <EmptyWorkspace onOpenImportGuide={onOpenImportGuide} />;
   }
   return (
     <div className="flex-1 flex items-center justify-center text-center">
@@ -43,7 +48,11 @@ export function ViewPlaceholder({ view, hasSubject }: ViewPlaceholderProps): JSX
   );
 }
 
-function EmptyWorkspace(): JSX.Element {
+interface EmptyWorkspaceProps {
+  readonly onOpenImportGuide: () => void;
+}
+
+function EmptyWorkspace({ onOpenImportGuide }: EmptyWorkspaceProps): JSX.Element {
   const addSubject = useWorkspaceStore((s) => s.addSubject);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -150,10 +159,16 @@ function EmptyWorkspace(): JSX.Element {
         <h2 className="font-display text-2xl text-navy mb-2">
           Import a specification to begin
         </h2>
-        <p className="text-ink-dim text-sm mb-6">
+        <p className="text-ink-dim text-sm mb-2">
           Pick an `.xlsx` file matching the import format, download a template to
           start from scratch, or load the bundled example to explore the prototype.
         </p>
+        <button
+          onClick={onOpenImportGuide}
+          className="text-xs text-navy underline-offset-2 hover:underline mb-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy rounded"
+        >
+          How to prepare your import file →
+        </button>
         <div className="flex flex-col items-center gap-3">
           {inElectron && (
             <button

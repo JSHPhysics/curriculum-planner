@@ -4,6 +4,7 @@ import { CalendarOverview } from "@/components/CalendarOverview";
 import { CalendarSettingsModal } from "@/components/CalendarSettingsModal";
 import { ExportModal, type ExportMode, type ExportOutput } from "@/components/ExportModal";
 import { Header } from "@/components/Header";
+import { ImportGuideModal } from "@/components/ImportGuideModal";
 import { LessonView } from "@/components/LessonView";
 import { ObjectiveView } from "@/components/ObjectiveView";
 import { PresetPickerModal } from "@/components/PresetPickerModal";
@@ -73,6 +74,7 @@ export function App(): JSX.Element {
   >(null);
   const [presetPickerOpen, setPresetPickerOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [importGuideOpen, setImportGuideOpen] = useState(false);
   const [legacyMigrationPending, setLegacyMigrationPending] = useState<
     { readonly json: string; readonly path: string } | null
   >(null);
@@ -324,6 +326,7 @@ export function App(): JSX.Element {
         onSaveAs={() => void handleSaveAs()}
         onExport={handleExport}
         onOpenCalendarSettings={() => setCalendarTarget({ kind: "workspace" })}
+        onOpenImportGuide={() => setImportGuideOpen(true)}
         onEditSubjectCalendar={(id) => setCalendarTarget({ kind: "subject", subjectId: id })}
         onSetSubjectKeyStage={setSubjectKeyStage}
       />
@@ -344,9 +347,19 @@ export function App(): JSX.Element {
         ) : activeSubject && currentView === "objective" ? (
           <ObjectiveView subject={activeSubject} />
         ) : (
-          <ViewPlaceholder view={currentView} hasSubject={activeSubject !== null} />
+          <ViewPlaceholder
+            view={currentView}
+            hasSubject={activeSubject !== null}
+            onOpenImportGuide={() => setImportGuideOpen(true)}
+          />
         )}
       </main>
+      {importGuideOpen && (
+        <ImportGuideModal
+          onClose={() => setImportGuideOpen(false)}
+          inElectron={typeof window !== "undefined" && typeof window.api !== "undefined"}
+        />
+      )}
       {restorePending && (
         <RestoreToImportModal
           subject={restorePending.subject}
