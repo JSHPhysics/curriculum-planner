@@ -124,7 +124,7 @@ describe("placement actions delegate to the active subject's timeline", () => {
     expect(t2aPieces.every((p) => p.splitType === "auto")).toBe(true);
   });
 
-  it("split + recombine round-trip removes the pieces", () => {
+  it("split-in-same-cell + recombine wipes the (merged) placement (DEC-046)", () => {
     const store = useWorkspaceStore.getState();
     store.addSubject(loadExampleSubject("subj-1"));
     store.placeBlock({ kind: "sub-topic", subTopicCode: "T2a" }, "Y9-S1", 6);
@@ -133,8 +133,9 @@ describe("placement actions delegate to the active subject's timeline", () => {
     store.splitBlock(piece.id, 2);
     let s = useWorkspaceStore.getState().workspace.subjects[0]!;
     let placed = s.timeline.halfTerms.find((h) => h.id === "Y9-S1")?.placedBlocks.filter((p) => p.source.kind === "sub-topic") ?? [];
-    expect(placed).toHaveLength(2);
-    // Use the first piece's id to find splitFrom and recombine
+    // After DEC-046 the split immediately consolidates back to one block in
+    // the same cell. splitFrom is preserved on the merged block.
+    expect(placed).toHaveLength(1);
     store.recombineBlock(placed[0]!.id);
     s = useWorkspaceStore.getState().workspace.subjects[0]!;
     placed = s.timeline.halfTerms.find((h) => h.id === "Y9-S1")?.placedBlocks.filter((p) => p.source.kind === "sub-topic") ?? [];

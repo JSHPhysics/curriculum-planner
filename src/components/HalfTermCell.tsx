@@ -117,7 +117,12 @@ function PlacedBlockCard({
         lessons={placed.lessonsClaimed}
         colour={display.colour}
         variant={display.variant}
-        splitBadge={placed.splitType}
+        // DEC-046: the "auto"/"manual" split badge is suppressed at the
+        // sub-topic level. After consolidation, each cell holds at most one
+        // block per sub-topic, so the badge stops being informative — the
+        // numbered name suffix ("Forces and motion 2") already tells the
+        // reader "this is the second cell with this sub-topic in it."
+        splitBadge={null}
         dragging={isDragging}
         onClick={onClick}
       />
@@ -136,9 +141,18 @@ function describePlacement(placed: PlacedBlock, subject: Subject) {
         variant: "placed" as const,
       };
     }
+    const baseName = placed.userEdits.title ?? found.subTopic.name;
+    // DEC-046: when a sub-topic appears in multiple cells, suffix every cell
+    // after the first with its 1-based occurrence index ("Forces and motion",
+    // "Forces and motion 2", "Forces and motion 3" …). User edits override
+    // suffixing — if the planner has typed a custom title, respect it.
+    const name =
+      placed.userEdits.title !== undefined
+        ? baseName
+        : decorateWithOccurrence(baseName, placed, subject);
     return {
       code: found.subTopic.code,
-      name: placed.userEdits.title ?? found.subTopic.name,
+      name,
       colour: getTopicColour(subject.workingSpec, found.topic.code),
       variant: "placed" as const,
     };
@@ -175,6 +189,35 @@ function describePlacement(placed: PlacedBlock, subject: Subject) {
     colour: "#8A8478",
     variant: "eoht" as const,
   };
+}
+
+/**
+ * Suffix a sub-topic name with " 2", " 3", … when this placement is not the
+ * first occurrence of the sub-topic across the timeline. Returns the base
+ * name unchanged for the first (or only) occurrence.
+ *
+ * Order is by half-term position then by index within the cell. Same-cell
+ * blocks of the same sub-topic shouldn't co-exist after DEC-046 consolidation
+ * but we walk defensively in case a legacy timeline slips through unrenormed.
+ */
+function decorateWithOccurrence(
+  baseName: string,
+  placed: PlacedBlock,
+  subject: Subject
+): string {
+  if (placed.source.kind !== "sub-topic") return baseName;
+  const code = placed.source.subTopicCode;
+  let occurrence = 0;
+  let total = 0;
+  for (const ht of subject.timeline.halfTerms) {
+    for (const b of ht.placedBlocks) {
+      if (b.source.kind !== "sub-topic" || b.source.subTopicCode !== code) continue;
+      total++;
+      if (b.id === placed.id) occurrence = total;
+    }
+  }
+  if (total <= 1 || occurrence <= 1) return baseName;
+  return `${baseName} ${occurrence}`;
 }
 
 const BLOCK_CODE_FOR_CATEGORY: Record<string, string> = {

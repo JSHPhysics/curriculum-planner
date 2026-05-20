@@ -1,3 +1,4 @@
+import { consolidateTimeline } from "./placement";
 import { applyCalendarTemplate } from "./timeline";
 import type {
   CalendarTemplate,
@@ -457,5 +458,13 @@ export function deserializeWorkspace(json: string): Workspace {
   if (detectLegacyEoHTPlacements(json)) {
     throw new LegacyEoHTFileError();
   }
-  return workspace as Workspace;
+  // DEC-046: silently consolidate adjacent same-source placements on load.
+  // Files saved before this change can contain dozens of split-up adjacent
+  // blocks from drag-by-drag lesson moves; normalising once here makes them
+  // look right immediately rather than requiring a manual cleanup pass.
+  const ws = workspace as Workspace;
+  const normalisedSubjects = ws.subjects.map(
+    (s): Subject => ({ ...s, timeline: consolidateTimeline(s.timeline) })
+  );
+  return { ...ws, subjects: normalisedSubjects };
 }

@@ -127,11 +127,10 @@ function PlacedBlockGroup({
     >
       <div className="flex items-baseline justify-between text-[9px] font-mono uppercase text-ink-fade px-0.5">
         <span>{subTopic.code}</span>
-        {placed.splitType && (
-          <span className="text-gold normal-case">
-            {placed.splitType === "auto" ? "auto" : "split"}
-          </span>
-        )}
+        {/* DEC-046: split badge removed at the cell-group header level too.
+            The numbered name suffix conveys multi-cell placement, and within
+            one cell consolidation guarantees there's only one block per
+            sub-topic, so the badge had no remaining job. */}
       </div>
       {lessons.map((lesson, localIdx) => (
         <LessonCard

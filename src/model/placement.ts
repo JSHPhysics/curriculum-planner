@@ -54,7 +54,7 @@ export function placeBlock(
     splitType: null,
     userEdits: {},
   };
-  return appendToTerm(timeline, termId, block);
+  return consolidate(appendToTerm(timeline, termId, block));
 }
 
 export function placeBlockWithSpillover(
@@ -104,9 +104,11 @@ export function placeBlockWithSpillover(
     cursor += part.lessons;
     pieces.push({ termId: part.termId, block });
   }
-  return pieces.reduce(
-    (tl, p) => appendToTerm(tl, p.termId, p.block),
-    timeline
+  return consolidate(
+    pieces.reduce(
+      (tl, p) => appendToTerm(tl, p.termId, p.block),
+      timeline
+    )
   );
 }
 
@@ -191,7 +193,7 @@ export function splitBlock(
     splitFrom,
     splitType: "manual",
   };
-  return replaceInTerm(timeline, found.termId, placedBlockId, [piece1, piece2]);
+  return consolidate(replaceInTerm(timeline, found.termId, placedBlockId, [piece1, piece2]));
 }
 
 export function recombineBlock(
@@ -210,14 +212,14 @@ export function recombineBlock(
       `recombineBlock: block "${placedBlockId}" has no splitFrom — nothing to recombine`
     );
   }
-  return {
+  return consolidate({
     halfTerms: timeline.halfTerms.map(
       (ht): HalfTerm => ({
         ...ht,
         placedBlocks: ht.placedBlocks.filter((b) => b.splitFrom !== groupKey),
       })
     ),
-  };
+  });
 }
 
 export function removeBlock(
@@ -226,7 +228,7 @@ export function removeBlock(
 ): Timeline {
   const found = findPlacedBlock(timeline, placedBlockId);
   if (!found) return timeline;
-  return {
+  return consolidate({
     halfTerms: timeline.halfTerms.map((ht): HalfTerm => {
       if (ht.id !== found.termId) return ht;
       return {
@@ -234,7 +236,7 @@ export function removeBlock(
         placedBlocks: ht.placedBlocks.filter((b) => b.id !== placedBlockId),
       };
     }),
-  };
+  });
 }
 
 export function moveBlock(
@@ -251,7 +253,7 @@ export function moveBlock(
     throw new Error(`moveBlock: unknown term "${toTermId}"`);
   }
   const removed = removeBlock(timeline, placedBlockId);
-  return appendToTerm(removed, toTermId, found.block);
+  return consolidate(appendToTerm(removed, toTermId, found.block));
 }
 
 /**
@@ -335,7 +337,7 @@ export function extractAndMoveLesson(
 
   let tl = replaceInTerm(timeline, found.termId, placedBlockId, replacement);
   tl = appendToTerm(tl, toTermId, movedPiece);
-  return tl;
+  return consolidate(tl);
 }
 
 export function editBlockLessons(
@@ -363,7 +365,7 @@ export function editBlockLessons(
     lessonRange: [start, start + newLessons],
     splitType: block.splitType === "auto" ? "manual" : block.splitType,
   };
-  return replaceInTerm(timeline, found.termId, placedBlockId, [edited]);
+  return consolidate(replaceInTerm(timeline, found.termId, placedBlockId, [edited]));
 }
 
 function appendToTerm(
@@ -406,4 +408,93 @@ function replaceInTerm(
 
 function defaultIdGen(): string {
   return crypto.randomUUID();
+}
+
+// ============================================================
+// Cell consolidation (DEC-046)
+//
+// Invariant we maintain after every mutation: within a half-term, no two
+// sub-topic placements of the same code with adjacent lessonRanges exist as
+// separate blocks. Lessons of the same sub-topic that end up in one cell are
+// rendered as ONE merged block, regardless of how many drag operations
+// produced them. This eliminates the "every moved lesson is its own split"
+// noise the user reported. The merge is conservative — non-adjacent ranges
+// (gaps in the lesson sequence) stay as separate blocks because merging them
+// would silently include lessons the user didn't place.
+//
+// We don't dedup custom-block placements: two of the same custom block in one
+// cell is unusual but if a user does it on purpose, we leave the data alone.
+// ============================================================
+
+function consolidateCell(ht: HalfTerm): HalfTerm {
+  const merged: PlacedBlock[] = [];
+  for (const block of ht.placedBlocks) {
+    if (block.source.kind !== "sub-topic") {
+      merged.push(block);
+      continue;
+    }
+    const code = block.source.subTopicCode;
+    const matchIdx = merged.findIndex((b) => {
+      if (b.source.kind !== "sub-topic" || b.source.subTopicCode !== code) {
+        return false;
+      }
+      // Adjacent only — either block sits immediately before or after `b`.
+      const [aStart, aEnd] = b.lessonRange;
+      const [nStart, nEnd] = block.lessonRange;
+      return aEnd === nStart || aStart === nEnd;
+    });
+    if (matchIdx < 0) {
+      merged.push(block);
+      continue;
+    }
+    const existing = merged[matchIdx]!;
+    const newStart = Math.min(existing.lessonRange[0], block.lessonRange[0]);
+    const newEnd = Math.max(existing.lessonRange[1], block.lessonRange[1]);
+    merged[matchIdx] = {
+      ...existing,
+      lessonsClaimed: newEnd - newStart,
+      lessonRange: [newStart, newEnd],
+      // After a merge the surviving block is the "canonical" piece for this
+      // cell. We drop the splitType badge — the user wants visual cleanliness
+      // and the badge stops being informative once consecutive lessons live in
+      // one block. `splitFrom` is preserved so `recombineBlock` still finds
+      // the original split group across cells.
+      splitType: null,
+      // If the incoming block carried user edits and the existing one didn't,
+      // promote them — otherwise existing edits win (first-write).
+      userEdits:
+        Object.keys(existing.userEdits).length > 0
+          ? existing.userEdits
+          : block.userEdits,
+    };
+  }
+  if (merged.length === ht.placedBlocks.length) return ht; // no change
+  return { ...ht, placedBlocks: merged };
+}
+
+/**
+ * Apply `consolidateCell` to every half-term in a timeline. Idempotent. All
+ * public mutators in this module pipe their result through this so callers
+ * never have to remember to call it themselves.
+ *
+ * Exported as `consolidateTimeline` for the deserializer — legacy `.curriculum`
+ * files saved before DEC-046 may contain split-up adjacent placements that
+ * need a one-time merge on load.
+ */
+export function consolidateTimeline(timeline: Timeline): Timeline {
+  return consolidate(timeline);
+}
+
+function consolidate(timeline: Timeline): Timeline {
+  const next = timeline.halfTerms.map(consolidateCell);
+  // Cheap reference-equality short-circuit so an unchanged timeline keeps the
+  // same array identity (callers may depend on this for memoization).
+  let changed = false;
+  for (let i = 0; i < next.length; i++) {
+    if (next[i] !== timeline.halfTerms[i]) {
+      changed = true;
+      break;
+    }
+  }
+  return changed ? { halfTerms: next } : timeline;
 }
