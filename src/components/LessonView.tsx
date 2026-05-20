@@ -17,6 +17,7 @@ import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import { BlockEditModal } from "./BlockEditModal";
 import { LessonEditModal } from "./LessonEditModal";
 import { LessonHalfTermCell } from "./LessonHalfTermCell";
+import { LessonPool } from "./LessonPool";
 
 interface DragLessonPayload {
   readonly kind: "lesson";
@@ -24,6 +25,15 @@ interface DragLessonPayload {
   readonly localLessonIdx: number;
   readonly subTopicCode: string;
 }
+
+interface DragLessonPoolPayload {
+  readonly kind: "lesson-pool";
+  readonly subTopicCode: string;
+  readonly lessonId: string;
+  readonly absIndex: number;
+}
+
+type DragPayload = DragLessonPayload | DragLessonPoolPayload;
 
 export interface LessonViewProps {
   readonly subject: Subject;
@@ -34,6 +44,8 @@ export function LessonView({ subject }: LessonViewProps): JSX.Element {
   const extractAndMoveLessonToIndex = useWorkspaceStore(
     (s) => s.extractAndMoveLessonToIndex
   );
+  const placeLessonAtIndex = useWorkspaceStore((s) => s.placeLessonAtIndex);
+  const removePlacedLesson = useWorkspaceStore((s) => s.removePlacedLesson);
   const reorderLessonInSubTopic = useWorkspaceStore((s) => s.reorderLessonInSubTopic);
   const splitBlock = useWorkspaceStore((s) => s.splitBlock);
   const recombineBlock = useWorkspaceStore((s) => s.recombineBlock);
@@ -47,7 +59,7 @@ export function LessonView({ subject }: LessonViewProps): JSX.Element {
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } })
   );
 
-  const [activeDrag, setActiveDrag] = useState<DragLessonPayload | null>(null);
+  const [activeDrag, setActiveDrag] = useState<DragPayload | null>(null);
   const [openModal, setOpenModal] = useState<
     | { kind: "block"; placedBlockId: string }
     | { kind: "lesson"; subTopicCode: string; lessonId: string }
@@ -55,28 +67,52 @@ export function LessonView({ subject }: LessonViewProps): JSX.Element {
   >(null);
 
   function handleDragStart(e: DragStartEvent): void {
-    const data = e.active.data.current as DragLessonPayload | undefined;
+    const data = e.active.data.current as DragPayload | undefined;
     if (data) setActiveDrag(data);
   }
 
   function handleDragEnd(e: DragEndEvent): void {
     setActiveDrag(null);
-    const drag = e.active.data.current as DragLessonPayload | undefined;
+    const drag = e.active.data.current as DragPayload | undefined;
     const drop = e.over?.data.current as
       | { kind: "term"; termId: string }
       | { kind: "slot"; termId: string; index: number }
       | { kind: "lesson-slot"; termId: string; subTopicCode: string; lessonIdx: number }
+      | { kind: "lesson-pool-bin" }
       | undefined;
     if (!drag || !drop) return;
 
-    // DEC-048: same-sub-topic, same-cell reorder. Lesson-slot droppables sit
-    // between individual lesson cards inside a sub-topic group. Dropping
-    // there reorders the lesson within its sub-topic's `lessons` array —
-    // which feeds the dynamic number display (lesson position is now the
-    // 1-based array index, not the import-time `lesson.number`).
+    // DEC-049: pool-card drag → cell drop. Single specific lesson lands at
+    // chosen slot (or appended). Pool itself acts as a bin: dragging a
+    // PLACED lesson onto the pool removes that lesson's placement.
+    if (drag.kind === "lesson-pool") {
+      if (drop.kind === "slot") {
+        placeLessonAtIndex(
+          drag.subTopicCode,
+          drag.absIndex,
+          drop.termId,
+          drop.index
+        );
+        return;
+      }
+      if (drop.kind === "term") {
+        placeLessonAtIndex(drag.subTopicCode, drag.absIndex, drop.termId, -1);
+        return;
+      }
+      // pool→pool and pool→lesson-slot: ignore (no meaningful action).
+      return;
+    }
+
+    // Placed-lesson drag → pool bin: discard, releasing the lesson back into
+    // the unplaced pool (DEC-049). Source block is shrunk or split around
+    // the removed lesson.
+    if (drop.kind === "lesson-pool-bin") {
+      removePlacedLesson(drag.placedBlockId, drag.localLessonIdx);
+      return;
+    }
+
+    // DEC-048: same-sub-topic, same-cell reorder via lesson-slot.
     if (drop.kind === "lesson-slot" && drag.subTopicCode === drop.subTopicCode) {
-      // Resolve the lesson id from drag payload (it's referenced indirectly
-      // via placedBlockId + localLessonIdx).
       let lessonId: string | null = null;
       for (const ht of subject.timeline.halfTerms) {
         const pb = ht.placedBlocks.find((b) => b.id === drag.placedBlockId);
@@ -118,8 +154,9 @@ export function LessonView({ subject }: LessonViewProps): JSX.Element {
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <LessonPool subject={subject} />
       <div className="flex-1 overflow-auto p-4">
-        <div className="flex flex-col gap-6 min-w-[1100px]">
+        <div className="flex flex-col gap-6 min-w-[900px]">
           {years.map((year) => {
             const terms = byYear.get(year) ?? [];
             return (
@@ -127,7 +164,7 @@ export function LessonView({ subject }: LessonViewProps): JSX.Element {
                 <header className="flex items-baseline gap-3 mb-2 px-1">
                   <h2 className="font-display text-base text-navy">{year}</h2>
                   <span className="text-xs text-ink-fade">
-                    Drag lessons between cells to split a placed block.
+                    Drag from the pool to place; drag between cells to move.
                   </span>
                 </header>
                 <div
@@ -190,23 +227,28 @@ export function LessonView({ subject }: LessonViewProps): JSX.Element {
 }
 
 interface DragPreviewProps {
-  readonly drag: DragLessonPayload;
+  readonly drag: DragPayload;
   readonly subject: Subject;
 }
 
 function DragPreview({ drag, subject }: DragPreviewProps): JSX.Element {
   const found = findTopicAndSubTopic(subject.workingSpec, drag.subTopicCode);
   if (!found) return <div />;
-  // Resolve the absolute lesson by walking the placed block referenced by
-  // drag.placedBlockId → its lessonRange[0] + localLessonIdx is the index
-  // into found.subTopic.lessons. The display number uses the same 1-based
-  // sub-topic index as LessonCard (DEC-048).
-  let lessonIdx = drag.localLessonIdx;
-  for (const ht of subject.timeline.halfTerms) {
-    const pb = ht.placedBlocks.find((b) => b.id === drag.placedBlockId);
-    if (pb && pb.source.kind === "sub-topic") {
-      lessonIdx = pb.lessonRange[0] + drag.localLessonIdx;
-      break;
+  // Resolve the absolute lesson index. For pool drags it's given directly;
+  // for placed-lesson drags it's lessonRange[0] of the source block plus the
+  // local idx. The display number uses the same 1-based sub-topic index as
+  // LessonCard (DEC-048).
+  let lessonIdx: number;
+  if (drag.kind === "lesson-pool") {
+    lessonIdx = drag.absIndex;
+  } else {
+    lessonIdx = drag.localLessonIdx;
+    for (const ht of subject.timeline.halfTerms) {
+      const pb = ht.placedBlocks.find((b) => b.id === drag.placedBlockId);
+      if (pb && pb.source.kind === "sub-topic") {
+        lessonIdx = pb.lessonRange[0] + drag.localLessonIdx;
+        break;
+      }
     }
   }
   const lesson = found.subTopic.lessons[lessonIdx];

@@ -9,8 +9,10 @@ import {
   placeBlock as plPlaceBlock,
   placeBlockAtIndex as plPlaceBlockAtIndex,
   placeBlockWithSpillover as plPlaceBlockWithSpillover,
+  placeLessonAtIndex as plPlaceLessonAtIndex,
   recombineBlock as plRecombineBlock,
   removeBlock as plRemoveBlock,
+  removePlacedLesson as plRemovePlacedLesson,
   splitBlock as plSplitBlock,
 } from "@/model/placement";
 import {
@@ -133,6 +135,21 @@ export interface WorkspaceStoreActions {
     localLessonIdx: number,
     toTermId: string,
     atIndex: number
+  ) => void;
+  /**
+   * Place a single specific lesson (by sub-topic code + absolute index) into
+   * a cell at a chosen slot index (DEC-049). Lesson-view pool drops.
+   */
+  readonly placeLessonAtIndex: (
+    subTopicCode: string,
+    absLessonIdx: number,
+    termId: string,
+    atIndex: number
+  ) => void;
+  /** Release a single placed lesson back into the unplaced pool (DEC-049). */
+  readonly removePlacedLesson: (
+    placedBlockId: string,
+    localLessonIdx: number
   ) => void;
   /** Reorder a lesson within its sub-topic's lessons array. */
   readonly reorderLessonInSubTopic: (
@@ -519,6 +536,22 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set) => ({
     set((state) => ({
       workspace: updateActiveTimeline(state.workspace, (tl) =>
         plExtractAndMoveLessonToIndex(tl, placedBlockId, localLessonIdx, toTermId, atIndex)
+      ),
+      dirty: true,
+    })),
+
+  placeLessonAtIndex: (subTopicCode, absLessonIdx, termId, atIndex) =>
+    set((state) => ({
+      workspace: updateActiveTimeline(state.workspace, (tl) =>
+        plPlaceLessonAtIndex(tl, subTopicCode, absLessonIdx, termId, atIndex)
+      ),
+      dirty: true,
+    })),
+
+  removePlacedLesson: (placedBlockId, localLessonIdx) =>
+    set((state) => ({
+      workspace: updateActiveTimeline(state.workspace, (tl) =>
+        plRemovePlacedLesson(tl, placedBlockId, localLessonIdx)
       ),
       dirty: true,
     })),

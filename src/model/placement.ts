@@ -313,6 +313,40 @@ export function placeBlockAtIndex(
 }
 
 /**
+ * Place a SPECIFIC lesson from a sub-topic into a cell (DEC-049). Unlike
+ * placeBlock — which always uses lessonRange [0, N) — this lets the caller
+ * pin the placement to a particular absolute lesson index, so dragging a
+ * single lesson from the Lesson-view pool reaches the right card in the
+ * timeline. Underpins lesson-pool drops; consolidation will merge it with
+ * an adjacent same-sub-topic block if one already exists in the cell.
+ */
+export function placeLessonAtIndex(
+  timeline: Timeline,
+  subTopicCode: string,
+  absLessonIdx: number,
+  termId: string,
+  atIndex: number,
+  options: PlacementOptions = {}
+): Timeline {
+  if (absLessonIdx < 0) {
+    throw new Error(
+      `placeLessonAtIndex: absLessonIdx must be >= 0 (got ${absLessonIdx})`
+    );
+  }
+  const idGen = options.idGen ?? defaultIdGen;
+  const block: PlacedBlock = {
+    id: idGen(),
+    source: { kind: "sub-topic", subTopicCode },
+    lessonsClaimed: 1,
+    lessonRange: [absLessonIdx, absLessonIdx + 1],
+    splitFrom: null,
+    splitType: null,
+    userEdits: {},
+  };
+  return consolidate(insertIntoTermAt(timeline, termId, block, atIndex));
+}
+
+/**
  * Remove without re-consolidating — internal helper for compound ops that
  * will run consolidate themselves at the end. Avoids two passes when callers
  * remove and immediately re-insert.
@@ -416,6 +450,62 @@ export function extractAndMoveLesson(
   let tl = replaceInTerm(timeline, found.termId, placedBlockId, replacement);
   tl = appendToTerm(tl, toTermId, movedPiece);
   return consolidate(tl);
+}
+
+/**
+ * Remove a single placed lesson, "releasing" it back into the unplaced pool
+ * (DEC-049). Source block is shrunk or split using the same shape as
+ * extractAndMoveLesson, but the extracted piece is discarded rather than
+ * re-placed.
+ */
+export function removePlacedLesson(
+  timeline: Timeline,
+  placedBlockId: string,
+  localLessonIdx: number,
+  options: PlacementOptions = {}
+): Timeline {
+  const found = findPlacedBlock(timeline, placedBlockId);
+  if (!found) {
+    throw new Error(
+      `removePlacedLesson: no placed block with id "${placedBlockId}"`
+    );
+  }
+  const { block } = found;
+  if (localLessonIdx < 0 || localLessonIdx >= block.lessonsClaimed) {
+    throw new Error(
+      `removePlacedLesson: localLessonIdx ${localLessonIdx} out of range ` +
+        `[0, ${block.lessonsClaimed})`
+    );
+  }
+  const idGen = options.idGen ?? defaultIdGen;
+  const [start, end] = block.lessonRange;
+  const lessonPos = start + localLessonIdx;
+  const groupKey = block.splitFrom ?? block.id;
+
+  const replacement: PlacedBlock[] = [];
+  if (lessonPos > start) {
+    replacement.push({
+      ...block,
+      id: idGen(),
+      lessonsClaimed: lessonPos - start,
+      lessonRange: [start, lessonPos],
+      splitFrom: groupKey,
+      splitType: "manual",
+    });
+  }
+  if (lessonPos + 1 < end) {
+    replacement.push({
+      ...block,
+      id: idGen(),
+      lessonsClaimed: end - (lessonPos + 1),
+      lessonRange: [lessonPos + 1, end],
+      splitFrom: groupKey,
+      splitType: "manual",
+    });
+  }
+  return consolidate(
+    replaceInTerm(timeline, found.termId, placedBlockId, replacement)
+  );
 }
 
 /**

@@ -81,6 +81,57 @@ export function getPoolEntries(subject: Subject): PoolEntry[] {
 }
 
 /**
+ * Lesson-level pool entries (DEC-049): one per UNPLACED lesson, grouped by
+ * sub-topic. A lesson is "unplaced" when its absolute index in the sub-
+ * topic's `lessons[]` array isn't covered by any PlacedBlock's lessonRange
+ * for that sub-topic.
+ *
+ * Powers the Lesson view's new left-rail pool, where the teacher can pick a
+ * specific lesson and drop it into a half-term cell. Returns entries in spec
+ * order: topics in spec order, sub-topics in spec order within each topic,
+ * lessons in spec order within each sub-topic.
+ */
+export interface LessonPoolGroup {
+  readonly topic: Topic;
+  readonly subTopic: SubTopic;
+  readonly lessons: readonly LessonPoolEntry[];
+}
+
+export interface LessonPoolEntry {
+  readonly lesson: SubTopic["lessons"][number];
+  /** Absolute index of this lesson in `subTopic.lessons` — used as lessonRange[0]. */
+  readonly absIndex: number;
+}
+
+export function getLessonPoolEntries(subject: Subject): readonly LessonPoolGroup[] {
+  // Build a per-sub-topic set of placed lesson indices.
+  const placedIndicesBySub = new Map<string, Set<number>>();
+  for (const ht of subject.timeline.halfTerms) {
+    for (const pb of ht.placedBlocks) {
+      if (pb.source.kind !== "sub-topic") continue;
+      const set = placedIndicesBySub.get(pb.source.subTopicCode) ?? new Set<number>();
+      const [start, end] = pb.lessonRange;
+      for (let i = start; i < end; i++) set.add(i);
+      placedIndicesBySub.set(pb.source.subTopicCode, set);
+    }
+  }
+  const groups: LessonPoolGroup[] = [];
+  for (const topic of subject.workingSpec.topics) {
+    for (const subTopic of topic.subTopics) {
+      const placedSet = placedIndicesBySub.get(subTopic.code) ?? new Set<number>();
+      const lessons: LessonPoolEntry[] = [];
+      subTopic.lessons.forEach((lesson, absIndex) => {
+        if (placedSet.has(absIndex)) return;
+        lessons.push({ lesson, absIndex });
+      });
+      if (lessons.length === 0) continue;
+      groups.push({ topic, subTopic, lessons });
+    }
+  }
+  return groups;
+}
+
+/**
  * Compute the list of placed blocks for a cell with end-of-HT test blocks
  * sorted to the end (per BUILD_PLAN.md §8 step 3, updated per DEC-044 to
  * recognise customs flagged `isEoHT: true` instead of the legacy

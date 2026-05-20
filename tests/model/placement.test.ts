@@ -11,8 +11,10 @@ import {
   placeBlock,
   placeBlockAtIndex,
   placeBlockWithSpillover,
+  placeLessonAtIndex,
   recombineBlock,
   removeBlock,
+  removePlacedLesson,
   splitBlock,
 } from "@/model/placement";
 import { createDefaultTimeline, halfTermUsed } from "@/model/timeline";
@@ -628,5 +630,53 @@ describe("index-aware drops (DEC-048)", () => {
     const merged = blocksIn(tl, "Y9-A2");
     expect(merged).toHaveLength(1);
     expect(merged[0]?.lessonRange).toEqual([0, 4]);
+  });
+});
+
+describe("lesson-pool placement (DEC-049)", () => {
+  it("placeLessonAtIndex creates a single-lesson block at the chosen lesson", () => {
+    const ids = counterIdGen();
+    const tl = placeLessonAtIndex(createDefaultTimeline(), "T1a", 2, "Y9-A1", 0, {
+      idGen: ids,
+    });
+    const placed = blocksIn(tl, "Y9-A1");
+    expect(placed).toHaveLength(1);
+    expect(placed[0]?.lessonRange).toEqual([2, 3]);
+    expect(placed[0]?.lessonsClaimed).toBe(1);
+  });
+
+  it("placeLessonAtIndex consolidates with an adjacent same-sub-topic block", () => {
+    const ids = counterIdGen();
+    // Place T1a lessons 0-1 in the cell.
+    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 2, { idGen: ids });
+    // Now drop T1a lesson 2 (absolute) into the same cell — should merge
+    // into a single [0, 3) block since [0, 2) + [2, 3) are adjacent.
+    tl = placeLessonAtIndex(tl, "T1a", 2, "Y9-A1", 1, { idGen: ids });
+    const placed = blocksIn(tl, "Y9-A1");
+    expect(placed).toHaveLength(1);
+    expect(placed[0]?.lessonRange).toEqual([0, 3]);
+  });
+
+  it("removePlacedLesson shrinks a single-lesson block to nothing", () => {
+    const ids = counterIdGen();
+    let tl = placeLessonAtIndex(createDefaultTimeline(), "T1a", 0, "Y9-A1", 0, {
+      idGen: ids,
+    });
+    const id = blocksIn(tl, "Y9-A1")[0]!.id;
+    tl = removePlacedLesson(tl, id, 0);
+    expect(blocksIn(tl, "Y9-A1")).toHaveLength(0);
+  });
+
+  it("removePlacedLesson removing a middle lesson splits the block into two halves", () => {
+    const ids = counterIdGen();
+    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 5, { idGen: ids });
+    // Place block has lessonRange [0, 5). Remove the lesson at localIdx 2
+    // (absolute lesson 2). Result: [0, 2) and [3, 5).
+    const id = blocksIn(tl, "Y9-A1")[0]!.id;
+    tl = removePlacedLesson(tl, id, 2, { idGen: ids });
+    const placed = blocksIn(tl, "Y9-A1");
+    expect(placed).toHaveLength(2);
+    expect(placed[0]?.lessonRange).toEqual([0, 2]);
+    expect(placed[1]?.lessonRange).toEqual([3, 5]);
   });
 });
