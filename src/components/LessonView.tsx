@@ -31,6 +31,10 @@ export interface LessonViewProps {
 
 export function LessonView({ subject }: LessonViewProps): JSX.Element {
   const extractAndMoveLesson = useWorkspaceStore((s) => s.extractAndMoveLesson);
+  const extractAndMoveLessonToIndex = useWorkspaceStore(
+    (s) => s.extractAndMoveLessonToIndex
+  );
+  const reorderLessonInSubTopic = useWorkspaceStore((s) => s.reorderLessonInSubTopic);
   const splitBlock = useWorkspaceStore((s) => s.splitBlock);
   const recombineBlock = useWorkspaceStore((s) => s.recombineBlock);
   const removeBlock = useWorkspaceStore((s) => s.removeBlock);
@@ -60,9 +64,48 @@ export function LessonView({ subject }: LessonViewProps): JSX.Element {
     const drag = e.active.data.current as DragLessonPayload | undefined;
     const drop = e.over?.data.current as
       | { kind: "term"; termId: string }
+      | { kind: "slot"; termId: string; index: number }
+      | { kind: "lesson-slot"; termId: string; subTopicCode: string; lessonIdx: number }
       | undefined;
-    if (!drag || !drop || drop.kind !== "term") return;
-    extractAndMoveLesson(drag.placedBlockId, drag.localLessonIdx, drop.termId);
+    if (!drag || !drop) return;
+
+    // DEC-048: same-sub-topic, same-cell reorder. Lesson-slot droppables sit
+    // between individual lesson cards inside a sub-topic group. Dropping
+    // there reorders the lesson within its sub-topic's `lessons` array —
+    // which feeds the dynamic number display (lesson position is now the
+    // 1-based array index, not the import-time `lesson.number`).
+    if (drop.kind === "lesson-slot" && drag.subTopicCode === drop.subTopicCode) {
+      // Resolve the lesson id from drag payload (it's referenced indirectly
+      // via placedBlockId + localLessonIdx).
+      let lessonId: string | null = null;
+      for (const ht of subject.timeline.halfTerms) {
+        const pb = ht.placedBlocks.find((b) => b.id === drag.placedBlockId);
+        if (!pb || pb.source.kind !== "sub-topic") continue;
+        const found = findTopicAndSubTopic(subject.workingSpec, pb.source.subTopicCode);
+        if (!found) break;
+        const absIdx = pb.lessonRange[0] + drag.localLessonIdx;
+        lessonId = found.subTopic.lessons[absIdx]?.id ?? null;
+        break;
+      }
+      if (lessonId) {
+        reorderLessonInSubTopic(drop.subTopicCode, lessonId, drop.lessonIdx);
+      }
+      return;
+    }
+
+    if (drop.kind === "slot") {
+      extractAndMoveLessonToIndex(
+        drag.placedBlockId,
+        drag.localLessonIdx,
+        drop.termId,
+        drop.index
+      );
+      return;
+    }
+    if (drop.kind === "term") {
+      extractAndMoveLesson(drag.placedBlockId, drag.localLessonIdx, drop.termId);
+      return;
+    }
   }
 
   const years = getVisibleTimelineYears(subject);
@@ -154,7 +197,20 @@ interface DragPreviewProps {
 function DragPreview({ drag, subject }: DragPreviewProps): JSX.Element {
   const found = findTopicAndSubTopic(subject.workingSpec, drag.subTopicCode);
   if (!found) return <div />;
-  const lesson = found.subTopic.lessons[drag.localLessonIdx + 0];
+  // Resolve the absolute lesson by walking the placed block referenced by
+  // drag.placedBlockId → its lessonRange[0] + localLessonIdx is the index
+  // into found.subTopic.lessons. The display number uses the same 1-based
+  // sub-topic index as LessonCard (DEC-048).
+  let lessonIdx = drag.localLessonIdx;
+  for (const ht of subject.timeline.halfTerms) {
+    const pb = ht.placedBlocks.find((b) => b.id === drag.placedBlockId);
+    if (pb && pb.source.kind === "sub-topic") {
+      lessonIdx = pb.lessonRange[0] + drag.localLessonIdx;
+      break;
+    }
+  }
+  const lesson = found.subTopic.lessons[lessonIdx];
+  const displayNumber = lessonIdx + 1;
   const colour = getTopicColour(subject.workingSpec, found.topic.code);
   return (
     <div
@@ -162,7 +218,7 @@ function DragPreview({ drag, subject }: DragPreviewProps): JSX.Element {
       style={{ borderLeft: `3px solid ${colour}` }}
     >
       <span className="font-mono text-[9px] text-ink-fade mr-1">
-        {found.subTopic.code} · L{lesson?.number ?? "?"}
+        {found.subTopic.code} · L{displayNumber}
       </span>
       {lesson?.title ?? "Moving lesson…"}
     </div>

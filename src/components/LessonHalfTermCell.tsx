@@ -9,6 +9,7 @@ import {
 import { halfTermUsed } from "@/model/timeline";
 import type { HalfTerm, PlacedBlock, Subject } from "@/model/types";
 
+import { InsertionSlot } from "./InsertionSlot";
 import { LessonCard } from "./LessonCard";
 import { RetrievalSuggestionPopover } from "./RetrievalSuggestionPopover";
 
@@ -54,21 +55,38 @@ export function LessonHalfTermCell({
           {used} / {halfTerm.budget}
         </span>
       </header>
-      <div className="flex flex-col gap-1.5 p-1.5 flex-1">
-        {sortedBlocksForCell(halfTerm.placedBlocks, subject.customBlocks).map((pb) => (
-          <PlacedBlockGroup
-            key={pb.id}
-            placed={pb}
-            subject={subject}
-            onOpenBlockModal={onOpenBlockModal}
-            onOpenLessonModal={onOpenLessonModal}
-          />
-        ))}
-        {halfTerm.placedBlocks.length === 0 && (
-          <div className="text-[10px] text-ink-fade italic text-center mt-4">
-            Drop a lesson here
-          </div>
-        )}
+      <div className="flex flex-col p-1.5 flex-1">
+        {(() => {
+          const ordered = sortedBlocksForCell(halfTerm.placedBlocks, subject.customBlocks);
+          return (
+            <>
+              {ordered.length === 0 && (
+                <div className="text-[10px] text-ink-fade italic text-center mt-2 mb-1 pointer-events-none">
+                  Drop a lesson here
+                </div>
+              )}
+              {ordered.map((pb, idx) => (
+                <div key={pb.id} className="contents">
+                  <InsertionSlot
+                    id={`slot:${halfTerm.id}:${idx}`}
+                    data={{ kind: "slot", termId: halfTerm.id, index: idx }}
+                  />
+                  <PlacedBlockGroup
+                    placed={pb}
+                    subject={subject}
+                    onOpenBlockModal={onOpenBlockModal}
+                    onOpenLessonModal={onOpenLessonModal}
+                  />
+                </div>
+              ))}
+              <InsertionSlot
+                id={`slot:${halfTerm.id}:${ordered.length}`}
+                data={{ kind: "slot", termId: halfTerm.id, index: ordered.length }}
+                fillRemaining
+              />
+            </>
+          );
+        })()}
       </div>
       <button
         type="button"
@@ -132,17 +150,43 @@ function PlacedBlockGroup({
             one cell consolidation guarantees there's only one block per
             sub-topic, so the badge had no remaining job. */}
       </div>
-      {lessons.map((lesson, localIdx) => (
-        <LessonCard
-          key={lesson.id}
-          placedBlockId={placed.id}
-          localLessonIdx={localIdx}
-          subTopic={subTopic}
-          lesson={lesson}
-          colour={colour}
-          onClick={() => onOpenLessonModal(subTopic.code, lesson.id)}
-        />
-      ))}
+      {lessons.map((lesson, localIdx) => {
+        const absIdx = start + localIdx;
+        const displayNumber = subTopic.lessons.findIndex((l) => l.id === lesson.id) + 1;
+        return (
+          <div key={lesson.id} className="contents">
+            <InsertionSlot
+              id={`lslot:${placed.id}:${absIdx}`}
+              data={{
+                kind: "lesson-slot",
+                termId: "", // not used for same-sub-topic reorder
+                subTopicCode: subTopic.code,
+                lessonIdx: absIdx,
+              }}
+              emphasis="subtle"
+            />
+            <LessonCard
+              placedBlockId={placed.id}
+              localLessonIdx={localIdx}
+              subTopic={subTopic}
+              lesson={lesson}
+              displayNumber={displayNumber}
+              colour={colour}
+              onClick={() => onOpenLessonModal(subTopic.code, lesson.id)}
+            />
+          </div>
+        );
+      })}
+      <InsertionSlot
+        id={`lslot:${placed.id}:${start + lessons.length}`}
+        data={{
+          kind: "lesson-slot",
+          termId: "",
+          subTopicCode: subTopic.code,
+          lessonIdx: start + lessons.length,
+        }}
+        emphasis="subtle"
+      />
     </div>
   );
 }

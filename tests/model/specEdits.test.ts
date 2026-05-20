@@ -7,6 +7,7 @@ import {
   removeObjective,
   renameSubTopic,
   renameTopic,
+  reorderLessonInSubTopic,
   setLessonObjectives,
   updateLesson,
   updateObjective,
@@ -389,5 +390,35 @@ describe("renameSubTopic with code cascade", () => {
     // Whitespace-only is normalised to "no change" by trimming.
     const r = renameSubTopic(before, "T1a", { newCode: "  " });
     expect(r.workingSpec.topics[0]?.subTopics[0]?.code).toBe("T1a");
+  });
+});
+
+describe("reorderLessonInSubTopic (DEC-048)", () => {
+  it("moves a lesson up within its sub-topic's array", () => {
+    const before = makeSpec();
+    const after = reorderLessonInSubTopic(before, "T1a", "L2", 0);
+    const ids = after.topics[0]?.subTopics[0]?.lessons.map((l) => l.id) ?? [];
+    expect(ids).toEqual(["L2", "L1"]);
+  });
+
+  it("moves a lesson down within its sub-topic's array", () => {
+    const before = makeSpec();
+    const after = reorderLessonInSubTopic(before, "T1a", "L1", 2);
+    // Move L1 to index 2 (past end of 2-element array, clamps to end).
+    const ids = after.topics[0]?.subTopics[0]?.lessons.map((l) => l.id) ?? [];
+    expect(ids).toEqual(["L2", "L1"]);
+  });
+
+  it("is a no-op when the lesson doesn't exist", () => {
+    const before = makeSpec();
+    const after = reorderLessonInSubTopic(before, "T1a", "ghost", 0);
+    expect(after).toEqual(before);
+  });
+
+  it("clamps a negative toIndex to 0", () => {
+    const before = makeSpec();
+    const after = reorderLessonInSubTopic(before, "T1a", "L2", -5);
+    const ids = after.topics[0]?.subTopics[0]?.lessons.map((l) => l.id) ?? [];
+    expect(ids).toEqual(["L2", "L1"]);
   });
 });

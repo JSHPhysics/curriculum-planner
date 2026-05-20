@@ -59,6 +59,36 @@ export function appendLesson(
   }));
 }
 
+/**
+ * Reorder a lesson within its sub-topic's `lessons` array (DEC-048). Used by
+ * lesson-view between-drops within the same sub-topic. The lesson's stored
+ * `number` is preserved, but the rendered ordinal position reflects the new
+ * array index — see LessonHalfTermCell.tsx for the display logic.
+ *
+ * NOTE: this only reorders the spec; PlacedBlock.lessonRange values point at
+ * indices that match the OLD order. Callers that care about placement-vs-
+ * lesson alignment must take care; for the user-facing lesson-view scenario,
+ * this is fine because the spec-level rename is what changes the visible
+ * numbering.
+ */
+export function reorderLessonInSubTopic(
+  spec: Spec,
+  subTopicCode: string,
+  lessonId: string,
+  toIndex: number
+): Spec {
+  return mapSubTopic(spec, subTopicCode, (st) => {
+    const fromIdx = st.lessons.findIndex((l) => l.id === lessonId);
+    if (fromIdx < 0) return st;
+    const next = [...st.lessons];
+    const [moved] = next.splice(fromIdx, 1);
+    if (!moved) return st;
+    const clamped = Math.max(0, Math.min(toIndex, next.length));
+    next.splice(clamped, 0, moved);
+    return { ...st, lessons: next };
+  });
+}
+
 export type ObjectiveEditableFields = Pick<Objective, "text" | "isDepth">;
 
 /**

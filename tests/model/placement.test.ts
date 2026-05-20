@@ -4,9 +4,12 @@ import {
   consolidateTimeline,
   editBlockLessons,
   extractAndMoveLesson,
+  extractAndMoveLessonToIndex,
   findPlacedBlock,
   moveBlock,
+  moveBlockToIndex,
   placeBlock,
+  placeBlockAtIndex,
   placeBlockWithSpillover,
   recombineBlock,
   removeBlock,
@@ -527,5 +530,103 @@ describe("cell consolidation (DEC-046)", () => {
     expect(merged[0]?.splitFrom).not.toBeNull(); // recombine can still find it
     tl = recombineBlock(tl, merged[0]!.id);
     expect(blocksIn(tl, "Y9-A1")).toHaveLength(0);
+  });
+});
+
+describe("index-aware drops (DEC-048)", () => {
+  const T1c: PlacedBlockSource = { kind: "sub-topic", subTopicCode: "T1c" };
+
+  it("placeBlockAtIndex inserts at the given index, not the end", () => {
+    const ids = counterIdGen();
+    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 1, { idGen: ids });
+    tl = placeBlock(tl, T1b, "Y9-A1", 1, { idGen: ids });
+    tl = placeBlockAtIndex(tl, T1c, "Y9-A1", 1, 1, { idGen: ids });
+    const placed = blocksIn(tl, "Y9-A1");
+    expect(placed.map((b) =>
+      b.source.kind === "sub-topic" ? b.source.subTopicCode : "?"
+    )).toEqual(["T1a", "T1c", "T1b"]);
+  });
+
+  it("placeBlockAtIndex clamps an out-of-range index to the end", () => {
+    const ids = counterIdGen();
+    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 1, { idGen: ids });
+    tl = placeBlockAtIndex(tl, T1b, "Y9-A1", 1, 999, { idGen: ids });
+    expect(blocksIn(tl, "Y9-A1").map((b) =>
+      b.source.kind === "sub-topic" ? b.source.subTopicCode : "?"
+    )).toEqual(["T1a", "T1b"]);
+  });
+
+  it("moveBlockToIndex within the same cell reorders blocks", () => {
+    const ids = counterIdGen();
+    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 1, { idGen: ids });
+    tl = placeBlock(tl, T1b, "Y9-A1", 1, { idGen: ids });
+    tl = placeBlock(tl, T1c, "Y9-A1", 1, { idGen: ids });
+    const t1bId = blocksIn(tl, "Y9-A1")[1]!.id;
+    tl = moveBlockToIndex(tl, t1bId, "Y9-A1", 0);
+    expect(blocksIn(tl, "Y9-A1").map((b) =>
+      b.source.kind === "sub-topic" ? b.source.subTopicCode : "?"
+    )).toEqual(["T1b", "T1a", "T1c"]);
+  });
+
+  it("moveBlockToIndex across cells inserts at the destination index", () => {
+    const ids = counterIdGen();
+    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 1, { idGen: ids });
+    tl = placeBlock(tl, T1b, "Y9-A2", 1, { idGen: ids });
+    tl = placeBlock(tl, T1c, "Y9-A2", 1, { idGen: ids });
+    const t1aId = blocksIn(tl, "Y9-A1")[0]!.id;
+    tl = moveBlockToIndex(tl, t1aId, "Y9-A2", 1);
+    expect(blocksIn(tl, "Y9-A1")).toHaveLength(0);
+    expect(blocksIn(tl, "Y9-A2").map((b) =>
+      b.source.kind === "sub-topic" ? b.source.subTopicCode : "?"
+    )).toEqual(["T1b", "T1a", "T1c"]);
+  });
+
+  it("extractAndMoveLessonToIndex preserves the destination index", () => {
+    const ids = counterIdGen();
+    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 4, { idGen: ids });
+    tl = placeBlock(tl, T1b, "Y9-A2", 1, { idGen: ids });
+    tl = placeBlock(tl, T1c, "Y9-A2", 1, { idGen: ids });
+    const t1aId = blocksIn(tl, "Y9-A1")[0]!.id;
+    // Extract the 2nd lesson (localIdx 1) of T1a and drop at slot 1 of Y9-A2.
+    tl = extractAndMoveLessonToIndex(tl, t1aId, 1, "Y9-A2", 1, { idGen: ids });
+    const blocks = blocksIn(tl, "Y9-A2");
+    expect(blocks.map((b) =>
+      b.source.kind === "sub-topic" ? b.source.subTopicCode : "?"
+    )).toEqual(["T1b", "T1a", "T1c"]);
+    // The inserted T1a piece has lessonRange [1, 2).
+    expect(blocks[1]?.lessonRange).toEqual([1, 2]);
+  });
+
+  it("moveBlockToIndex consolidates with same-source neighbours after insertion", () => {
+    // Place T1a in A1, plus a second T1a block in A2. Move A1's block into
+    // A2 at index 0 — both should merge if their lessonRanges are adjacent.
+    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 0, { idGen: counterIdGen() });
+    // Re-use the public API to inject two adjacent T1a pieces in A2.
+    tl = removeBlock(tl, blocksIn(tl, "Y9-A1")[0]!.id);
+    tl = placeBlock(tl, T1a, "Y9-A2", 2, { idGen: counterIdGen() });
+    // A second T1a piece in A1 covering [2, 4) (adjacent to the A2 piece).
+    tl = {
+      halfTerms: tl.halfTerms.map((ht) => {
+        if (ht.id !== "Y9-A1") return ht;
+        return {
+          ...ht,
+          placedBlocks: [
+            {
+              id: "extra",
+              source: T1a,
+              lessonsClaimed: 2,
+              lessonRange: [2, 4],
+              splitFrom: null,
+              splitType: null,
+              userEdits: {},
+            },
+          ],
+        };
+      }),
+    };
+    tl = moveBlockToIndex(tl, "extra", "Y9-A2", 1);
+    const merged = blocksIn(tl, "Y9-A2");
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.lessonRange).toEqual([0, 4]);
   });
 });

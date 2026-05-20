@@ -7,6 +7,12 @@ export interface LessonCardProps {
   readonly localLessonIdx: number;
   readonly subTopic: SubTopic;
   readonly lesson: Lesson;
+  /**
+   * DEC-048: the visible "L1 / L2 / ..." label. Derived by the parent from
+   * the lesson's 1-based index in its sub-topic's `lessons` array — NOT the
+   * import-time `lesson.number`. Lets reorder-via-drag update the display.
+   */
+  readonly displayNumber: number;
   readonly colour: string;
   readonly onClick: () => void;
 }
@@ -16,6 +22,7 @@ export function LessonCard({
   localLessonIdx,
   subTopic,
   lesson,
+  displayNumber,
   colour,
   onClick,
 }: LessonCardProps): JSX.Element {
@@ -47,7 +54,7 @@ export function LessonCard({
       title={lesson.title}
     >
       <span className="font-mono text-[9px] text-ink-fade tabular-nums w-3 shrink-0">
-        L{lesson.number}
+        L{displayNumber}
       </span>
       <span className="flex-1 truncate">{lesson.title}</span>
       <span className="flex items-center gap-0.5 text-[9px]">

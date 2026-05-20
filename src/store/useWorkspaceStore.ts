@@ -3,8 +3,11 @@ import { create } from "zustand";
 import {
   editBlockLessons as plEditBlockLessons,
   extractAndMoveLesson as plExtractAndMoveLesson,
+  extractAndMoveLessonToIndex as plExtractAndMoveLessonToIndex,
   moveBlock as plMoveBlock,
+  moveBlockToIndex as plMoveBlockToIndex,
   placeBlock as plPlaceBlock,
+  placeBlockAtIndex as plPlaceBlockAtIndex,
   placeBlockWithSpillover as plPlaceBlockWithSpillover,
   recombineBlock as plRecombineBlock,
   removeBlock as plRemoveBlock,
@@ -28,6 +31,7 @@ import {
   removeObjective as specRemoveObjective,
   renameSubTopic as specRenameSubTopic,
   renameTopic as specRenameTopic,
+  reorderLessonInSubTopic as specReorderLessonInSubTopic,
   setLessonObjectives as specSetLessonObjectives,
   updateLesson as specUpdateLesson,
   updateObjective as specUpdateObjective,
@@ -111,6 +115,30 @@ export interface WorkspaceStoreActions {
     placedBlockId: string,
     localLessonIdx: number,
     toTermId: string
+  ) => void;
+  // Between-drops (DEC-048): index-aware variants of place + move.
+  readonly placeBlockAtIndex: (
+    source: PlacedBlockSource,
+    termId: string,
+    lessonsClaimed: number,
+    atIndex: number
+  ) => void;
+  readonly moveBlockToIndex: (
+    placedBlockId: string,
+    toTermId: string,
+    atIndex: number
+  ) => void;
+  readonly extractAndMoveLessonToIndex: (
+    placedBlockId: string,
+    localLessonIdx: number,
+    toTermId: string,
+    atIndex: number
+  ) => void;
+  /** Reorder a lesson within its sub-topic's lessons array. */
+  readonly reorderLessonInSubTopic: (
+    subTopicCode: string,
+    lessonId: string,
+    toIndex: number
   ) => void;
   // Working spec edits
   readonly editLesson: (
@@ -470,6 +498,51 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set) => ({
       ),
       dirty: true,
     })),
+
+  placeBlockAtIndex: (source, termId, lessonsClaimed, atIndex) =>
+    set((state) => ({
+      workspace: updateActiveTimeline(state.workspace, (tl) =>
+        plPlaceBlockAtIndex(tl, source, termId, lessonsClaimed, atIndex)
+      ),
+      dirty: true,
+    })),
+
+  moveBlockToIndex: (placedBlockId, toTermId, atIndex) =>
+    set((state) => ({
+      workspace: updateActiveTimeline(state.workspace, (tl) =>
+        plMoveBlockToIndex(tl, placedBlockId, toTermId, atIndex)
+      ),
+      dirty: true,
+    })),
+
+  extractAndMoveLessonToIndex: (placedBlockId, localLessonIdx, toTermId, atIndex) =>
+    set((state) => ({
+      workspace: updateActiveTimeline(state.workspace, (tl) =>
+        plExtractAndMoveLessonToIndex(tl, placedBlockId, localLessonIdx, toTermId, atIndex)
+      ),
+      dirty: true,
+    })),
+
+  reorderLessonInSubTopic: (subTopicCode, lessonId, toIndex) =>
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      const updated: Subject = {
+        ...subject,
+        workingSpec: specReorderLessonInSubTopic(
+          subject.workingSpec,
+          subTopicCode,
+          lessonId,
+          toIndex
+        ),
+      };
+      return {
+        workspace: replaceSubject(state.workspace, id, updated),
+        dirty: true,
+      };
+    }),
 
   editLesson: (subTopicCode, lessonId, patch) =>
     set((state) => {

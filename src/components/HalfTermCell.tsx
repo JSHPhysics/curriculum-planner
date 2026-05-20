@@ -11,6 +11,7 @@ import { halfTermUsed } from "@/model/timeline";
 import type { HalfTerm, PlacedBlock, Subject } from "@/model/types";
 
 import { Block } from "./Block";
+import { InsertionSlot } from "./InsertionSlot";
 import { RetrievalSuggestionPopover } from "./RetrievalSuggestionPopover";
 
 export interface HalfTermCellProps {
@@ -53,20 +54,40 @@ export function HalfTermCell({
           {used} / {halfTerm.budget}
         </span>
       </header>
-      <div className="flex flex-col gap-1 p-1.5 flex-1">
-        {sortedBlocksForCell(halfTerm.placedBlocks, subject.customBlocks).map((pb) => (
-          <PlacedBlockCard
-            key={pb.id}
-            placed={pb}
-            subject={subject}
-            onClick={() => onBlockClick(pb.id)}
-          />
-        ))}
-        {halfTerm.placedBlocks.length === 0 && (
-          <div className="text-[10px] text-ink-fade italic text-center mt-4">
-            Drop a block here
-          </div>
-        )}
+      <div className="flex flex-col p-1.5 flex-1">
+        {(() => {
+          const ordered = sortedBlocksForCell(halfTerm.placedBlocks, subject.customBlocks);
+          // Interleave: slot, block, slot, block, …, slot (filling). The last
+          // slot grows to absorb empty cell space so the user can drop into
+          // the bottom area and have it count as "append" (DEC-048).
+          return (
+            <>
+              {ordered.length === 0 && (
+                <div className="text-[10px] text-ink-fade italic text-center mt-2 mb-1 pointer-events-none">
+                  Drop a block here
+                </div>
+              )}
+              {ordered.map((pb, idx) => (
+                <div key={pb.id} className="contents">
+                  <InsertionSlot
+                    id={`slot:${halfTerm.id}:${idx}`}
+                    data={{ kind: "slot", termId: halfTerm.id, index: idx }}
+                  />
+                  <PlacedBlockCard
+                    placed={pb}
+                    subject={subject}
+                    onClick={() => onBlockClick(pb.id)}
+                  />
+                </div>
+              ))}
+              <InsertionSlot
+                id={`slot:${halfTerm.id}:${ordered.length}`}
+                data={{ kind: "slot", termId: halfTerm.id, index: ordered.length }}
+                fillRemaining
+              />
+            </>
+          );
+        })()}
       </div>
       <button
         type="button"

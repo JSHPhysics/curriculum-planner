@@ -257,6 +257,84 @@ export function moveBlock(
 }
 
 /**
+ * Move + insert at a specific index. Replaces moveBlock-then-reorder for the
+ * "drop between two existing items" interaction (DEC-048). atIndex is into
+ * the destination cell's placedBlocks AFTER removal of the moving block.
+ *
+ * Same-term moves: re-orders within the cell.
+ * Cross-term moves: removes from source, inserts at the destination index.
+ */
+export function moveBlockToIndex(
+  timeline: Timeline,
+  placedBlockId: string,
+  toTermId: string,
+  atIndex: number
+): Timeline {
+  const found = findPlacedBlock(timeline, placedBlockId);
+  if (!found) {
+    throw new Error(`moveBlockToIndex: no placed block with id "${placedBlockId}"`);
+  }
+  if (!timeline.halfTerms.some((ht) => ht.id === toTermId)) {
+    throw new Error(`moveBlockToIndex: unknown term "${toTermId}"`);
+  }
+  // Remove from source first (atIndex is relative to the post-remove state).
+  const removed = removeBlockUnconsolidated(timeline, placedBlockId);
+  return consolidate(insertIntoTermAt(removed, toTermId, found.block, atIndex));
+}
+
+/**
+ * Place a new block into a specific index in the term. Same as `placeBlock`
+ * but lets the caller control the position within the cell.
+ */
+export function placeBlockAtIndex(
+  timeline: Timeline,
+  source: PlacedBlockSource,
+  termId: string,
+  lessonsClaimed: number,
+  atIndex: number,
+  options: PlacementOptions = {}
+): Timeline {
+  if (lessonsClaimed < 0) {
+    throw new Error(
+      `placeBlockAtIndex: lessonsClaimed must be >= 0 (got ${lessonsClaimed})`
+    );
+  }
+  const idGen = options.idGen ?? defaultIdGen;
+  const block: PlacedBlock = {
+    id: idGen(),
+    source,
+    lessonsClaimed,
+    lessonRange: [0, lessonsClaimed],
+    splitFrom: null,
+    splitType: null,
+    userEdits: {},
+  };
+  return consolidate(insertIntoTermAt(timeline, termId, block, atIndex));
+}
+
+/**
+ * Remove without re-consolidating — internal helper for compound ops that
+ * will run consolidate themselves at the end. Avoids two passes when callers
+ * remove and immediately re-insert.
+ */
+function removeBlockUnconsolidated(
+  timeline: Timeline,
+  placedBlockId: string
+): Timeline {
+  const found = findPlacedBlock(timeline, placedBlockId);
+  if (!found) return timeline;
+  return {
+    halfTerms: timeline.halfTerms.map((ht): HalfTerm => {
+      if (ht.id !== found.termId) return ht;
+      return {
+        ...ht,
+        placedBlocks: ht.placedBlocks.filter((b) => b.id !== placedBlockId),
+      };
+    }),
+  };
+}
+
+/**
  * Pluck a single lesson out of a placed block and move it to a different
  * half-term. The source block is shrunk or split as needed:
  *   - lesson at the start → source becomes [start+1, end)
@@ -340,6 +418,82 @@ export function extractAndMoveLesson(
   return consolidate(tl);
 }
 
+/**
+ * Variant of extractAndMoveLesson that inserts at a specific index in the
+ * destination cell (DEC-048). `atIndex === -1` appends.
+ */
+export function extractAndMoveLessonToIndex(
+  timeline: Timeline,
+  placedBlockId: string,
+  localLessonIdx: number,
+  toTermId: string,
+  atIndex: number,
+  options: PlacementOptions = {}
+): Timeline {
+  const found = findPlacedBlock(timeline, placedBlockId);
+  if (!found) {
+    throw new Error(
+      `extractAndMoveLessonToIndex: no placed block with id "${placedBlockId}"`
+    );
+  }
+  const { block } = found;
+  if (localLessonIdx < 0 || localLessonIdx >= block.lessonsClaimed) {
+    throw new Error(
+      `extractAndMoveLessonToIndex: localLessonIdx ${localLessonIdx} out of range ` +
+        `[0, ${block.lessonsClaimed})`
+    );
+  }
+  if (!timeline.halfTerms.some((ht) => ht.id === toTermId)) {
+    throw new Error(`extractAndMoveLessonToIndex: unknown term "${toTermId}"`);
+  }
+  if (found.termId === toTermId) {
+    // Same-cell: same source means it'll re-consolidate with the remaining
+    // pieces, so the index is effectively about positioning the surviving
+    // (merged) block. Skip: handled by the same-cell no-op path below.
+    return timeline;
+  }
+
+  const idGen = options.idGen ?? defaultIdGen;
+  const [start, end] = block.lessonRange;
+  const lessonPos = start + localLessonIdx;
+  const groupKey = block.splitFrom ?? block.id;
+
+  const replacement: PlacedBlock[] = [];
+  if (lessonPos > start) {
+    replacement.push({
+      ...block,
+      id: idGen(),
+      lessonsClaimed: lessonPos - start,
+      lessonRange: [start, lessonPos],
+      splitFrom: groupKey,
+      splitType: "manual",
+    });
+  }
+  if (lessonPos + 1 < end) {
+    replacement.push({
+      ...block,
+      id: idGen(),
+      lessonsClaimed: end - (lessonPos + 1),
+      lessonRange: [lessonPos + 1, end],
+      splitFrom: groupKey,
+      splitType: "manual",
+    });
+  }
+
+  const movedPiece: PlacedBlock = {
+    ...block,
+    id: idGen(),
+    lessonsClaimed: 1,
+    lessonRange: [lessonPos, lessonPos + 1],
+    splitFrom: groupKey,
+    splitType: "manual",
+  };
+
+  let tl = replaceInTerm(timeline, found.termId, placedBlockId, replacement);
+  tl = insertIntoTermAt(tl, toTermId, movedPiece, atIndex);
+  return consolidate(tl);
+}
+
 export function editBlockLessons(
   timeline: Timeline,
   placedBlockId: string,
@@ -373,13 +527,33 @@ function appendToTerm(
   termId: string,
   block: PlacedBlock
 ): Timeline {
+  return insertIntoTermAt(timeline, termId, block, -1);
+}
+
+/**
+ * Insert a block into a term at a specific index. `atIndex === -1` means
+ * "append to end". Out-of-range indices clamp to [0, length]. Underpins all
+ * "drop between items" interactions (DEC-048).
+ */
+function insertIntoTermAt(
+  timeline: Timeline,
+  termId: string,
+  block: PlacedBlock,
+  atIndex: number
+): Timeline {
   if (!timeline.halfTerms.some((ht) => ht.id === termId)) {
     throw new Error(`unknown term "${termId}"`);
   }
   return {
     halfTerms: timeline.halfTerms.map((ht): HalfTerm => {
       if (ht.id !== termId) return ht;
-      return { ...ht, placedBlocks: [...ht.placedBlocks, block] };
+      const blocks = [...ht.placedBlocks];
+      const clamped =
+        atIndex < 0 || atIndex > blocks.length
+          ? blocks.length
+          : atIndex;
+      blocks.splice(clamped, 0, block);
+      return { ...ht, placedBlocks: blocks };
     }),
   };
 }

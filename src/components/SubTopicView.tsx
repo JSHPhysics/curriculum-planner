@@ -41,7 +41,9 @@ export interface SubTopicViewProps {
 export function SubTopicView({ subject }: SubTopicViewProps): JSX.Element {
   const placeBlock = useWorkspaceStore((s) => s.placeBlock);
   const placeBlockWithSpillover = useWorkspaceStore((s) => s.placeBlockWithSpillover);
+  const placeBlockAtIndex = useWorkspaceStore((s) => s.placeBlockAtIndex);
   const moveBlock = useWorkspaceStore((s) => s.moveBlock);
+  const moveBlockToIndex = useWorkspaceStore((s) => s.moveBlockToIndex);
   const removeBlock = useWorkspaceStore((s) => s.removeBlock);
   const splitBlock = useWorkspaceStore((s) => s.splitBlock);
   const recombineBlock = useWorkspaceStore((s) => s.recombineBlock);
@@ -74,9 +76,23 @@ export function SubTopicView({ subject }: SubTopicViewProps): JSX.Element {
     const drag = e.active.data.current as DragPayload | undefined;
     const drop = e.over?.data.current as
       | { kind: "term"; termId: string }
+      | { kind: "slot"; termId: string; index: number }
       | { kind: "pool" }
       | undefined;
     if (!drag || !drop) return;
+
+    // DEC-048: slot drops let the user choose an exact position inside a
+    // cell. Spillover is intentionally bypassed for index-aware drops — the
+    // user has expressed a precise positional intent, so we honour it
+    // without auto-distributing across cells.
+    if (drag.kind === "pool" && drop.kind === "slot") {
+      placeBlockAtIndex(drag.source, drop.termId, drag.lessons, drop.index);
+      return;
+    }
+    if (drag.kind === "placed" && drop.kind === "slot") {
+      moveBlockToIndex(drag.placedBlockId, drop.termId, drop.index);
+      return;
+    }
 
     if (drag.kind === "pool" && drop.kind === "term") {
       if (subject.config.autoSpillover) {
