@@ -7,8 +7,17 @@ const DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
 const CURRICULUM_FILTERS = [
   { name: "Curriculum file", extensions: ["curriculum"] },
 ];
-const SPREADSHEET_FILTERS = [
+// Save dialog is xlsx-only — that's the format we export.
+const SPREADSHEET_SAVE_FILTERS = [
   { name: "Excel spreadsheet", extensions: ["xlsx"] },
+];
+// Open dialog accepts xlsx, tsv, and csv. SheetJS auto-detects format from
+// content, so the import pipeline downstream doesn't change.
+const SPREADSHEET_OPEN_FILTERS = [
+  { name: "Spec data (xlsx, tsv, csv)", extensions: ["xlsx", "tsv", "csv"] },
+  { name: "Excel spreadsheet", extensions: ["xlsx"] },
+  { name: "Tab-separated values", extensions: ["tsv"] },
+  { name: "Comma-separated values", extensions: ["csv"] },
 ];
 
 // Tracks whether the renderer has unsaved changes; consulted by the close
@@ -123,8 +132,8 @@ interface OpenSpreadsheetResult {
 ipcMain.handle("file:openSpreadsheet", async (event): Promise<OpenSpreadsheetResult | null> => {
   const win = BrowserWindow.fromWebContents(event.sender);
   const result = await (win
-    ? dialog.showOpenDialog(win, { filters: SPREADSHEET_FILTERS, properties: ["openFile"] })
-    : dialog.showOpenDialog({ filters: SPREADSHEET_FILTERS, properties: ["openFile"] }));
+    ? dialog.showOpenDialog(win, { filters: SPREADSHEET_OPEN_FILTERS, properties: ["openFile"] })
+    : dialog.showOpenDialog({ filters: SPREADSHEET_OPEN_FILTERS, properties: ["openFile"] }));
   if (result.canceled || result.filePaths.length === 0) return null;
   const filePath = result.filePaths[0]!;
   const buf = await readFile(filePath);
@@ -145,7 +154,7 @@ ipcMain.handle(
   async (event, args: SaveSpreadsheetArgs): Promise<SaveSpreadsheetResult | null> => {
     const win = BrowserWindow.fromWebContents(event.sender);
     const dialogOpts = {
-      filters: SPREADSHEET_FILTERS,
+      filters: SPREADSHEET_SAVE_FILTERS,
       defaultPath: args.defaultName ?? "curriculum-plan.xlsx",
     };
     const result = await (win

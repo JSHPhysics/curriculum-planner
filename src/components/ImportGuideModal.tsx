@@ -117,13 +117,19 @@ export function ImportGuideModal({
         <div className="px-6 py-5 space-y-7 overflow-y-auto text-sm text-ink">
           <Section title="1. What an import file is">
             <p>
-              A single <code className="font-mono text-[12px]">.xlsx</code> spreadsheet
-              that describes your scheme of work as a flat list of rows. Each row
-              names a <strong>topic</strong>, a <strong>sub-topic</strong>, a{" "}
+              A flat list of rows describing your scheme of work. Each row names a{" "}
+              <strong>topic</strong>, a <strong>sub-topic</strong>, a{" "}
               <strong>lesson</strong> within that sub-topic, and (optionally) a learning{" "}
               <strong>objective</strong> and a few flags. The planner reads the rows
               top-to-bottom, groups them, generates topic codes, and gives you back
               an interactive plan.
+            </p>
+            <p>
+              The importer accepts <code className="font-mono text-[12px]">.xlsx</code>{" "}
+              spreadsheets, <code className="font-mono text-[12px]">.tsv</code>{" "}
+              (tab-separated), and <code className="font-mono text-[12px]">.csv</code>{" "}
+              (comma-separated) files. Use whichever is easiest — TSV is often the
+              cleanest output from an AI assistant.
             </p>
             <p>
               The file is the source of truth at import time. After import you can
@@ -286,8 +292,10 @@ export function ImportGuideModal({
               If you have an exam-board specification (PDF or text), you can ask an
               LLM to translate it into the import structure. Copy this prompt, paste
               it into Claude / ChatGPT / etc., then paste your source spec below it.
-              Save the AI's response as a tab-separated file or paste it into Excel,
-              then save as <code className="font-mono text-[12px]">.xlsx</code>.
+              Save the AI's response straight into a{" "}
+              <code className="font-mono text-[12px]">.tsv</code> file (any text
+              editor works — Notepad, VS Code, …) and import it. No Excel detour
+              needed.
             </p>
             <div className="mt-3 border border-line rounded-card overflow-hidden">
               <div className="flex items-center justify-between bg-surface-2 px-3 py-2 border-b border-line">

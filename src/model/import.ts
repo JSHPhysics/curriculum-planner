@@ -44,7 +44,7 @@ export function importSpec(
 
   let wb: XLSX.WorkBook;
   try {
-    wb = XLSX.read(buffer, { type: "array" });
+    wb = readWorkbook(buffer);
   } catch (e) {
     return {
       ok: false,
@@ -145,6 +145,25 @@ export function importSpec(
   };
 
   return { ok: true, subject, warnings };
+}
+
+// xlsx files are zip archives starting with PK\x03\x04. Anything else we treat
+// as delimited text (TSV/CSV) and decode as UTF-8 so SheetJS can sniff the
+// delimiter itself. Lets us accept .tsv / .csv without changing the downstream
+// row-processing pipeline.
+function readWorkbook(buffer: ArrayBuffer): XLSX.WorkBook {
+  const bytes = new Uint8Array(buffer);
+  const looksLikeZip =
+    bytes.length >= 4 &&
+    bytes[0] === 0x50 &&
+    bytes[1] === 0x4b &&
+    bytes[2] === 0x03 &&
+    bytes[3] === 0x04;
+  if (looksLikeZip) {
+    return XLSX.read(buffer, { type: "array" });
+  }
+  const text = new TextDecoder("utf-8").decode(bytes);
+  return XLSX.read(text, { type: "string" });
 }
 
 function pickSheetName(names: readonly string[]): string | null {

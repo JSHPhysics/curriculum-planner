@@ -390,3 +390,155 @@ describe("importSpec — header parsing", () => {
     expect(subs.map((s) => s.isDepth)).toEqual([true, true, true, true, true, false, false]);
   });
 });
+
+describe("importSpec — delimited text input (TSV / CSV)", () => {
+  function textBuffer(s: string): ArrayBuffer {
+    return new TextEncoder().encode(s).buffer as ArrayBuffer;
+  }
+
+  function csvField(v: unknown): string {
+    const s = v === null || v === undefined ? "" : String(v);
+    // Quote whenever the field contains a comma, quote, or newline.
+    if (/[",\n]/.test(s)) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  }
+
+  function toTsv(headers: readonly string[], rows: readonly (readonly unknown[])[]): string {
+    const lines = [headers.join("\t")];
+    for (const r of rows) {
+      lines.push(r.map((v) => (v === null || v === undefined ? "" : String(v))).join("\t"));
+    }
+    return lines.join("\n");
+  }
+
+  function toCsv(headers: readonly string[], rows: readonly (readonly unknown[])[]): string {
+    const lines = [headers.map(csvField).join(",")];
+    for (const r of rows) {
+      lines.push(r.map(csvField).join(","));
+    }
+    return lines.join("\n");
+  }
+
+  it("imports a minimal TSV the same way as xlsx", () => {
+    const rows = [
+      rowOf({
+        Topic: "Forces",
+        "Lesson No.": 1,
+        "Lesson Title": "Vectors and scalars",
+        "Sub-topic": "Kinematics",
+        Objectives: "Distinguish vectors and scalars",
+        Difficulty: 1,
+      }),
+      rowOf({
+        Topic: "Forces",
+        "Lesson No.": 2,
+        "Lesson Title": "Speed and velocity",
+        "Sub-topic": "Kinematics",
+        Objectives: "Calculate speed; calculate velocity",
+        Difficulty: 2,
+      }),
+    ];
+    const tsv = toTsv(FULL_HEADERS, rows);
+    const r = importSpec(textBuffer(tsv), { idGen: counterIdGen() });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const topic = r.subject.importedSpec.topics[0];
+    expect(topic?.name).toBe("Forces");
+    const sub = topic?.subTopics[0];
+    expect(sub?.name).toBe("Kinematics");
+    expect(sub?.lessons).toHaveLength(2);
+    // "Calculate speed; calculate velocity" splits on semicolons.
+    expect(sub?.lessons[1]?.objectives.map((o) => o.text)).toEqual([
+      "Calculate speed",
+      "calculate velocity",
+    ]);
+  });
+
+  it("imports CSV with quoted fields containing commas", () => {
+    const rows = [
+      rowOf({
+        Topic: "Forces",
+        "Lesson No.": 1,
+        "Lesson Title": "Newton's first law",
+        "Sub-topic": "Dynamics",
+        // Quote the field so the embedded comma is preserved.
+        Objectives: "State Newton's first law, including examples",
+        Difficulty: 2,
+      }),
+    ];
+    const csv = toCsv(FULL_HEADERS, rows);
+    const r = importSpec(textBuffer(csv), { idGen: counterIdGen() });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const lesson = r.subject.importedSpec.topics[0]?.subTopics[0]?.lessons[0];
+    expect(lesson?.title).toBe("Newton's first law");
+    expect(lesson?.objectives.map((o) => o.text)).toEqual([
+      "State Newton's first law, including examples",
+    ]);
+  });
+
+  it("merges multi-row lessons in TSV the same way as xlsx", () => {
+    const rows = [
+      rowOf({
+        Topic: "T",
+        "Lesson No.": 1,
+        "Lesson Title": "L1",
+        "Sub-topic": "S",
+        Objectives: "obj A",
+      }),
+      rowOf({
+        Topic: "T",
+        "Lesson No.": 1,
+        "Lesson Title": "L1",
+        "Sub-topic": "S",
+        Objectives: "obj B",
+        "Extra-depth": "yes",
+      }),
+    ];
+    const r = importSpec(textBuffer(toTsv(FULL_HEADERS, rows)), { idGen: counterIdGen() });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const lesson = r.subject.importedSpec.topics[0]?.subTopics[0]?.lessons[0];
+    expect(lesson?.objectives.map((o) => o.text)).toEqual(["obj A", "obj B"]);
+    expect(lesson?.isDepth).toBe(true);
+  });
+
+  it("strips a leading UTF-8 BOM in TSV input", () => {
+    const rows = [
+      rowOf({
+        Topic: "T",
+        "Lesson No.": 1,
+        "Lesson Title": "L1",
+        "Sub-topic": "S",
+        Objectives: "x",
+      }),
+    ];
+    const tsvWithBom = "﻿" + toTsv(FULL_HEADERS, rows);
+    const r = importSpec(textBuffer(tsvWithBom), { idGen: counterIdGen() });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.subject.importedSpec.topics[0]?.name).toBe("T");
+  });
+
+  it("rejects a TSV missing a required column", () => {
+    // Drop "Sub-topic" from the header row.
+    const partialHeaders = FULL_HEADERS.filter((h) => h !== "Sub-topic");
+    const tsv = toTsv(partialHeaders, [
+      partialHeaders.map((h) =>
+        h === "Topic"
+          ? "T"
+          : h === "Lesson No."
+          ? 1
+          : h === "Lesson Title"
+          ? "L1"
+          : ""
+      ),
+    ]);
+    const r = importSpec(textBuffer(tsv));
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors.some((e) => e.code === "MISSING_COLUMN")).toBe(true);
+  });
+});

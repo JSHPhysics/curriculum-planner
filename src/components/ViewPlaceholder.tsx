@@ -100,7 +100,7 @@ function EmptyWorkspace({ onOpenImportGuide }: EmptyWorkspaceProps): JSX.Element
         opened.buffer.byteOffset + opened.buffer.byteLength
       ) as ArrayBuffer;
       const name = opened.path.split(/[\\/]/).pop() ?? "Subject";
-      await commitImport(ab, name, name.replace(/\.xlsx$/i, ""));
+      await commitImport(ab, name, name.replace(/\.(xlsx|tsv|csv)$/i, ""));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -160,8 +160,9 @@ function EmptyWorkspace({ onOpenImportGuide }: EmptyWorkspaceProps): JSX.Element
           Import a specification to begin
         </h2>
         <p className="text-ink-dim text-sm mb-2">
-          Pick an `.xlsx` file matching the import format, download a template to
-          start from scratch, or load the bundled example to explore the prototype.
+          Pick an `.xlsx`, `.tsv`, or `.csv` file matching the import format,
+          download a template to start from scratch, or load the bundled example
+          to explore the prototype.
         </p>
         <button
           onClick={onOpenImportGuide}
@@ -176,7 +177,7 @@ function EmptyWorkspace({ onOpenImportGuide }: EmptyWorkspaceProps): JSX.Element
               disabled={busy}
               className="px-4 py-2 bg-navy text-bg rounded-card hover:bg-navy-dim transition disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
             >
-              {busy ? "Loading…" : "Import .xlsx file"}
+              {busy ? "Loading…" : "Import file (.xlsx / .tsv / .csv)"}
             </button>
           )}
           <button
