@@ -1,4 +1,17 @@
-import type { Lesson, Objective, Spec, SubTopic, Topic } from "./types";
+import type {
+  CustomBlock,
+  HalfTerm,
+  Lesson,
+  Objective,
+  PlacedBlock,
+  SavedPreset,
+  SavedPresetPlacement,
+  Spec,
+  Subject,
+  SubTopic,
+  Timeline,
+  Topic,
+} from "./types";
 
 export type LessonEditableFields = Pick<
   Lesson,
@@ -147,4 +160,263 @@ function mapLesson(
       lessons: st.lessons.map((l) => (l.id === lessonId ? update(l) : l)),
     };
   });
+}
+
+// ============================================================
+// Topic / sub-topic renames with code cascade (DEC-047)
+//
+// Renaming a sub-topic code or topic code cascades to every place that
+// references it: placed blocks in the timeline, custom-block `revisits`
+// arrays, and any saved-preset placements / revisits on the subject. The
+// rename only touches `workingSpec` — `importedSpec` is preserved per
+// SPEC.md §3.2, so "restore to import" still produces the original codes
+// (at the cost of orphaning placements that pointed at renamed codes).
+// ============================================================
+
+export interface TopicRenamePatch {
+  readonly name?: string;
+  readonly newCode?: string;
+  readonly paper?: string | null;
+}
+
+export interface SubTopicRenamePatch {
+  readonly name?: string;
+  readonly newCode?: string;
+  readonly notes?: string | null;
+  readonly difficulty?: 1 | 2 | 3;
+  readonly isDepth?: boolean;
+  readonly separateOnly?: boolean;
+}
+
+export class CodeConflictError extends Error {
+  public readonly code: string;
+  constructor(message: string, code: string) {
+    super(message);
+    this.code = code;
+    this.name = "CodeConflictError";
+  }
+}
+
+/**
+ * Rename a topic in the working spec. If `newCode` is provided and differs
+ * from the current code, the change cascades:
+ *   - Every sub-topic's `code` whose old code starts with the topic's old
+ *     code is rewritten with the new topic-code prefix (T1a → T9a when
+ *     T1 → T9). User-edited sub-topic codes that don't follow the prefix
+ *     convention are left untouched and warned about by the caller.
+ *   - Every PlacedBlock that references a renamed sub-topic code is updated.
+ *   - Every CustomBlock.revisits and SavedPreset entry is updated.
+ *
+ * Throws CodeConflictError if `newCode` collides with another topic's code.
+ */
+export function renameTopic(
+  subject: Subject,
+  topicCode: string,
+  patch: TopicRenamePatch
+): Subject {
+  const topic = subject.workingSpec.topics.find((t) => t.code === topicCode);
+  if (!topic) {
+    throw new Error(`renameTopic: no topic with code "${topicCode}"`);
+  }
+  const trimmedCode = patch.newCode?.trim();
+  const newCode = trimmedCode && trimmedCode !== topicCode ? trimmedCode : null;
+  if (newCode !== null) {
+    if (newCode === "") {
+      throw new CodeConflictError(`Topic code must not be empty`, "EMPTY_CODE");
+    }
+    if (subject.workingSpec.topics.some((t) => t.code === newCode)) {
+      throw new CodeConflictError(
+        `Topic code "${newCode}" is already used`,
+        "TOPIC_CODE_TAKEN"
+      );
+    }
+  }
+
+  // Build the code-remap: old sub-topic code → new sub-topic code.
+  const subTopicRemap = new Map<string, string>();
+  if (newCode !== null) {
+    for (const st of topic.subTopics) {
+      // Convention: a sub-topic code is the topic code + a letter suffix.
+      // If the existing code starts with the topic's old code, rewrite the
+      // prefix to the new code. User-renamed sub-topic codes that don't
+      // follow the convention are NOT touched — the user can rename them
+      // individually if they want to.
+      if (st.code.startsWith(topicCode)) {
+        const suffix = st.code.slice(topicCode.length);
+        const newSubTopicCode = newCode + suffix;
+        if (newSubTopicCode !== st.code) {
+          subTopicRemap.set(st.code, newSubTopicCode);
+        }
+      }
+    }
+    // Validate no clash with sub-topics in OTHER topics.
+    for (const t of subject.workingSpec.topics) {
+      if (t.code === topicCode) continue;
+      for (const st of t.subTopics) {
+        if (subTopicRemap.has(st.code)) continue;
+        if ([...subTopicRemap.values()].includes(st.code)) {
+          throw new CodeConflictError(
+            `Sub-topic code "${st.code}" already exists; topic-code rename would clash`,
+            "SUBTOPIC_CODE_CLASH"
+          );
+        }
+      }
+    }
+  }
+
+  const updatedSpec: Spec = {
+    topics: subject.workingSpec.topics.map((t) => {
+      if (t.code !== topicCode) return t;
+      const renamedSubTopics: SubTopic[] = t.subTopics.map((st) => {
+        const mapped = subTopicRemap.get(st.code);
+        return mapped ? { ...st, code: mapped } : st;
+      });
+      return {
+        ...t,
+        ...(newCode !== null ? { code: newCode } : {}),
+        ...(patch.name !== undefined ? { name: patch.name } : {}),
+        ...(patch.paper !== undefined ? { paper: patch.paper } : {}),
+        subTopics: renamedSubTopics,
+      };
+    }),
+  };
+
+  return cascadeCodeChange({ ...subject, workingSpec: updatedSpec }, subTopicRemap);
+}
+
+/**
+ * Rename a single sub-topic. If `newCode` is provided and differs from the
+ * current code, every reference (timeline, custom-block revisits, saved
+ * presets) is rewritten. The topic code itself is unaffected.
+ */
+export function renameSubTopic(
+  subject: Subject,
+  subTopicCode: string,
+  patch: SubTopicRenamePatch
+): Subject {
+  let foundTopic: Topic | null = null;
+  let foundSubTopic: SubTopic | null = null;
+  for (const t of subject.workingSpec.topics) {
+    for (const st of t.subTopics) {
+      if (st.code === subTopicCode) {
+        foundTopic = t;
+        foundSubTopic = st;
+        break;
+      }
+    }
+    if (foundSubTopic) break;
+  }
+  if (!foundTopic || !foundSubTopic) {
+    throw new Error(`renameSubTopic: no sub-topic with code "${subTopicCode}"`);
+  }
+  const trimmedCode = patch.newCode?.trim();
+  const newCode = trimmedCode && trimmedCode !== subTopicCode ? trimmedCode : null;
+  if (newCode !== null) {
+    if (newCode === "") {
+      throw new CodeConflictError(`Sub-topic code must not be empty`, "EMPTY_CODE");
+    }
+    for (const t of subject.workingSpec.topics) {
+      for (const st of t.subTopics) {
+        if (st.code === newCode) {
+          throw new CodeConflictError(
+            `Sub-topic code "${newCode}" is already used`,
+            "SUBTOPIC_CODE_TAKEN"
+          );
+        }
+      }
+    }
+  }
+
+  const updatedSpec: Spec = {
+    topics: subject.workingSpec.topics.map((t) => ({
+      ...t,
+      subTopics: t.subTopics.map((st) => {
+        if (st.code !== subTopicCode) return st;
+        return {
+          ...st,
+          ...(newCode !== null ? { code: newCode } : {}),
+          ...(patch.name !== undefined ? { name: patch.name } : {}),
+          ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
+          ...(patch.difficulty !== undefined ? { difficulty: patch.difficulty } : {}),
+          ...(patch.isDepth !== undefined ? { isDepth: patch.isDepth } : {}),
+          ...(patch.separateOnly !== undefined ? { separateOnly: patch.separateOnly } : {}),
+        };
+      }),
+    })),
+  };
+
+  const remap = new Map<string, string>();
+  if (newCode !== null) remap.set(subTopicCode, newCode);
+  return cascadeCodeChange({ ...subject, workingSpec: updatedSpec }, remap);
+}
+
+/**
+ * Apply a sub-topic code remap to every place outside the spec that references
+ * a sub-topic code: placed blocks, custom-block revisits, saved-preset
+ * placements + custom-block revisits. Returns the subject unchanged when the
+ * remap is empty (common case: only name was edited).
+ */
+function cascadeCodeChange(
+  subject: Subject,
+  remap: ReadonlyMap<string, string>
+): Subject {
+  if (remap.size === 0) return subject;
+
+  const remapCode = (code: string): string => remap.get(code) ?? code;
+
+  const nextTimeline: Timeline = {
+    halfTerms: subject.timeline.halfTerms.map(
+      (ht): HalfTerm => ({
+        ...ht,
+        placedBlocks: ht.placedBlocks.map((pb): PlacedBlock => {
+          if (pb.source.kind !== "sub-topic") return pb;
+          const remapped = remap.get(pb.source.subTopicCode);
+          if (!remapped) return pb;
+          return {
+            ...pb,
+            source: { kind: "sub-topic", subTopicCode: remapped },
+          };
+        }),
+      })
+    ),
+  };
+
+  const nextCustomBlocks: readonly CustomBlock[] = subject.customBlocks.map(
+    (cb): CustomBlock => {
+      if (!cb.revisits || cb.revisits.length === 0) return cb;
+      const mapped = cb.revisits.map(remapCode);
+      return mapped.every((m, i) => m === cb.revisits![i])
+        ? cb
+        : { ...cb, revisits: mapped };
+    }
+  );
+
+  const nextPresets: readonly SavedPreset[] | undefined = subject.presets
+    ? subject.presets.map((p): SavedPreset => {
+        const placements: SavedPresetPlacement[] = p.placements.map((pl) => {
+          if (pl.source.kind !== "sub-topic") return pl;
+          const remapped = remap.get(pl.source.subTopicCode);
+          if (!remapped) return pl;
+          return {
+            ...pl,
+            source: { kind: "sub-topic", subTopicCode: remapped },
+          };
+        });
+        const customBlocks = p.customBlocks.map((cb) => {
+          if (!cb.revisits || cb.revisits.length === 0) return cb;
+          const mapped = cb.revisits.map(remapCode);
+          return mapped.every((m, i) => m === cb.revisits![i])
+            ? cb
+            : { ...cb, revisits: mapped };
+        });
+        return { ...p, placements, customBlocks };
+      })
+    : subject.presets;
+
+  return {
+    ...subject,
+    timeline: nextTimeline,
+    customBlocks: nextCustomBlocks,
+    ...(nextPresets ? { presets: nextPresets } : {}),
+  };
 }

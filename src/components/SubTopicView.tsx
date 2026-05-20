@@ -17,7 +17,9 @@ import { Block } from "./Block";
 import { BlockEditModal } from "./BlockEditModal";
 import { CustomBlockModal } from "./CustomBlockModal";
 import { Pool } from "./Pool";
+import { SubTopicEditModal } from "./SubTopicEditModal";
 import { TimelineGrid } from "./TimelineGrid";
+import { TopicEditModal } from "./TopicEditModal";
 
 interface DragPoolPayload {
   readonly kind: "pool";
@@ -46,11 +48,15 @@ export function SubTopicView({ subject }: SubTopicViewProps): JSX.Element {
   const editBlockLessons = useWorkspaceStore((s) => s.editBlockLessons);
   const addCustomBlock = useWorkspaceStore((s) => s.addCustomBlock);
   const updateCustomBlock = useWorkspaceStore((s) => s.updateCustomBlock);
+  const renameTopic = useWorkspaceStore((s) => s.renameTopic);
+  const renameSubTopic = useWorkspaceStore((s) => s.renameSubTopic);
 
   const [activeDrag, setActiveDrag] = useState<DragPayload | null>(null);
   const [openModal, setOpenModal] = useState<
     | { kind: "edit"; placedBlockId: string }
     | { kind: "custom" }
+    | { kind: "edit-topic"; topicCode: string }
+    | { kind: "edit-subtopic"; subTopicCode: string }
     | null
   >(null);
 
@@ -99,7 +105,14 @@ export function SubTopicView({ subject }: SubTopicViewProps): JSX.Element {
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <Pool subject={subject} onAddCustomBlock={() => setOpenModal({ kind: "custom" })} />
+      <Pool
+        subject={subject}
+        onAddCustomBlock={() => setOpenModal({ kind: "custom" })}
+        onEditTopic={(topicCode) => setOpenModal({ kind: "edit-topic", topicCode })}
+        onEditSubTopic={(subTopicCode) =>
+          setOpenModal({ kind: "edit-subtopic", subTopicCode })
+        }
+      />
       <TimelineGrid
         subject={subject}
         onBlockClick={(id) => setOpenModal({ kind: "edit", placedBlockId: id })}
@@ -127,6 +140,47 @@ export function SubTopicView({ subject }: SubTopicViewProps): JSX.Element {
           onCreate={handleCustomCreate}
         />
       )}
+      {openModal?.kind === "edit-topic" &&
+        (() => {
+          const topic = subject.workingSpec.topics.find(
+            (t) => t.code === openModal.topicCode
+          );
+          if (!topic) return null;
+          return (
+            <TopicEditModal
+              topic={topic}
+              onCancel={() => setOpenModal(null)}
+              onSave={(patch) => {
+                renameTopic(topic.code, patch);
+                setOpenModal(null);
+              }}
+            />
+          );
+        })()}
+      {openModal?.kind === "edit-subtopic" &&
+        (() => {
+          let found: import("@/model/types").SubTopic | null = null;
+          for (const t of subject.workingSpec.topics) {
+            for (const st of t.subTopics) {
+              if (st.code === openModal.subTopicCode) {
+                found = st;
+                break;
+              }
+            }
+            if (found) break;
+          }
+          if (!found) return null;
+          return (
+            <SubTopicEditModal
+              subTopic={found}
+              onCancel={() => setOpenModal(null)}
+              onSave={(patch) => {
+                renameSubTopic(found!.code, patch);
+                setOpenModal(null);
+              }}
+            />
+          );
+        })()}
     </DndContext>
   );
 }

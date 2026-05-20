@@ -9,9 +9,16 @@ import { Block } from "./Block";
 export interface PoolProps {
   readonly subject: Subject;
   readonly onAddCustomBlock: () => void;
+  readonly onEditTopic: (topicCode: string) => void;
+  readonly onEditSubTopic: (subTopicCode: string) => void;
 }
 
-export function Pool({ subject, onAddCustomBlock }: PoolProps): JSX.Element {
+export function Pool({
+  subject,
+  onAddCustomBlock,
+  onEditTopic,
+  onEditSubTopic,
+}: PoolProps): JSX.Element {
   const { setNodeRef, isOver } = useDroppable({
     id: "pool",
     data: { kind: "pool" },
@@ -59,7 +66,14 @@ export function Pool({ subject, onAddCustomBlock }: PoolProps): JSX.Element {
       ) : (
         <div className="p-2 flex flex-col gap-3">
           {[...byTopic.values()].map(({ topic, entries }) => (
-            <TopicSection key={topic.code} topic={topic} entries={entries} subject={subject} />
+            <TopicSection
+              key={topic.code}
+              topic={topic}
+              entries={entries}
+              subject={subject}
+              onEditTopic={onEditTopic}
+              onEditSubTopic={onEditSubTopic}
+            />
           ))}
           {customBlocks.length > 0 && (
             <div>
@@ -83,30 +97,51 @@ interface TopicSectionProps {
   readonly topic: Topic;
   readonly entries: ReturnType<typeof getPoolEntries>;
   readonly subject: Subject;
+  readonly onEditTopic: (topicCode: string) => void;
+  readonly onEditSubTopic: (subTopicCode: string) => void;
 }
 
-function TopicSection({ topic, entries, subject }: TopicSectionProps): JSX.Element {
+function TopicSection({
+  topic,
+  entries,
+  subject,
+  onEditTopic,
+  onEditSubTopic,
+}: TopicSectionProps): JSX.Element {
   const [open, setOpen] = useState(true);
   const colour = getTopicColour(subject.workingSpec, topic.code);
   return (
     <div>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-2 px-2 py-1 hover:bg-surface-2 rounded text-left"
-      >
-        <span
-          aria-hidden
-          className="inline-block w-2 h-2 rounded-full"
-          style={{ backgroundColor: colour }}
-        />
-        <span className="font-mono text-[10px] tracking-wider text-ink-fade">
-          {topic.code}
-        </span>
-        <span className="text-xs flex-1 truncate" title={topic.name}>
-          {topic.name}
-        </span>
-        <span className="text-[10px] text-ink-fade">{open ? "▾" : "▸"}</span>
-      </button>
+      <div className="w-full flex items-center gap-2 px-2 py-1 rounded hover:bg-surface-2">
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="flex-1 flex items-center gap-2 text-left min-w-0"
+        >
+          <span
+            aria-hidden
+            className="inline-block w-2 h-2 rounded-full shrink-0"
+            style={{ backgroundColor: colour }}
+          />
+          <span className="font-mono text-[10px] tracking-wider text-ink-fade">
+            {topic.code}
+          </span>
+          <span className="text-xs flex-1 truncate" title={topic.name}>
+            {topic.name}
+          </span>
+          <span className="text-[10px] text-ink-fade">{open ? "▾" : "▸"}</span>
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onEditTopic(topic.code);
+          }}
+          aria-label={`Edit topic ${topic.name}`}
+          title="Edit topic"
+          className="text-[11px] text-ink-fade hover:text-ink px-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
+        >
+          ✎
+        </button>
+      </div>
       {open && (
         <div className="flex flex-col gap-1 pl-2 mt-0.5">
           {entries.map((e) => (
@@ -116,6 +151,7 @@ function TopicSection({ topic, entries, subject }: TopicSectionProps): JSX.Eleme
               name={e.subTopic.name}
               lessons={e.unplacedLessons}
               colour={colour}
+              onEdit={() => onEditSubTopic(e.subTopic.code)}
             />
           ))}
         </div>
@@ -129,9 +165,16 @@ interface PoolSubTopicProps {
   readonly name: string;
   readonly lessons: number;
   readonly colour: string;
+  readonly onEdit: () => void;
 }
 
-function PoolSubTopic({ code, name, lessons, colour }: PoolSubTopicProps): JSX.Element {
+function PoolSubTopic({
+  code,
+  name,
+  lessons,
+  colour,
+  onEdit,
+}: PoolSubTopicProps): JSX.Element {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `pool:${code}`,
     data: {
@@ -141,15 +184,31 @@ function PoolSubTopic({ code, name, lessons, colour }: PoolSubTopicProps): JSX.E
     },
   });
   return (
-    <div ref={setNodeRef} {...listeners} {...attributes} className="touch-none">
-      <Block
-        code={code}
-        name={name}
-        lessons={lessons}
-        colour={colour}
-        variant="pool"
-        dragging={isDragging}
-      />
+    <div className="relative group">
+      <div ref={setNodeRef} {...listeners} {...attributes} className="touch-none">
+        <Block
+          code={code}
+          name={name}
+          lessons={lessons}
+          colour={colour}
+          variant="pool"
+          dragging={isDragging}
+        />
+      </div>
+      {/* DEC-047: pencil button sits on top of the draggable block. Stop
+          propagation prevents the click from initiating a drag. */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onEdit();
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+        aria-label={`Edit sub-topic ${code}`}
+        title="Edit sub-topic"
+        className="absolute top-1 right-1 text-[11px] leading-none text-ink-fade hover:text-ink opacity-0 group-hover:opacity-100 focus-visible:opacity-100 px-1 py-0.5 rounded bg-bg/90 border border-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
+      >
+        ✎
+      </button>
     </div>
   );
 }

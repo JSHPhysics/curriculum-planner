@@ -26,11 +26,15 @@ import {
   addObjectiveToLesson as specAddObjectiveToLesson,
   appendLesson as specAppendLesson,
   removeObjective as specRemoveObjective,
+  renameSubTopic as specRenameSubTopic,
+  renameTopic as specRenameTopic,
   setLessonObjectives as specSetLessonObjectives,
   updateLesson as specUpdateLesson,
   updateObjective as specUpdateObjective,
   type LessonEditableFields,
   type ObjectiveEditableFields,
+  type SubTopicRenamePatch,
+  type TopicRenamePatch,
 } from "@/model/specEdits";
 import type {
   CustomBlock,
@@ -220,6 +224,18 @@ export interface WorkspaceStoreActions {
   readonly deleteSavedPreset: (presetId: string) => void;
   /** Append a pre-built SavedPreset (e.g. from paste-JSON import) to the active subject. */
   readonly addSavedPreset: (preset: SavedPreset) => void;
+  /**
+   * Rename a topic in the active subject's working spec. If `patch.newCode`
+   * differs from the topic's current code, the change cascades to sub-topic
+   * codes (T1a → T9a), placed blocks, custom-block revisits, and saved
+   * presets. Throws CodeConflictError if the new code clashes.
+   */
+  readonly renameTopic: (topicCode: string, patch: TopicRenamePatch) => void;
+  /** Rename a single sub-topic with cascade — same semantics as renameTopic. */
+  readonly renameSubTopic: (
+    subTopicCode: string,
+    patch: SubTopicRenamePatch
+  ) => void;
 }
 
 export type WorkspaceStore = WorkspaceStoreState & WorkspaceStoreActions;
@@ -765,6 +781,32 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set) => ({
       const subject = state.workspace.subjects.find((s) => s.id === id);
       if (!subject) return {};
       const updated = addPresetToSubject(subject, preset);
+      return {
+        workspace: replaceSubject(state.workspace, id, updated),
+        dirty: true,
+      };
+    }),
+
+  renameTopic: (topicCode, patch) =>
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      const updated = specRenameTopic(subject, topicCode, patch);
+      return {
+        workspace: replaceSubject(state.workspace, id, updated),
+        dirty: true,
+      };
+    }),
+
+  renameSubTopic: (subTopicCode, patch) =>
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      const updated = specRenameSubTopic(subject, subTopicCode, patch);
       return {
         workspace: replaceSubject(state.workspace, id, updated),
         dirty: true,
