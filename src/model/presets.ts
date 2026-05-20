@@ -1,14 +1,30 @@
 import { placeBlockWithSpillover } from "./placement";
 import { getVisibleTimelineYears } from "./timeline";
 import type {
+  CustomBlock,
   HalfTerm,
   PlacedBlock,
   PlacedBlockSource,
+  SavedPreset,
+  SavedPresetCustomBlock,
+  SavedPresetPlacement,
   Subject,
   SubTopic,
   Timeline,
   Topic,
 } from "./types";
+
+/**
+ * The bundled example physics spec ships with the algorithmic presets pre-
+ * tuned. For any imported subject, those algorithms haven't been calibrated,
+ * so we hide them — the user authors saved presets instead (DEC-045). Detect
+ * via the canonical example filename set in ViewPlaceholder.loadExample.
+ */
+export const EXAMPLE_SUBJECT_FILENAME = "example_physics_spec.xlsx";
+
+export function isExampleSubject(subject: Subject): boolean {
+  return subject.meta.sourceFilename === EXAMPLE_SUBJECT_FILENAME;
+}
 
 /**
  * Preset layout algorithms. Each one takes a Subject (with its working spec
@@ -526,3 +542,410 @@ export function __isSubTopicDepth(subTopic: SubTopic): boolean {
 // Re-export for use in surrounding code that wants to filter placed blocks
 // before/after applying a preset.
 export type { PlacedBlock };
+
+// ============================================================
+// Saved presets (DEC-045)
+//
+// Capture the current sub-topic placements + custom blocks (with their
+// placements) into a portable structure that lives on the Subject. Applying
+// a saved preset later restores both layers atomically.
+//
+// References:
+//   - Sub-topic placements use the importer's stable code (T1, T1a, …) so the
+//     preset survives spec-edits as long as the code does.
+//   - Custom blocks use a preset-local `ref` ("cb1", "cb2", …). Applying a
+//     preset always mints fresh CustomBlock IDs in the target subject.
+// ============================================================
+
+export interface SaveCurrentPresetOptions {
+  readonly name: string;
+  readonly description?: string;
+  readonly now?: Date;
+  readonly idGen?: () => string;
+}
+
+/**
+ * Snapshot a subject's current timeline + custom blocks as a SavedPreset.
+ * Walks the timeline once, dedups custom blocks that contributed any
+ * placement, and emits stable preset-local refs (cb1, cb2, …) in first-seen
+ * order. The Subject itself is not mutated.
+ */
+export function saveCurrentAsPreset(
+  subject: Subject,
+  options: SaveCurrentPresetOptions
+): SavedPreset {
+  const idGen = options.idGen ?? (() => crypto.randomUUID());
+  const now = options.now ?? new Date();
+
+  // Walk in timeline order so the preset's "natural" emit order matches what
+  // the user sees on screen. Half-term ordering follows the Timeline; within
+  // each half-term we preserve the placedBlocks order.
+  const customRefByBlockId = new Map<string, string>();
+  const usedCustomBlocks: CustomBlock[] = [];
+  const placements: SavedPresetPlacement[] = [];
+
+  for (const ht of subject.timeline.halfTerms) {
+    for (const pb of ht.placedBlocks) {
+      if (pb.source.kind === "sub-topic") {
+        placements.push({
+          halfTermId: ht.id,
+          source: { kind: "sub-topic", subTopicCode: pb.source.subTopicCode },
+          lessonsClaimed: pb.lessonsClaimed,
+          lessonRange: [pb.lessonRange[0], pb.lessonRange[1]],
+          ...(pb.splitType ? { splitType: pb.splitType } : {}),
+        });
+      } else if (pb.source.kind === "custom") {
+        const customBlockId = pb.source.customBlockId;
+        let ref = customRefByBlockId.get(customBlockId);
+        if (!ref) {
+          const cb = subject.customBlocks.find((c) => c.id === customBlockId);
+          if (!cb) continue; // dangling placement; skip
+          ref = `cb${usedCustomBlocks.length + 1}`;
+          customRefByBlockId.set(customBlockId, ref);
+          usedCustomBlocks.push(cb);
+        }
+        placements.push({
+          halfTermId: ht.id,
+          source: { kind: "custom", customBlockRef: ref },
+          lessonsClaimed: pb.lessonsClaimed,
+          lessonRange: [pb.lessonRange[0], pb.lessonRange[1]],
+          ...(pb.splitType ? { splitType: pb.splitType } : {}),
+        });
+      }
+      // eoht placements are legacy v1.x; v2 files have already been migrated
+      // (DEC-044) so we don't need to handle them here.
+    }
+  }
+
+  const customBlocks: SavedPresetCustomBlock[] = usedCustomBlocks.map((cb, i) => {
+    const ref = `cb${i + 1}`;
+    const out: SavedPresetCustomBlock = {
+      ref,
+      name: cb.name,
+      lessons: cb.lessons,
+      colour: cb.colour ?? null,
+      category: cb.category ?? "other",
+      ...(cb.label ? { label: cb.label } : {}),
+      ...(cb.revisits && cb.revisits.length > 0 ? { revisits: [...cb.revisits] } : {}),
+      ...(cb.isEoHT ? { isEoHT: true } : {}),
+    };
+    return out;
+  });
+
+  const result: SavedPreset = {
+    id: idGen(),
+    name: options.name,
+    ...(options.description ? { description: options.description } : {}),
+    createdAt: now.toISOString(),
+    customBlocks,
+    placements,
+  };
+  return result;
+}
+
+export interface ApplySavedPresetResult {
+  readonly subject: Subject;
+  readonly orphans: SavedPresetOrphans;
+}
+
+export interface SavedPresetOrphans {
+  /** Sub-topic codes in the preset that don't exist in the subject's working spec. */
+  readonly unmatchedSubTopicCodes: readonly string[];
+  /** Custom-block refs that the preset placements named but no matching
+   *  SavedPresetCustomBlock entry exists for. */
+  readonly unmatchedCustomRefs: readonly string[];
+  /** Half-term ids in the preset that aren't in the subject's timeline. */
+  readonly unmatchedHalfTermIds: readonly string[];
+  /** Total placements skipped because of any of the above. */
+  readonly skippedPlacements: number;
+}
+
+export interface ApplySavedPresetOptions {
+  readonly idGen?: () => string;
+}
+
+/**
+ * Apply a saved preset to a subject. Returns a new Subject with:
+ *   - All sub-topic placements cleared and rebuilt from the preset.
+ *   - All custom blocks cleared and rebuilt from the preset's custom blocks
+ *     (each one given a fresh id; the preset-local `ref` survives only inside
+ *     this function as a placement lookup key).
+ *   - Custom-kind placements pointing at the freshly-minted custom-block ids.
+ *
+ * Anything in the preset that can't be matched (unknown sub-topic code,
+ * unknown ref, missing half-term) is collected into `orphans` so the caller
+ * can show a "{N} placements were skipped" notice.
+ */
+export function applySavedPreset(
+  subject: Subject,
+  preset: SavedPreset,
+  options: ApplySavedPresetOptions = {}
+): ApplySavedPresetResult {
+  const idGen = options.idGen ?? (() => crypto.randomUUID());
+
+  const validSubTopicCodes = new Set<string>();
+  for (const t of subject.workingSpec.topics) {
+    for (const s of t.subTopics) validSubTopicCodes.add(s.code);
+  }
+  const halfTermIndex = new Map<string, number>();
+  subject.timeline.halfTerms.forEach((ht, i) => halfTermIndex.set(ht.id, i));
+
+  // Mint fresh custom blocks from the preset.
+  const refToCustomId = new Map<string, string>();
+  const customBlocks: CustomBlock[] = preset.customBlocks.map((pcb) => {
+    const id = idGen();
+    refToCustomId.set(pcb.ref, id);
+    const out: CustomBlock = {
+      id,
+      name: pcb.name,
+      lessons: pcb.lessons,
+      colour: pcb.colour,
+      isEoHT: pcb.isEoHT === true,
+      category: pcb.category,
+      ...(pcb.label ? { label: pcb.label } : {}),
+      ...(pcb.revisits ? { revisits: [...pcb.revisits] } : {}),
+    };
+    return out;
+  });
+
+  // Build a fresh half-terms array with all sub-topic + custom placements
+  // wiped, ready to accept the preset's placements.
+  const wipedHalfTerms: HalfTerm[] = subject.timeline.halfTerms.map((ht) => ({
+    ...ht,
+    placedBlocks: ht.placedBlocks.filter(
+      (b) => b.source.kind !== "sub-topic" && b.source.kind !== "custom"
+    ),
+  }));
+
+  const orphans = {
+    unmatchedSubTopicCodes: new Set<string>(),
+    unmatchedCustomRefs: new Set<string>(),
+    unmatchedHalfTermIds: new Set<string>(),
+  };
+  let skipped = 0;
+
+  for (const p of preset.placements) {
+    const htIdx = halfTermIndex.get(p.halfTermId);
+    if (htIdx === undefined) {
+      orphans.unmatchedHalfTermIds.add(p.halfTermId);
+      skipped++;
+      continue;
+    }
+    let source: PlacedBlockSource;
+    if (p.source.kind === "sub-topic") {
+      if (!validSubTopicCodes.has(p.source.subTopicCode)) {
+        orphans.unmatchedSubTopicCodes.add(p.source.subTopicCode);
+        skipped++;
+        continue;
+      }
+      source = { kind: "sub-topic", subTopicCode: p.source.subTopicCode };
+    } else {
+      const customId = refToCustomId.get(p.source.customBlockRef);
+      if (!customId) {
+        orphans.unmatchedCustomRefs.add(p.source.customBlockRef);
+        skipped++;
+        continue;
+      }
+      source = { kind: "custom", customBlockId: customId };
+    }
+    const pb: PlacedBlock = {
+      id: idGen(),
+      source,
+      lessonsClaimed: p.lessonsClaimed,
+      lessonRange: [p.lessonRange[0], p.lessonRange[1]],
+      splitFrom: null,
+      splitType: p.splitType ?? null,
+      userEdits: {},
+    };
+    const ht = wipedHalfTerms[htIdx];
+    if (!ht) continue; // index guarded above
+    wipedHalfTerms[htIdx] = {
+      ...ht,
+      placedBlocks: [...ht.placedBlocks, pb],
+    };
+  }
+
+  const nextSubject: Subject = {
+    ...subject,
+    timeline: { halfTerms: wipedHalfTerms },
+    customBlocks,
+  };
+
+  return {
+    subject: nextSubject,
+    orphans: {
+      unmatchedSubTopicCodes: [...orphans.unmatchedSubTopicCodes],
+      unmatchedCustomRefs: [...orphans.unmatchedCustomRefs],
+      unmatchedHalfTermIds: [...orphans.unmatchedHalfTermIds],
+      skippedPlacements: skipped,
+    },
+  };
+}
+
+/** Add a preset to a subject's saved list. Returns a new Subject. */
+export function addPresetToSubject(subject: Subject, preset: SavedPreset): Subject {
+  const presets = [...(subject.presets ?? []), preset];
+  return { ...subject, presets };
+}
+
+/** Remove a preset by id. Returns a new Subject. No-op if id not present. */
+export function deletePresetFromSubject(subject: Subject, presetId: string): Subject {
+  const presets = (subject.presets ?? []).filter((p) => p.id !== presetId);
+  return { ...subject, presets };
+}
+
+/**
+ * Parse + validate a JSON blob as a SavedPreset. Used by the "paste preset"
+ * import path so the UI can show a friendly error before adding the preset
+ * to the subject. Returns the preset on success; throws with a descriptive
+ * message on failure (caller renders the message in a toast).
+ */
+export function parseSavedPresetJson(
+  json: string,
+  options: { idGen?: () => string; now?: Date } = {}
+): SavedPreset {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch (e) {
+    throw new Error(`Not valid JSON: ${(e as Error).message}`);
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("Preset must be a JSON object");
+  }
+  const o = parsed as Record<string, unknown>;
+  const name = typeof o["name"] === "string" ? (o["name"] as string).trim() : "";
+  if (!name) throw new Error('Missing or empty "name" field');
+
+  const placementsRaw = o["placements"];
+  if (!Array.isArray(placementsRaw)) {
+    throw new Error('"placements" must be an array');
+  }
+  const customBlocksRaw = o["customBlocks"];
+  if (customBlocksRaw !== undefined && !Array.isArray(customBlocksRaw)) {
+    throw new Error('"customBlocks" must be an array when present');
+  }
+
+  const customBlocks: SavedPresetCustomBlock[] = (customBlocksRaw ?? []).map(
+    (raw: unknown, i: number): SavedPresetCustomBlock => {
+      if (typeof raw !== "object" || raw === null) {
+        throw new Error(`customBlocks[${i}] must be an object`);
+      }
+      const cb = raw as Record<string, unknown>;
+      const ref = typeof cb["ref"] === "string" ? (cb["ref"] as string) : "";
+      if (!ref) throw new Error(`customBlocks[${i}].ref is missing`);
+      const cbName = typeof cb["name"] === "string" ? (cb["name"] as string) : "";
+      if (!cbName) throw new Error(`customBlocks[${i}].name is missing`);
+      const lessons = typeof cb["lessons"] === "number" ? (cb["lessons"] as number) : NaN;
+      if (!Number.isFinite(lessons) || lessons < 1) {
+        throw new Error(`customBlocks[${i}].lessons must be a positive number`);
+      }
+      const category = typeof cb["category"] === "string" ? cb["category"] : "other";
+      const validCategories = ["test", "lesson", "unit", "assessment", "retrieval", "other"];
+      if (!validCategories.includes(category)) {
+        throw new Error(
+          `customBlocks[${i}].category must be one of ${validCategories.join(", ")}`
+        );
+      }
+      const out: SavedPresetCustomBlock = {
+        ref,
+        name: cbName,
+        lessons,
+        colour: typeof cb["colour"] === "string" ? (cb["colour"] as string) : null,
+        category: category as SavedPresetCustomBlock["category"],
+      };
+      if (typeof cb["label"] === "string" && cb["label"]) {
+        (out as { label?: string }).label = cb["label"] as string;
+      }
+      if (Array.isArray(cb["revisits"])) {
+        const revisits = (cb["revisits"] as unknown[]).filter(
+          (x): x is string => typeof x === "string"
+        );
+        if (revisits.length > 0) {
+          (out as { revisits?: readonly string[] }).revisits = revisits;
+        }
+      }
+      if (cb["isEoHT"] === true) {
+        (out as { isEoHT?: boolean }).isEoHT = true;
+      }
+      return out;
+    }
+  );
+
+  const validRefs = new Set(customBlocks.map((c) => c.ref));
+
+  const placements: SavedPresetPlacement[] = placementsRaw.map(
+    (raw: unknown, i: number): SavedPresetPlacement => {
+      if (typeof raw !== "object" || raw === null) {
+        throw new Error(`placements[${i}] must be an object`);
+      }
+      const p = raw as Record<string, unknown>;
+      const halfTermId = typeof p["halfTermId"] === "string" ? (p["halfTermId"] as string) : "";
+      if (!halfTermId) throw new Error(`placements[${i}].halfTermId is missing`);
+      const lessonsClaimed =
+        typeof p["lessonsClaimed"] === "number" ? (p["lessonsClaimed"] as number) : NaN;
+      if (!Number.isFinite(lessonsClaimed) || lessonsClaimed < 1) {
+        throw new Error(`placements[${i}].lessonsClaimed must be a positive number`);
+      }
+      const lessonRangeRaw = p["lessonRange"];
+      if (
+        !Array.isArray(lessonRangeRaw) ||
+        lessonRangeRaw.length !== 2 ||
+        typeof lessonRangeRaw[0] !== "number" ||
+        typeof lessonRangeRaw[1] !== "number"
+      ) {
+        throw new Error(`placements[${i}].lessonRange must be [number, number]`);
+      }
+      const srcRaw = p["source"];
+      if (typeof srcRaw !== "object" || srcRaw === null) {
+        throw new Error(`placements[${i}].source must be an object`);
+      }
+      const s = srcRaw as Record<string, unknown>;
+      let source: SavedPresetPlacement["source"];
+      if (s["kind"] === "sub-topic") {
+        const code = typeof s["subTopicCode"] === "string" ? (s["subTopicCode"] as string) : "";
+        if (!code) throw new Error(`placements[${i}].source.subTopicCode is missing`);
+        source = { kind: "sub-topic", subTopicCode: code };
+      } else if (s["kind"] === "custom") {
+        const ref = typeof s["customBlockRef"] === "string" ? (s["customBlockRef"] as string) : "";
+        if (!ref) throw new Error(`placements[${i}].source.customBlockRef is missing`);
+        if (!validRefs.has(ref)) {
+          throw new Error(
+            `placements[${i}].source.customBlockRef "${ref}" doesn't match any customBlocks[].ref`
+          );
+        }
+        source = { kind: "custom", customBlockRef: ref };
+      } else {
+        throw new Error(`placements[${i}].source.kind must be "sub-topic" or "custom"`);
+      }
+      const out: SavedPresetPlacement = {
+        halfTermId,
+        source,
+        lessonsClaimed,
+        lessonRange: [lessonRangeRaw[0] as number, lessonRangeRaw[1] as number],
+      };
+      if (p["splitType"] === "auto" || p["splitType"] === "manual") {
+        (out as { splitType?: "auto" | "manual" }).splitType = p["splitType"];
+      }
+      return out;
+    }
+  );
+
+  const idGen = options.idGen ?? (() => crypto.randomUUID());
+  const now = options.now ?? new Date();
+  const id = typeof o["id"] === "string" && (o["id"] as string).length > 0 ? (o["id"] as string) : idGen();
+  const createdAt =
+    typeof o["createdAt"] === "string" && (o["createdAt"] as string).length > 0
+      ? (o["createdAt"] as string)
+      : now.toISOString();
+  const description = typeof o["description"] === "string" ? (o["description"] as string) : undefined;
+
+  return {
+    id,
+    name,
+    ...(description ? { description } : {}),
+    createdAt,
+    customBlocks,
+    placements,
+  };
+}

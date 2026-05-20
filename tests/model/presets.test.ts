@@ -2,9 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import { placeBlock } from "@/model/placement";
 import {
-  PRESET_DESCRIPTORS,
+  addPresetToSubject,
   applyPreset,
+  applySavedPreset,
+  deletePresetFromSubject,
   getPresetDescriptor,
+  isExampleSubject,
+  parseSavedPresetJson,
+  PRESET_DESCRIPTORS,
+  saveCurrentAsPreset,
   summarisePreset,
   type PresetId,
 } from "@/model/presets";
@@ -521,5 +527,253 @@ describe("summarisePreset", () => {
     // 4+3+3+2+3+3 = 18
     expect(summarisePreset(subject, "frontloaded").totalLessonsPlaced).toBe(18);
     expect(summarisePreset(subject, "interleaved").totalLessonsPlaced).toBe(18);
+  });
+});
+
+// ============================================================
+// Saved presets (DEC-045)
+// ============================================================
+
+describe("isExampleSubject", () => {
+  it("returns true when meta.sourceFilename is the bundled example name", () => {
+    const subject = makeFixtureSubject();
+    const tagged: Subject = {
+      ...subject,
+      meta: { ...subject.meta, sourceFilename: "example_physics_spec.xlsx" },
+    };
+    expect(isExampleSubject(tagged)).toBe(true);
+  });
+
+  it("returns false for any other sourceFilename", () => {
+    const subject = makeFixtureSubject();
+    expect(isExampleSubject(subject)).toBe(false);
+    const named: Subject = {
+      ...subject,
+      meta: { ...subject.meta, sourceFilename: "my-physics.xlsx" },
+    };
+    expect(isExampleSubject(named)).toBe(false);
+  });
+});
+
+describe("saveCurrentAsPreset", () => {
+  it("captures sub-topic placements with stable codes", () => {
+    let subject = makeFixtureSubject();
+    // Apply an algorithmic preset so the subject has placements to snapshot.
+    subject = { ...subject, timeline: applyPreset(subject, "frontloaded", { idGen: makeIdGen() }) };
+    const preset = saveCurrentAsPreset(subject, {
+      name: "Snapshot",
+      now: new Date("2026-05-20T12:00:00Z"),
+      idGen: () => "preset-1",
+    });
+    expect(preset.id).toBe("preset-1");
+    expect(preset.name).toBe("Snapshot");
+    expect(preset.createdAt).toBe("2026-05-20T12:00:00.000Z");
+    expect(preset.placements.length).toBeGreaterThan(0);
+    // All placements should reference real codes.
+    const codes = new Set<string>();
+    for (const t of subject.workingSpec.topics) {
+      for (const s of t.subTopics) codes.add(s.code);
+    }
+    for (const p of preset.placements) {
+      if (p.source.kind === "sub-topic") {
+        expect(codes.has(p.source.subTopicCode)).toBe(true);
+      }
+    }
+  });
+
+  it("dedups custom blocks under stable cb1/cb2 refs", () => {
+    let subject = makeFixtureSubject();
+    // Seed a single custom block referenced from two cells.
+    const customBlock = {
+      id: "real-cb",
+      name: "End of Aut 1 test",
+      lessons: 1,
+      colour: "#B98D2C",
+      isEoHT: true,
+      category: "test" as const,
+    };
+    subject = { ...subject, customBlocks: [customBlock] };
+    // Place the same custom block in two half-terms.
+    let timeline = subject.timeline;
+    timeline = placeBlock(
+      timeline,
+      { kind: "custom", customBlockId: "real-cb" },
+      timeline.halfTerms[0]!.id,
+      1,
+      { idGen: makeIdGen() }
+    );
+    timeline = placeBlock(
+      timeline,
+      { kind: "custom", customBlockId: "real-cb" },
+      timeline.halfTerms[1]!.id,
+      1,
+      { idGen: () => "pb-99" }
+    );
+    subject = { ...subject, timeline };
+    const preset = saveCurrentAsPreset(subject, { name: "with custom", idGen: () => "p" });
+    expect(preset.customBlocks).toHaveLength(1);
+    expect(preset.customBlocks[0]?.ref).toBe("cb1");
+    expect(preset.customBlocks[0]?.name).toBe("End of Aut 1 test");
+    expect(preset.customBlocks[0]?.isEoHT).toBe(true);
+    // Both placements reference the same ref.
+    const customRefs = preset.placements
+      .filter((p) => p.source.kind === "custom")
+      .map((p) => (p.source as { customBlockRef: string }).customBlockRef);
+    expect(customRefs).toEqual(["cb1", "cb1"]);
+  });
+});
+
+describe("applySavedPreset", () => {
+  function makeSavedSubject(): { subject: Subject; preset: ReturnType<typeof saveCurrentAsPreset> } {
+    let subject = makeFixtureSubject();
+    subject = { ...subject, timeline: applyPreset(subject, "interleaved", { idGen: makeIdGen() }) };
+    const preset = saveCurrentAsPreset(subject, { name: "snap", idGen: () => "p1" });
+    return { subject, preset };
+  }
+
+  it("rebuilds the same placements (idempotent within a clean subject)", () => {
+    const { subject, preset } = makeSavedSubject();
+    const fresh = { ...subject, timeline: createDefaultTimeline(), customBlocks: [] };
+    const result = applySavedPreset(fresh, preset, { idGen: makeIdGen() });
+    expect(result.orphans.skippedPlacements).toBe(0);
+    expect(countSubTopicPlacements(result.subject.timeline)).toBe(
+      countSubTopicPlacements(subject.timeline)
+    );
+  });
+
+  it("collects orphans when a referenced sub-topic no longer exists", () => {
+    const { subject, preset } = makeSavedSubject();
+    // Re-import as a smaller spec: drop topic T3 entirely.
+    const droppedSpec: Spec = {
+      topics: subject.workingSpec.topics.filter((t) => t.code !== "T3"),
+    };
+    const shrunk: Subject = {
+      ...subject,
+      workingSpec: droppedSpec,
+      timeline: createDefaultTimeline(),
+      customBlocks: [],
+    };
+    const result = applySavedPreset(shrunk, preset, { idGen: makeIdGen() });
+    expect(result.orphans.unmatchedSubTopicCodes.length).toBeGreaterThan(0);
+    expect(result.orphans.unmatchedSubTopicCodes.every((c) => c.startsWith("T3"))).toBe(true);
+    expect(result.orphans.skippedPlacements).toBeGreaterThan(0);
+    // Matched placements still go in.
+    expect(countSubTopicPlacements(result.subject.timeline)).toBeGreaterThan(0);
+  });
+
+  it("collects orphans when a half-term id no longer exists in the timeline", () => {
+    const { subject, preset } = makeSavedSubject();
+    // Replace the timeline with one that has no Y10 cells — every Y10
+    // placement should become an orphan.
+    const droppedTimeline = {
+      halfTerms: subject.timeline.halfTerms.filter((ht) => ht.year !== "Y10"),
+    };
+    const shrunk: Subject = {
+      ...subject,
+      timeline: droppedTimeline,
+      customBlocks: [],
+    };
+    const result = applySavedPreset(shrunk, preset, { idGen: makeIdGen() });
+    expect(result.orphans.unmatchedHalfTermIds.every((id) => id.startsWith("Y10"))).toBe(true);
+  });
+});
+
+describe("addPresetToSubject / deletePresetFromSubject", () => {
+  it("append + delete round-trip cleanly", () => {
+    const subject = makeFixtureSubject();
+    expect(subject.presets ?? []).toEqual([]);
+    const preset = {
+      id: "p1",
+      name: "x",
+      createdAt: "2026-05-20T00:00:00.000Z",
+      customBlocks: [],
+      placements: [],
+    };
+    const added = addPresetToSubject(subject, preset);
+    expect(added.presets).toEqual([preset]);
+    const removed = deletePresetFromSubject(added, "p1");
+    expect(removed.presets).toEqual([]);
+  });
+
+  it("delete is a no-op when the id is not present", () => {
+    const subject = makeFixtureSubject();
+    const removed = deletePresetFromSubject(subject, "missing");
+    expect(removed.presets ?? []).toEqual([]);
+  });
+});
+
+describe("parseSavedPresetJson", () => {
+  it("parses a minimal valid preset", () => {
+    const json = JSON.stringify({
+      name: "Tiny",
+      customBlocks: [],
+      placements: [
+        {
+          halfTermId: "Y9-A1",
+          source: { kind: "sub-topic", subTopicCode: "T1a" },
+          lessonsClaimed: 4,
+          lessonRange: [0, 4],
+        },
+      ],
+    });
+    const preset = parseSavedPresetJson(json, { idGen: () => "fresh-id", now: new Date("2026-05-20") });
+    expect(preset.name).toBe("Tiny");
+    expect(preset.id).toBe("fresh-id");
+    expect(preset.placements).toHaveLength(1);
+  });
+
+  it("rejects an empty name", () => {
+    expect(() => parseSavedPresetJson('{"name": "  ", "placements": []}')).toThrow(/name/);
+  });
+
+  it("rejects a custom-ref placement that doesn't match any customBlocks[].ref", () => {
+    const json = JSON.stringify({
+      name: "Bad",
+      customBlocks: [{ ref: "cb1", name: "x", lessons: 1, category: "test" }],
+      placements: [
+        {
+          halfTermId: "Y9-A1",
+          source: { kind: "custom", customBlockRef: "cbX" },
+          lessonsClaimed: 1,
+          lessonRange: [0, 1],
+        },
+      ],
+    });
+    expect(() => parseSavedPresetJson(json)).toThrow(/cbX/);
+  });
+
+  it("rejects an invalid category", () => {
+    const json = JSON.stringify({
+      name: "Bad",
+      customBlocks: [{ ref: "cb1", name: "x", lessons: 1, category: "extracurricular" }],
+      placements: [],
+    });
+    expect(() => parseSavedPresetJson(json)).toThrow(/category/);
+  });
+
+  it("rejects malformed lessonRange", () => {
+    const json = JSON.stringify({
+      name: "Bad",
+      placements: [
+        {
+          halfTermId: "Y9-A1",
+          source: { kind: "sub-topic", subTopicCode: "T1a" },
+          lessonsClaimed: 1,
+          lessonRange: [0], // wrong arity
+        },
+      ],
+    });
+    expect(() => parseSavedPresetJson(json)).toThrow(/lessonRange/);
+  });
+
+  it("round-trips saveCurrentAsPreset through JSON cleanly", () => {
+    let subject = makeFixtureSubject();
+    subject = { ...subject, timeline: applyPreset(subject, "frontloaded", { idGen: makeIdGen() }) };
+    const original = saveCurrentAsPreset(subject, { name: "rt", idGen: () => "rt-id" });
+    const json = JSON.stringify(original);
+    const parsed = parseSavedPresetJson(json);
+    expect(parsed.name).toBe(original.name);
+    expect(parsed.placements).toEqual(original.placements);
+    expect(parsed.customBlocks).toEqual(original.customBlocks);
   });
 });

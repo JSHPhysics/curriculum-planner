@@ -10,7 +10,16 @@ import {
   removeBlock as plRemoveBlock,
   splitBlock as plSplitBlock,
 } from "@/model/placement";
-import { applyPreset, type PresetId } from "@/model/presets";
+import {
+  addPresetToSubject,
+  applyPreset,
+  applySavedPreset,
+  deletePresetFromSubject,
+  saveCurrentAsPreset,
+  type ApplySavedPresetResult,
+  type PresetId,
+} from "@/model/presets";
+import type { SavedPreset } from "@/model/types";
 import { findObjectiveLocation } from "@/model/objectives";
 import { getPlacedBlockIdsForTopicInCell } from "@/model/topics";
 import {
@@ -195,6 +204,22 @@ export interface WorkspaceStoreActions {
    * No-op when no subject is active.
    */
   readonly applyPresetLayout: (presetId: PresetId) => void;
+  /**
+   * Snapshot the active subject's current sub-topic placements + custom
+   * blocks as a SavedPreset, append it to the subject's `presets` list.
+   * No-op when no subject is active. Returns the new preset's id (or null).
+   */
+  readonly saveCurrentLayoutAsPreset: (name: string, description?: string) => string | null;
+  /**
+   * Apply a saved preset by id to the active subject. Returns the orphan
+   * report so the UI can surface skipped placements. No-op + null when the
+   * preset id isn't found on the active subject.
+   */
+  readonly applySavedPresetById: (presetId: string) => ApplySavedPresetResult["orphans"] | null;
+  /** Remove a preset from the active subject. No-op when not found. */
+  readonly deleteSavedPreset: (presetId: string) => void;
+  /** Append a pre-built SavedPreset (e.g. from paste-JSON import) to the active subject. */
+  readonly addSavedPreset: (preset: SavedPreset) => void;
 }
 
 export type WorkspaceStore = WorkspaceStoreState & WorkspaceStoreActions;
@@ -671,6 +696,75 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set) => ({
       if (!subject) return {};
       const nextTimeline = applyPreset(subject, presetId);
       const updated: Subject = { ...subject, timeline: nextTimeline };
+      return {
+        workspace: replaceSubject(state.workspace, id, updated),
+        dirty: true,
+      };
+    }),
+
+  saveCurrentLayoutAsPreset: (name, description) => {
+    let newId: string | null = null;
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      const trimmed = name.trim();
+      if (!trimmed) return {};
+      const preset = saveCurrentAsPreset(subject, {
+        name: trimmed,
+        ...(description && description.trim() ? { description: description.trim() } : {}),
+      });
+      newId = preset.id;
+      const updated = addPresetToSubject(subject, preset);
+      return {
+        workspace: replaceSubject(state.workspace, id, updated),
+        dirty: true,
+      };
+    });
+    return newId;
+  },
+
+  applySavedPresetById: (presetId) => {
+    let orphans: ApplySavedPresetResult["orphans"] | null = null;
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      const preset = (subject.presets ?? []).find((p) => p.id === presetId);
+      if (!preset) return {};
+      const result = applySavedPreset(subject, preset);
+      orphans = result.orphans;
+      return {
+        workspace: replaceSubject(state.workspace, id, result.subject),
+        dirty: true,
+      };
+    });
+    return orphans;
+  },
+
+  deleteSavedPreset: (presetId) =>
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      if (!(subject.presets ?? []).some((p) => p.id === presetId)) return {};
+      const updated = deletePresetFromSubject(subject, presetId);
+      return {
+        workspace: replaceSubject(state.workspace, id, updated),
+        dirty: true,
+      };
+    }),
+
+  addSavedPreset: (preset) =>
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      const updated = addPresetToSubject(subject, preset);
       return {
         workspace: replaceSubject(state.workspace, id, updated),
         dirty: true,

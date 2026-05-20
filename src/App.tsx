@@ -62,6 +62,10 @@ export function App(): JSX.Element {
   );
   const setSubjectKeyStage = useWorkspaceStore((s) => s.setSubjectKeyStage);
   const applyPresetLayout = useWorkspaceStore((s) => s.applyPresetLayout);
+  const saveCurrentLayoutAsPreset = useWorkspaceStore((s) => s.saveCurrentLayoutAsPreset);
+  const applySavedPresetById = useWorkspaceStore((s) => s.applySavedPresetById);
+  const deleteSavedPreset = useWorkspaceStore((s) => s.deleteSavedPreset);
+  const addSavedPreset = useWorkspaceStore((s) => s.addSavedPreset);
   /**
    * Calendar modal target: null = closed; { kind:"workspace" } = editing the
    * workspace template; { kind:"subject", subjectId } = editing one subject's
@@ -372,9 +376,45 @@ export function App(): JSX.Element {
         <PresetPickerModal
           subject={activeSubject}
           onCancel={() => setPresetPickerOpen(false)}
-          onConfirm={(presetId) => {
+          onApplyAlgorithmic={(presetId) => {
             applyPresetLayout(presetId);
             setPresetPickerOpen(false);
+          }}
+          onApplySaved={(presetId) => {
+            const orphans = applySavedPresetById(presetId);
+            setPresetPickerOpen(false);
+            if (orphans && orphans.skippedPlacements > 0) {
+              const parts: string[] = [];
+              if (orphans.unmatchedSubTopicCodes.length > 0) {
+                parts.push(
+                  `unknown sub-topics: ${orphans.unmatchedSubTopicCodes.join(", ")}`
+                );
+              }
+              if (orphans.unmatchedHalfTermIds.length > 0) {
+                parts.push(
+                  `unknown half-terms: ${orphans.unmatchedHalfTermIds.join(", ")}`
+                );
+              }
+              if (orphans.unmatchedCustomRefs.length > 0) {
+                parts.push(
+                  `unknown custom refs: ${orphans.unmatchedCustomRefs.join(", ")}`
+                );
+              }
+              alert(
+                `Preset applied with ${orphans.skippedPlacements} placement${
+                  orphans.skippedPlacements === 1 ? "" : "s"
+                } skipped (${parts.join("; ")}).`
+              );
+            }
+          }}
+          onSaveCurrent={(name, description) => {
+            saveCurrentLayoutAsPreset(name, description);
+          }}
+          onDeleteSaved={(presetId) => {
+            deleteSavedPreset(presetId);
+          }}
+          onAddPreset={(preset) => {
+            addSavedPreset(preset);
           }}
         />
       )}

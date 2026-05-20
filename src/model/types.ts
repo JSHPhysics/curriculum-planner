@@ -219,6 +219,64 @@ export interface Subject {
    * from THIS template whenever it's edited via the calendar settings modal.
    */
   readonly calendarTemplate?: CalendarTemplate;
+  /**
+   * User-authored saved layouts (DEC-045). Each preset captures a snapshot of
+   * the timeline's sub-topic placements AND the custom blocks the layout
+   * depended on, so applying a preset later restores a recognisable plan even
+   * if the live state has drifted. Optional only for backwards-compat with
+   * pre-v1.5 `.curriculum` files; the deserializer normalises this to `[]`.
+   * The JSON shape is documented in docs/PRESET_FORMAT.md so users can author
+   * presets by hand or with an LLM.
+   */
+  readonly presets?: readonly SavedPreset[];
+}
+
+/**
+ * A user-authored saved layout (DEC-045). Lives on the Subject so it travels
+ * with the `.curriculum` file. Applying a preset replaces the subject's
+ * sub-topic placements + custom blocks with the preset's contents. Sub-topic
+ * references use the importer's stable code (T1, T1a, …) so the preset still
+ * applies after spec-edits as long as the code survives.
+ *
+ * Custom blocks inside a preset use a preset-local `ref` (e.g. "cb1") rather
+ * than the subject's CustomBlock IDs — applying a preset always creates fresh
+ * CustomBlock IDs in the subject, so refs are only meaningful WITHIN a single
+ * preset.
+ */
+export interface SavedPreset {
+  readonly id: string;
+  readonly name: string;
+  readonly description?: string;
+  readonly createdAt: string;
+  readonly customBlocks: readonly SavedPresetCustomBlock[];
+  readonly placements: readonly SavedPresetPlacement[];
+}
+
+export interface SavedPresetCustomBlock {
+  /** Stable within this preset only; used by SavedPresetPlacement.source. */
+  readonly ref: string;
+  readonly name: string;
+  readonly lessons: number;
+  readonly colour: string | null;
+  readonly category: CustomBlockCategory;
+  readonly label?: string;
+  /** Sub-topic codes (T1a, T1b, …) this block revisits — retrieval blocks only. */
+  readonly revisits?: readonly string[];
+  /** Mirror of CustomBlock.isEoHT so auto-seeded test blocks round-trip cleanly. */
+  readonly isEoHT?: boolean;
+}
+
+export type SavedPresetSource =
+  | { readonly kind: "sub-topic"; readonly subTopicCode: string }
+  | { readonly kind: "custom"; readonly customBlockRef: string };
+
+export interface SavedPresetPlacement {
+  /** Half-term id (e.g. "Y9-A1") — matched against the subject's timeline. */
+  readonly halfTermId: string;
+  readonly source: SavedPresetSource;
+  readonly lessonsClaimed: number;
+  readonly lessonRange: readonly [number, number];
+  readonly splitType?: SplitType;
 }
 
 /**
