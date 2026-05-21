@@ -4,6 +4,10 @@ import {
   CodeConflictError,
   addObjectiveToLesson,
   appendLesson,
+  deleteLessonFromSubTopic,
+  deleteSubTopicFromSubject,
+  duplicateLesson,
+  duplicateSubTopic,
   removeObjective,
   renameSubTopic,
   renameTopic,
@@ -420,5 +424,144 @@ describe("reorderLessonInSubTopic (DEC-048)", () => {
     const after = reorderLessonInSubTopic(before, "T1a", "L2", -5);
     const ids = after.topics[0]?.subTopics[0]?.lessons.map((l) => l.id) ?? [];
     expect(ids).toEqual(["L2", "L1"]);
+  });
+});
+
+describe("duplicateLesson / deleteLessonFromSubTopic / duplicateSubTopic / deleteSubTopicFromSubject (DEC-052)", () => {
+  it("duplicateLesson appends a copy with new id + (copy) suffix", () => {
+    const before = makeSpec();
+    let i = 0;
+    const after = duplicateLesson(before, "T1a", "L1", { idGen: () => `dup-${++i}` });
+    const lessons = after.topics[0]?.subTopics[0]?.lessons ?? [];
+    expect(lessons).toHaveLength(3);
+    expect(lessons[2]?.id).toBe("dup-1");
+    expect(lessons[2]?.title).toBe("Original L1 (copy)");
+    // Objectives are cloned with fresh ids.
+    expect(lessons[2]?.objectives[0]?.id).not.toBe("o1");
+  });
+
+  it("deleteLessonFromSubTopic shrinks placements covering the deleted lesson", () => {
+    const before = makeSubject();
+    // Add a placement that covers lessons [0, 2) of T1a — covers L1 and L2.
+    const subjectWithPlacement: Subject = {
+      ...before,
+      timeline: {
+        halfTerms: [
+          {
+            id: "Y9-A1",
+            year: "Y9",
+            label: "Aut 1",
+            dates: null,
+            budget: 12,
+            placedBlocks: [
+              {
+                id: "pb-1",
+                source: { kind: "sub-topic", subTopicCode: "T1a" },
+                lessonsClaimed: 2,
+                lessonRange: [0, 2],
+                splitFrom: null,
+                splitType: null,
+                userEdits: {},
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const after = deleteLessonFromSubTopic(subjectWithPlacement, "T1a", "L1");
+    // L1 was at index 0; placement [0, 2) shrinks to [0, 1).
+    const pb = after.timeline.halfTerms[0]?.placedBlocks[0];
+    expect(pb?.lessonRange).toEqual([0, 1]);
+    expect(pb?.lessonsClaimed).toBe(1);
+    // Sub-topic now has only L2.
+    expect(after.workingSpec.topics[0]?.subTopics[0]?.lessons).toHaveLength(1);
+  });
+
+  it("deleteLessonFromSubTopic shifts placements after the deleted lesson down by 1", () => {
+    const before = makeSubject();
+    // Append an extra lesson so we have 3.
+    const withL3: Subject = {
+      ...before,
+      workingSpec: {
+        topics: before.workingSpec.topics.map((t) => ({
+          ...t,
+          subTopics: t.subTopics.map((s) =>
+            s.code === "T1a"
+              ? {
+                  ...s,
+                  lessons: [
+                    ...s.lessons,
+                    {
+                      id: "L3",
+                      number: 3,
+                      title: "L3",
+                      practical: null,
+                      isDepth: false,
+                      separateOnly: false,
+                      objectives: [],
+                    },
+                  ],
+                }
+              : s
+          ),
+        })),
+      },
+      timeline: {
+        halfTerms: [
+          {
+            id: "Y9-A1",
+            year: "Y9",
+            label: "Aut 1",
+            dates: null,
+            budget: 12,
+            placedBlocks: [
+              {
+                id: "pb-late",
+                source: { kind: "sub-topic", subTopicCode: "T1a" },
+                lessonsClaimed: 1,
+                lessonRange: [2, 3], // covers L3 only
+                splitFrom: null,
+                splitType: null,
+                userEdits: {},
+              },
+            ],
+          },
+        ],
+      },
+    };
+    // Delete L1 (index 0). [2, 3) should shift to [1, 2).
+    const after = deleteLessonFromSubTopic(withL3, "T1a", "L1");
+    expect(after.timeline.halfTerms[0]?.placedBlocks[0]?.lessonRange).toEqual([1, 2]);
+  });
+
+  it("duplicateSubTopic generates a fresh code and clones lessons with new ids", () => {
+    const before = makeSubject();
+    let i = 0;
+    const after = duplicateSubTopic(before, "T1a", { idGen: () => `dup-${++i}` });
+    const topic = after.workingSpec.topics[0]!;
+    expect(topic.subTopics).toHaveLength(2); // original + copy
+    const copy = topic.subTopics[1]!;
+    expect(copy.code).toBe("T1b"); // next available letter
+    expect(copy.name).toBe("Sub-topic A (copy)");
+    expect(copy.lessons[0]?.id).toBe("dup-2"); // dup-1 is the sub-topic
+  });
+
+  it("deleteSubTopicFromSubject removes spec + placements + customs + presets references", () => {
+    const before = makeSubject();
+    const after = deleteSubTopicFromSubject(before, "T1a");
+    // Sub-topic gone from spec.
+    expect(after.workingSpec.topics[0]?.subTopics.find((s) => s.code === "T1a")).toBeUndefined();
+    // Placement gone.
+    expect(after.timeline.halfTerms[0]?.placedBlocks).toEqual([]);
+    // Custom-block revisits no longer contain T1a.
+    expect(after.customBlocks[0]?.revisits).toEqual(["T2a"]);
+    // Saved-preset placement gone; the T2a placement remains.
+    const preset = after.presets?.[0]!;
+    expect(preset.placements).toHaveLength(1);
+    expect(preset.placements[0]?.source).toEqual({
+      kind: "sub-topic",
+      subTopicCode: "T2a",
+    });
+    expect(preset.customBlocks[0]?.revisits).toEqual([]);
   });
 });

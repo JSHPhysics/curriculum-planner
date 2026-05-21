@@ -564,12 +564,11 @@ export function extractAndMoveLessonToIndex(
   if (!timeline.halfTerms.some((ht) => ht.id === toTermId)) {
     throw new Error(`extractAndMoveLessonToIndex: unknown term "${toTermId}"`);
   }
-  if (found.termId === toTermId) {
-    // Same-cell: same source means it'll re-consolidate with the remaining
-    // pieces, so the index is effectively about positioning the surviving
-    // (merged) block. Skip: handled by the same-cell no-op path below.
-    return timeline;
-  }
+  // DEC-051: don't bail on same-cell — the consolidator (also DEC-051) now
+  // only merges with the immediately-previous block, so cross-sub-topic
+  // inserts inside the same cell survive. Same-sub-topic same-cell drops
+  // still produce no visible change because the extracted piece re-merges
+  // with its source remainder.
 
   const idGen = options.idGen ?? defaultIdGen;
   const [start, end] = block.lessonRange;
@@ -721,39 +720,39 @@ function defaultIdGen(): string {
 function consolidateCell(ht: HalfTerm): HalfTerm {
   const merged: PlacedBlock[] = [];
   for (const block of ht.placedBlocks) {
-    if (block.source.kind !== "sub-topic") {
+    // DEC-051: only merge with the IMMEDIATELY PREVIOUS block in cell order.
+    // Merging with any earlier same-source block (the old logic) would
+    // collapse cell layouts like [T1a-piece1, T1b, T1a-piece2] into
+    // [T1a-merged, T1b], silently reverting the user's "insert T1b between
+    // T1a lessons" intent. Adjacent-in-cell-order matches what a teacher
+    // sees on screen.
+    const last = merged[merged.length - 1];
+    const canMergeIntoLast =
+      block.source.kind === "sub-topic" &&
+      last !== undefined &&
+      last.source.kind === "sub-topic" &&
+      last.source.subTopicCode === block.source.subTopicCode &&
+      (last.lessonRange[1] === block.lessonRange[0] ||
+        last.lessonRange[0] === block.lessonRange[1]);
+    if (!canMergeIntoLast) {
       merged.push(block);
       continue;
     }
-    const code = block.source.subTopicCode;
-    const matchIdx = merged.findIndex((b) => {
-      if (b.source.kind !== "sub-topic" || b.source.subTopicCode !== code) {
-        return false;
-      }
-      // Adjacent only — either block sits immediately before or after `b`.
-      const [aStart, aEnd] = b.lessonRange;
-      const [nStart, nEnd] = block.lessonRange;
-      return aEnd === nStart || aStart === nEnd;
-    });
-    if (matchIdx < 0) {
-      merged.push(block);
-      continue;
-    }
-    const existing = merged[matchIdx]!;
+    const existing = last!;
     const newStart = Math.min(existing.lessonRange[0], block.lessonRange[0]);
     const newEnd = Math.max(existing.lessonRange[1], block.lessonRange[1]);
-    merged[matchIdx] = {
+    merged[merged.length - 1] = {
       ...existing,
       lessonsClaimed: newEnd - newStart,
       lessonRange: [newStart, newEnd],
       // After a merge the surviving block is the "canonical" piece for this
       // cell. We drop the splitType badge — the user wants visual cleanliness
-      // and the badge stops being informative once consecutive lessons live in
-      // one block. `splitFrom` is preserved so `recombineBlock` still finds
-      // the original split group across cells.
+      // and the badge stops being informative once consecutive lessons live
+      // in one block. `splitFrom` is preserved so `recombineBlock` still
+      // finds the original split group across cells.
       splitType: null,
-      // If the incoming block carried user edits and the existing one didn't,
-      // promote them — otherwise existing edits win (first-write).
+      // If the incoming block carried user edits and the existing one
+      // didn't, promote them — otherwise existing edits win (first-write).
       userEdits:
         Object.keys(existing.userEdits).length > 0
           ? existing.userEdits

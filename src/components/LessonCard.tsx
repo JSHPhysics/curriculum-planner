@@ -15,6 +15,8 @@ export interface LessonCardProps {
   readonly displayNumber: number;
   readonly colour: string;
   readonly onClick: () => void;
+  /** DEC-052: right-click opens a context menu. */
+  readonly onContextMenu?: (e: React.MouseEvent) => void;
 }
 
 export function LessonCard({
@@ -25,6 +27,7 @@ export function LessonCard({
   displayNumber,
   colour,
   onClick,
+  onContextMenu,
 }: LessonCardProps): JSX.Element {
   const dragId = `lesson:${placedBlockId}:${localLessonIdx}`;
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -43,6 +46,7 @@ export function LessonCard({
       {...listeners}
       {...attributes}
       onClick={onClick}
+      onContextMenu={onContextMenu}
       role="button"
       tabIndex={0}
       className={

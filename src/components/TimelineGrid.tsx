@@ -6,9 +6,17 @@ import { HalfTermCell } from "./HalfTermCell";
 export interface TimelineGridProps {
   readonly subject: Subject;
   readonly onBlockClick: (placedBlockId: string) => void;
+  readonly onBlockContextMenu?: (
+    placedBlockId: string,
+    coords: { readonly x: number; readonly y: number }
+  ) => void;
 }
 
-export function TimelineGrid({ subject, onBlockClick }: TimelineGridProps): JSX.Element {
+export function TimelineGrid({
+  subject,
+  onBlockClick,
+  onBlockContextMenu,
+}: TimelineGridProps): JSX.Element {
   const years = getVisibleTimelineYears(subject);
   const byYear = new Map<YearId, HalfTerm[]>();
   for (const ht of subject.timeline.halfTerms) {
@@ -50,6 +58,7 @@ export function TimelineGrid({ subject, onBlockClick }: TimelineGridProps): JSX.
                     subject={subject}
                     halfTerm={ht}
                     onBlockClick={onBlockClick}
+                    {...(onBlockContextMenu ? { onBlockContextMenu } : {})}
                   />
                 ))}
               </div>

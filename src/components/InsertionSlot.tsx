@@ -7,6 +7,12 @@ export type InsertionSlotData =
       readonly termId: string;
       readonly subTopicCode: string;
       readonly lessonIdx: number;
+      /**
+       * Cell-level index of the PlacedBlock that contains this lesson-slot.
+       * Same-sub-topic drops use lessonIdx; cross-sub-topic drops use this
+       * to know where to insert the new piece at the cell level (DEC-051).
+       */
+      readonly cellIndex: number;
     };
 
 export interface InsertionSlotProps {

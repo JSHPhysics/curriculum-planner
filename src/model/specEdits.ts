@@ -1,3 +1,4 @@
+import { generateSubTopicCode } from "./codes";
 import type {
   CustomBlock,
   HalfTerm,
@@ -448,5 +449,244 @@ function cascadeCodeChange(
     timeline: nextTimeline,
     customBlocks: nextCustomBlocks,
     ...(nextPresets ? { presets: nextPresets } : {}),
+  };
+}
+
+// ============================================================
+// Duplicate / delete for lessons + sub-topics (DEC-052)
+//
+// Powers the right-click context menu. All operations are spec-edits that
+// operate on `workingSpec`; cascades for delete reach into the live timeline,
+// custom blocks, and saved presets so referential integrity is preserved.
+// ============================================================
+
+export interface DuplicateOptions {
+  readonly idGen?: () => string;
+  readonly titleSuffix?: string;
+}
+
+/**
+ * Append a copy of a lesson to its sub-topic (DEC-052). The new lesson has
+ * a fresh id and its title is the original + " (copy)" (configurable). It's
+ * appended at the end of the sub-topic's lessons array, so it lands unplaced
+ * in the lesson pool until the user drags it somewhere. Objectives are
+ * cloned with fresh ids too.
+ */
+export function duplicateLesson(
+  spec: Spec,
+  subTopicCode: string,
+  lessonId: string,
+  options: DuplicateOptions = {}
+): Spec {
+  const idGen = options.idGen ?? (() => crypto.randomUUID());
+  const suffix = options.titleSuffix ?? " (copy)";
+  return mapSubTopic(spec, subTopicCode, (st) => {
+    const source = st.lessons.find((l) => l.id === lessonId);
+    if (!source) return st;
+    const copy: Lesson = {
+      id: idGen(),
+      number: st.lessons.length + 1,
+      title: source.title + suffix,
+      practical: source.practical,
+      isDepth: source.isDepth,
+      separateOnly: source.separateOnly,
+      objectives: source.objectives.map((o) => ({
+        id: idGen(),
+        text: o.text,
+        isDepth: o.isDepth,
+      })),
+    };
+    return { ...st, lessons: [...st.lessons, copy] };
+  });
+}
+
+/**
+ * Delete a lesson from its sub-topic (DEC-052). Cascades into live
+ * placements: PlacedBlocks whose lessonRange covers the deleted lesson's
+ * index are shrunk by one (and removed if they become empty); blocks whose
+ * lessonRange starts after the deleted index are shifted down by one so
+ * they keep pointing at the same logical lessons.
+ *
+ * Does NOT touch saved presets — those reference sub-topic codes, not
+ * lesson ids, and their lessonRange numbers stay aligned with whatever the
+ * subject's spec looked like when the preset was authored. (If the user
+ * deletes lessons and then re-applies a preset, placements past the deleted
+ * range may end up oversized; the apply-preset orphan report already
+ * surfaces that case.)
+ */
+export function deleteLessonFromSubTopic(
+  subject: Subject,
+  subTopicCode: string,
+  lessonId: string
+): Subject {
+  let deletedIndex = -1;
+  const spec: Spec = {
+    topics: subject.workingSpec.topics.map((t) => ({
+      ...t,
+      subTopics: t.subTopics.map((st) => {
+        if (st.code !== subTopicCode) return st;
+        const idx = st.lessons.findIndex((l) => l.id === lessonId);
+        if (idx < 0) return st;
+        deletedIndex = idx;
+        return { ...st, lessons: st.lessons.filter((l) => l.id !== lessonId) };
+      }),
+    })),
+  };
+  if (deletedIndex < 0) return subject;
+
+  const nextHalfTerms: HalfTerm[] = subject.timeline.halfTerms.map((ht) => {
+    const nextPlacedBlocks: PlacedBlock[] = [];
+    for (const pb of ht.placedBlocks) {
+      if (pb.source.kind !== "sub-topic" || pb.source.subTopicCode !== subTopicCode) {
+        nextPlacedBlocks.push(pb);
+        continue;
+      }
+      const [start, end] = pb.lessonRange;
+      // Block lies entirely before the deleted index — no change.
+      if (end <= deletedIndex) {
+        nextPlacedBlocks.push(pb);
+        continue;
+      }
+      // Block lies entirely after the deleted index — shift both bounds.
+      if (start > deletedIndex) {
+        nextPlacedBlocks.push({
+          ...pb,
+          lessonRange: [start - 1, end - 1],
+        });
+        continue;
+      }
+      // Block straddles or starts AT the deleted index — shrink end.
+      const newEnd = end - 1;
+      const newClaimed = newEnd - start;
+      if (newClaimed <= 0) continue; // drop the now-empty block
+      nextPlacedBlocks.push({
+        ...pb,
+        lessonsClaimed: newClaimed,
+        lessonRange: [start, newEnd],
+      });
+    }
+    return { ...ht, placedBlocks: nextPlacedBlocks };
+  });
+
+  return {
+    ...subject,
+    workingSpec: spec,
+    timeline: { halfTerms: nextHalfTerms },
+  };
+}
+
+/**
+ * Append a copy of a sub-topic to its topic (DEC-052). The new sub-topic
+ * gets a fresh id, a freshly-generated code (next available letter within
+ * the topic), name "<original> (copy)", and clone all lessons with new ids.
+ * It's appended unplaced; the user drags it from the pool to place it.
+ */
+export function duplicateSubTopic(
+  subject: Subject,
+  subTopicCode: string,
+  options: DuplicateOptions = {}
+): Subject {
+  const idGen = options.idGen ?? (() => crypto.randomUUID());
+  const suffix = options.titleSuffix ?? " (copy)";
+
+  let foundTopic: Topic | null = null;
+  let source: SubTopic | null = null;
+  for (const t of subject.workingSpec.topics) {
+    const st = t.subTopics.find((s) => s.code === subTopicCode);
+    if (st) {
+      foundTopic = t;
+      source = st;
+      break;
+    }
+  }
+  if (!foundTopic || !source) return subject;
+
+  const existingCodesInTopic = foundTopic.subTopics.map((s) => s.code);
+  const newCode = generateSubTopicCode(foundTopic.code, existingCodesInTopic);
+
+  const copy: SubTopic = {
+    id: idGen(),
+    code: newCode,
+    name: source.name + suffix,
+    difficulty: source.difficulty,
+    isDepth: source.isDepth,
+    separateOnly: source.separateOnly,
+    notes: source.notes,
+    lessons: source.lessons.map((l) => ({
+      id: idGen(),
+      number: l.number,
+      title: l.title,
+      practical: l.practical,
+      isDepth: l.isDepth,
+      separateOnly: l.separateOnly,
+      objectives: l.objectives.map((o) => ({
+        id: idGen(),
+        text: o.text,
+        isDepth: o.isDepth,
+      })),
+    })),
+  };
+
+  const spec: Spec = {
+    topics: subject.workingSpec.topics.map((t) =>
+      t.id !== foundTopic!.id ? t : { ...t, subTopics: [...t.subTopics, copy] }
+    ),
+  };
+  return { ...subject, workingSpec: spec };
+}
+
+/**
+ * Delete a sub-topic from its topic, cascading through placements, custom-
+ * block revisits, and saved presets (DEC-052). All placements that
+ * reference the sub-topic are removed from the timeline. CustomBlock and
+ * SavedPreset revisits lose the dead code. Saved-preset placements pointing
+ * at this sub-topic are dropped from each preset's placement list.
+ */
+export function deleteSubTopicFromSubject(
+  subject: Subject,
+  subTopicCode: string
+): Subject {
+  const spec: Spec = {
+    topics: subject.workingSpec.topics.map((t) => ({
+      ...t,
+      subTopics: t.subTopics.filter((s) => s.code !== subTopicCode),
+    })),
+  };
+  const timeline: Timeline = {
+    halfTerms: subject.timeline.halfTerms.map((ht) => ({
+      ...ht,
+      placedBlocks: ht.placedBlocks.filter(
+        (pb) =>
+          !(pb.source.kind === "sub-topic" && pb.source.subTopicCode === subTopicCode)
+      ),
+    })),
+  };
+  const customBlocks: readonly CustomBlock[] = subject.customBlocks.map((cb) => {
+    if (!cb.revisits || !cb.revisits.includes(subTopicCode)) return cb;
+    return { ...cb, revisits: cb.revisits.filter((c) => c !== subTopicCode) };
+  });
+  const presets: readonly SavedPreset[] | undefined = subject.presets
+    ? subject.presets.map((p) => {
+        const placements: SavedPresetPlacement[] = p.placements.filter(
+          (pl) =>
+            !(pl.source.kind === "sub-topic" && pl.source.subTopicCode === subTopicCode)
+        );
+        const presetCustomBlocks = p.customBlocks.map((cb) => {
+          if (!cb.revisits || !cb.revisits.includes(subTopicCode)) return cb;
+          return {
+            ...cb,
+            revisits: cb.revisits.filter((c) => c !== subTopicCode),
+          };
+        });
+        return { ...p, placements, customBlocks: presetCustomBlocks };
+      })
+    : subject.presets;
+
+  return {
+    ...subject,
+    workingSpec: spec,
+    timeline,
+    customBlocks,
+    ...(presets ? { presets } : {}),
   };
 }

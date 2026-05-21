@@ -18,12 +18,18 @@ export interface HalfTermCellProps {
   readonly subject: Subject;
   readonly halfTerm: HalfTerm;
   readonly onBlockClick: (placedBlockId: string) => void;
+  /** DEC-052: right-click on a placed block opens a context menu. */
+  readonly onBlockContextMenu?: (
+    placedBlockId: string,
+    coords: { readonly x: number; readonly y: number }
+  ) => void;
 }
 
 export function HalfTermCell({
   subject,
   halfTerm,
   onBlockClick,
+  onBlockContextMenu,
 }: HalfTermCellProps): JSX.Element {
   const { setNodeRef, isOver } = useDroppable({
     id: `term:${halfTerm.id}`,
@@ -77,6 +83,14 @@ export function HalfTermCell({
                     placed={pb}
                     subject={subject}
                     onClick={() => onBlockClick(pb.id)}
+                    {...(onBlockContextMenu
+                      ? {
+                          onContextMenu: (e: React.MouseEvent) => {
+                            e.preventDefault();
+                            onBlockContextMenu(pb.id, { x: e.clientX, y: e.clientY });
+                          },
+                        }
+                      : {})}
                   />
                 </div>
               ))}
@@ -113,12 +127,14 @@ interface PlacedBlockCardProps {
   readonly placed: PlacedBlock;
   readonly subject: Subject;
   readonly onClick: () => void;
+  readonly onContextMenu?: (e: React.MouseEvent) => void;
 }
 
 function PlacedBlockCard({
   placed,
   subject,
   onClick,
+  onContextMenu,
 }: PlacedBlockCardProps): JSX.Element {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `placed:${placed.id}`,
@@ -131,7 +147,13 @@ function PlacedBlockCard({
   const display = describePlacement(placed, subject);
 
   return (
-    <div ref={setNodeRef} {...listeners} {...attributes} className="touch-none">
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      className="touch-none"
+      onContextMenu={onContextMenu}
+    >
       <Block
         code={display.code}
         name={display.name}

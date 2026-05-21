@@ -15,6 +15,7 @@ import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
 import { Block } from "./Block";
 import { BlockEditModal } from "./BlockEditModal";
+import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { CustomBlockModal } from "./CustomBlockModal";
 import { Pool } from "./Pool";
 import { SubTopicEditModal } from "./SubTopicEditModal";
@@ -53,6 +54,8 @@ export function SubTopicView({ subject }: SubTopicViewProps): JSX.Element {
   const setPlacedBlockTitle = useWorkspaceStore((s) => s.setPlacedBlockTitle);
   const renameTopic = useWorkspaceStore((s) => s.renameTopic);
   const renameSubTopic = useWorkspaceStore((s) => s.renameSubTopic);
+  const deleteSubTopic = useWorkspaceStore((s) => s.deleteSubTopic);
+  const duplicateSubTopic = useWorkspaceStore((s) => s.duplicateSubTopic);
 
   const [activeDrag, setActiveDrag] = useState<DragPayload | null>(null);
   const [openModal, setOpenModal] = useState<
@@ -62,6 +65,70 @@ export function SubTopicView({ subject }: SubTopicViewProps): JSX.Element {
     | { kind: "edit-subtopic"; subTopicCode: string }
     | null
   >(null);
+  const [contextMenu, setContextMenu] = useState<
+    | { readonly x: number; readonly y: number; readonly items: readonly ContextMenuItem[] }
+    | null
+  >(null);
+
+  // DEC-052: right-click menu on placed blocks. Distinguishes sub-topic
+  // placements (full menu, including spec-level duplicate/delete) from
+  // custom-block placements (placement-level only).
+  function showBlockContextMenu(
+    placedBlockId: string,
+    coords: { readonly x: number; readonly y: number }
+  ): void {
+    const pb = subject.timeline.halfTerms
+      .flatMap((h) => h.placedBlocks)
+      .find((b) => b.id === placedBlockId);
+    if (!pb) return;
+    const items: ContextMenuItem[] = [];
+    items.push({
+      label: "Return to pool",
+      onClick: () => removeBlock(placedBlockId),
+    });
+    if (pb.source.kind === "sub-topic") {
+      const code = pb.source.subTopicCode;
+      items.push({
+        label: "Rename label / lessons claimed…",
+        onClick: () => setOpenModal({ kind: "edit", placedBlockId }),
+      });
+      items.push({
+        label: "Edit underlying sub-topic…",
+        onClick: () => setOpenModal({ kind: "edit-subtopic", subTopicCode: code }),
+      });
+      items.push({
+        label: "Duplicate sub-topic",
+        onClick: () => duplicateSubTopic(code),
+        separatorBefore: true,
+      });
+      items.push({
+        label: "Delete sub-topic from spec",
+        destructive: true,
+        onClick: () => {
+          if (
+            confirm(
+              `Delete sub-topic ${code}? This removes every placement of it ` +
+                `from the timeline AND wipes it from the spec. Cannot be undone.`
+            )
+          ) {
+            deleteSubTopic(code);
+          }
+        },
+      });
+    } else {
+      items.push({
+        label: "Edit block…",
+        onClick: () => setOpenModal({ kind: "edit", placedBlockId }),
+      });
+      items.push({
+        label: "Delete from this cell",
+        destructive: true,
+        separatorBefore: true,
+        onClick: () => removeBlock(placedBlockId),
+      });
+    }
+    setContextMenu({ x: coords.x, y: coords.y, items });
+  }
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } })
@@ -129,14 +196,53 @@ export function SubTopicView({ subject }: SubTopicViewProps): JSX.Element {
         onEditSubTopic={(subTopicCode) =>
           setOpenModal({ kind: "edit-subtopic", subTopicCode })
         }
+        onContextSubTopic={(subTopicCode, coords) => {
+          const items: ContextMenuItem[] = [
+            {
+              label: "Rename / edit…",
+              onClick: () =>
+                setOpenModal({ kind: "edit-subtopic", subTopicCode }),
+            },
+            {
+              label: "Duplicate sub-topic",
+              onClick: () => duplicateSubTopic(subTopicCode),
+            },
+            {
+              label: "Delete sub-topic from spec",
+              destructive: true,
+              separatorBefore: true,
+              onClick: () => {
+                if (
+                  confirm(
+                    `Delete sub-topic ${subTopicCode}? Every placement of it ` +
+                      `is wiped from the timeline AND the spec. Cannot be undone.`
+                  )
+                ) {
+                  deleteSubTopic(subTopicCode);
+                }
+              },
+            },
+          ];
+          setContextMenu({ x: coords.x, y: coords.y, items });
+        }}
       />
       <TimelineGrid
         subject={subject}
         onBlockClick={(id) => setOpenModal({ kind: "edit", placedBlockId: id })}
+        onBlockContextMenu={showBlockContextMenu}
       />
       <DragOverlay dropAnimation={null}>
         {activeDrag ? <DragPreview drag={activeDrag} subject={subject} /> : null}
       </DragOverlay>
+
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={contextMenu.items}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
 
       {openModal?.kind === "edit" &&
         (() => {

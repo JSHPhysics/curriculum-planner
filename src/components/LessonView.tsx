@@ -15,6 +15,7 @@ import type { HalfTerm, Subject, YearId } from "@/model/types";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
 import { BlockEditModal } from "./BlockEditModal";
+import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { LessonEditModal } from "./LessonEditModal";
 import { LessonHalfTermCell } from "./LessonHalfTermCell";
 import { LessonPool } from "./LessonPool";
@@ -48,6 +49,8 @@ export function LessonView({ subject }: LessonViewProps): JSX.Element {
   const removePlacedLesson = useWorkspaceStore((s) => s.removePlacedLesson);
   const setPlacedBlockTitle = useWorkspaceStore((s) => s.setPlacedBlockTitle);
   const reorderLessonInSubTopic = useWorkspaceStore((s) => s.reorderLessonInSubTopic);
+  const duplicateLesson = useWorkspaceStore((s) => s.duplicateLesson);
+  const deleteLesson = useWorkspaceStore((s) => s.deleteLesson);
   const splitBlock = useWorkspaceStore((s) => s.splitBlock);
   const recombineBlock = useWorkspaceStore((s) => s.recombineBlock);
   const removeBlock = useWorkspaceStore((s) => s.removeBlock);
@@ -66,6 +69,57 @@ export function LessonView({ subject }: LessonViewProps): JSX.Element {
     | { kind: "lesson"; subTopicCode: string; lessonId: string }
     | null
   >(null);
+  const [contextMenu, setContextMenu] = useState<
+    | { readonly x: number; readonly y: number; readonly items: readonly ContextMenuItem[] }
+    | null
+  >(null);
+
+  function showLessonContextMenu(
+    args: {
+      readonly subTopicCode: string;
+      readonly lessonId: string;
+      readonly placedBlockId: string;
+      readonly localLessonIdx: number;
+    },
+    coords: { readonly x: number; readonly y: number }
+  ): void {
+    const items: ContextMenuItem[] = [
+      {
+        label: "Return to pool",
+        onClick: () =>
+          removePlacedLesson(args.placedBlockId, args.localLessonIdx),
+      },
+      {
+        label: "Rename / edit lesson…",
+        onClick: () =>
+          setOpenModal({
+            kind: "lesson",
+            subTopicCode: args.subTopicCode,
+            lessonId: args.lessonId,
+          }),
+      },
+      {
+        label: "Duplicate lesson",
+        onClick: () => duplicateLesson(args.subTopicCode, args.lessonId),
+        separatorBefore: true,
+      },
+      {
+        label: "Delete lesson from spec",
+        destructive: true,
+        onClick: () => {
+          if (
+            confirm(
+              "Delete this lesson? The lesson is removed from the sub-topic " +
+                "entirely; placements covering it shrink. Cannot be undone."
+            )
+          ) {
+            deleteLesson(args.subTopicCode, args.lessonId);
+          }
+        },
+      },
+    ];
+    setContextMenu({ x: coords.x, y: coords.y, items });
+  }
 
   function handleDragStart(e: DragStartEvent): void {
     const data = e.active.data.current as DragPayload | undefined;
@@ -78,7 +132,7 @@ export function LessonView({ subject }: LessonViewProps): JSX.Element {
     const drop = e.over?.data.current as
       | { kind: "term"; termId: string }
       | { kind: "slot"; termId: string; index: number }
-      | { kind: "lesson-slot"; termId: string; subTopicCode: string; lessonIdx: number }
+      | { kind: "lesson-slot"; termId: string; subTopicCode: string; lessonIdx: number; cellIndex: number }
       | { kind: "lesson-pool-bin" }
       | undefined;
     if (!drag || !drop) return;
@@ -113,20 +167,35 @@ export function LessonView({ subject }: LessonViewProps): JSX.Element {
     }
 
     // DEC-048: same-sub-topic, same-cell reorder via lesson-slot.
-    if (drop.kind === "lesson-slot" && drag.subTopicCode === drop.subTopicCode) {
-      let lessonId: string | null = null;
-      for (const ht of subject.timeline.halfTerms) {
-        const pb = ht.placedBlocks.find((b) => b.id === drag.placedBlockId);
-        if (!pb || pb.source.kind !== "sub-topic") continue;
-        const found = findTopicAndSubTopic(subject.workingSpec, pb.source.subTopicCode);
-        if (!found) break;
-        const absIdx = pb.lessonRange[0] + drag.localLessonIdx;
-        lessonId = found.subTopic.lessons[absIdx]?.id ?? null;
-        break;
+    // DEC-051: cross-sub-topic lesson-slot drop falls through to a cell-level
+    // insert at the target block's cellIndex — previously silently ignored,
+    // causing the dragged lesson to appear to snap back to origin.
+    if (drop.kind === "lesson-slot") {
+      if (drag.subTopicCode === drop.subTopicCode) {
+        let lessonId: string | null = null;
+        for (const ht of subject.timeline.halfTerms) {
+          const pb = ht.placedBlocks.find((b) => b.id === drag.placedBlockId);
+          if (!pb || pb.source.kind !== "sub-topic") continue;
+          const found = findTopicAndSubTopic(subject.workingSpec, pb.source.subTopicCode);
+          if (!found) break;
+          const absIdx = pb.lessonRange[0] + drag.localLessonIdx;
+          lessonId = found.subTopic.lessons[absIdx]?.id ?? null;
+          break;
+        }
+        if (lessonId) {
+          reorderLessonInSubTopic(drop.subTopicCode, lessonId, drop.lessonIdx);
+        }
+        return;
       }
-      if (lessonId) {
-        reorderLessonInSubTopic(drop.subTopicCode, lessonId, drop.lessonIdx);
-      }
+      // Cross-sub-topic: extract this lesson out of its current placement and
+      // insert it as a new single-lesson PlacedBlock at the target cell's
+      // cellIndex (next to or before the block whose lesson-slot was hit).
+      extractAndMoveLessonToIndex(
+        drag.placedBlockId,
+        drag.localLessonIdx,
+        drop.termId,
+        drop.cellIndex
+      );
       return;
     }
 
@@ -185,6 +254,7 @@ export function LessonView({ subject }: LessonViewProps): JSX.Element {
                       onOpenLessonModal={(stCode, lessonId) =>
                         setOpenModal({ kind: "lesson", subTopicCode: stCode, lessonId })
                       }
+                      onLessonContextMenu={showLessonContextMenu}
                     />
                   ))}
                 </div>
@@ -197,6 +267,15 @@ export function LessonView({ subject }: LessonViewProps): JSX.Element {
       <DragOverlay dropAnimation={null}>
         {activeDrag ? <DragPreview drag={activeDrag} subject={subject} /> : null}
       </DragOverlay>
+
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={contextMenu.items}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
 
       {openModal?.kind === "block" && (
         <BlockEditModal

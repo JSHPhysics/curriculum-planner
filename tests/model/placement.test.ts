@@ -523,6 +523,58 @@ describe("cell consolidation (DEC-046)", () => {
     expect(placed).toHaveLength(2);
   });
 
+  it("only merges with the IMMEDIATELY-previous block (DEC-051)", () => {
+    // [T1a piece 1, T1b, T1a piece 2] must NOT collapse to [T1a-merged, T1b]
+    // even though both T1a pieces share a code and their lessonRanges are
+    // adjacent. Reverting that layout silently was the cause of the
+    // "lesson snaps back to origin when dropping between cross-sub-topic
+    // lessons in the same cell" bug.
+    const tl: Timeline = {
+      halfTerms: createDefaultTimeline().halfTerms.map((ht) => {
+        if (ht.id !== "Y9-A1") return ht;
+        return {
+          ...ht,
+          placedBlocks: [
+            {
+              id: "t1a-1",
+              source: T1a,
+              lessonsClaimed: 1,
+              lessonRange: [0, 1],
+              splitFrom: null,
+              splitType: null,
+              userEdits: {},
+            },
+            {
+              id: "t1b",
+              source: T1b,
+              lessonsClaimed: 1,
+              lessonRange: [0, 1],
+              splitFrom: null,
+              splitType: null,
+              userEdits: {},
+            },
+            {
+              id: "t1a-2",
+              source: T1a,
+              lessonsClaimed: 1,
+              lessonRange: [1, 2],
+              splitFrom: null,
+              splitType: null,
+              userEdits: {},
+            },
+          ],
+        };
+      }),
+    };
+    const out = consolidateTimeline(tl);
+    const placed = blocksIn(out, "Y9-A1");
+    expect(placed).toHaveLength(3);
+    // Order is preserved.
+    expect(placed[0]?.id).toBe("t1a-1");
+    expect(placed[1]?.id).toBe("t1b");
+    expect(placed[2]?.id).toBe("t1a-2");
+  });
+
   it("preserves splitFrom through a merge so recombine still wipes both pieces", () => {
     let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 4, { idGen: counterIdGen() });
     const origId = blocksIn(tl, "Y9-A1")[0]!.id;

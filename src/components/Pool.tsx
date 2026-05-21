@@ -11,6 +11,11 @@ export interface PoolProps {
   readonly onAddCustomBlock: () => void;
   readonly onEditTopic: (topicCode: string) => void;
   readonly onEditSubTopic: (subTopicCode: string) => void;
+  /** DEC-052: right-click on a sub-topic block in the pool opens a menu. */
+  readonly onContextSubTopic?: (
+    subTopicCode: string,
+    coords: { readonly x: number; readonly y: number }
+  ) => void;
 }
 
 export function Pool({
@@ -18,6 +23,7 @@ export function Pool({
   onAddCustomBlock,
   onEditTopic,
   onEditSubTopic,
+  onContextSubTopic,
 }: PoolProps): JSX.Element {
   const { setNodeRef, isOver } = useDroppable({
     id: "pool",
@@ -73,6 +79,7 @@ export function Pool({
               subject={subject}
               onEditTopic={onEditTopic}
               onEditSubTopic={onEditSubTopic}
+              {...(onContextSubTopic ? { onContextSubTopic } : {})}
             />
           ))}
           {customBlocks.length > 0 && (
@@ -99,6 +106,10 @@ interface TopicSectionProps {
   readonly subject: Subject;
   readonly onEditTopic: (topicCode: string) => void;
   readonly onEditSubTopic: (subTopicCode: string) => void;
+  readonly onContextSubTopic?: (
+    subTopicCode: string,
+    coords: { readonly x: number; readonly y: number }
+  ) => void;
 }
 
 function TopicSection({
@@ -107,6 +118,7 @@ function TopicSection({
   subject,
   onEditTopic,
   onEditSubTopic,
+  onContextSubTopic,
 }: TopicSectionProps): JSX.Element {
   const [open, setOpen] = useState(true);
   const colour = getTopicColour(subject.workingSpec, topic.code);
@@ -152,6 +164,12 @@ function TopicSection({
               lessons={e.unplacedLessons}
               colour={colour}
               onEdit={() => onEditSubTopic(e.subTopic.code)}
+              {...(onContextSubTopic
+                ? {
+                    onContextMenu: (coords: { readonly x: number; readonly y: number }) =>
+                      onContextSubTopic(e.subTopic.code, coords),
+                  }
+                : {})}
             />
           ))}
         </div>
@@ -166,6 +184,7 @@ interface PoolSubTopicProps {
   readonly lessons: number;
   readonly colour: string;
   readonly onEdit: () => void;
+  readonly onContextMenu?: (coords: { readonly x: number; readonly y: number }) => void;
 }
 
 function PoolSubTopic({
@@ -174,6 +193,7 @@ function PoolSubTopic({
   lessons,
   colour,
   onEdit,
+  onContextMenu,
 }: PoolSubTopicProps): JSX.Element {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `pool:${code}`,
@@ -184,7 +204,14 @@ function PoolSubTopic({
     },
   });
   return (
-    <div className="relative group">
+    <div
+      className="relative group"
+      onContextMenu={(e) => {
+        if (!onContextMenu) return;
+        e.preventDefault();
+        onContextMenu({ x: e.clientX, y: e.clientY });
+      }}
+    >
       <div ref={setNodeRef} {...listeners} {...attributes} className="touch-none">
         <Block
           code={code}

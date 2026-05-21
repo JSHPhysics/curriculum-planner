@@ -31,6 +31,10 @@ import { getPlacedBlockIdsForTopicInCell } from "@/model/topics";
 import {
   addObjectiveToLesson as specAddObjectiveToLesson,
   appendLesson as specAppendLesson,
+  deleteLessonFromSubTopic as specDeleteLessonFromSubTopic,
+  deleteSubTopicFromSubject as specDeleteSubTopicFromSubject,
+  duplicateLesson as specDuplicateLesson,
+  duplicateSubTopic as specDuplicateSubTopic,
   removeObjective as specRemoveObjective,
   renameSubTopic as specRenameSubTopic,
   renameTopic as specRenameTopic,
@@ -288,6 +292,14 @@ export interface WorkspaceStoreActions {
     subTopicCode: string,
     patch: SubTopicRenamePatch
   ) => void;
+  /** Append a copy of a lesson at the end of its sub-topic (DEC-052). */
+  readonly duplicateLesson: (subTopicCode: string, lessonId: string) => void;
+  /** Delete a lesson from a sub-topic; shrinks/shifts placements (DEC-052). */
+  readonly deleteLesson: (subTopicCode: string, lessonId: string) => void;
+  /** Append a copy of a sub-topic to its topic; new code, new ids (DEC-052). */
+  readonly duplicateSubTopic: (subTopicCode: string) => void;
+  /** Delete a sub-topic with full cascade (placements + revisits + presets). */
+  readonly deleteSubTopic: (subTopicCode: string) => void;
 }
 
 export type WorkspaceStore = WorkspaceStoreState & WorkspaceStoreActions;
@@ -928,6 +940,61 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set) => ({
       const subject = state.workspace.subjects.find((s) => s.id === id);
       if (!subject) return {};
       const updated = specRenameSubTopic(subject, subTopicCode, patch);
+      return {
+        workspace: replaceSubject(state.workspace, id, updated),
+        dirty: true,
+      };
+    }),
+
+  duplicateLesson: (subTopicCode, lessonId) =>
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      const updated: Subject = {
+        ...subject,
+        workingSpec: specDuplicateLesson(subject.workingSpec, subTopicCode, lessonId),
+      };
+      return {
+        workspace: replaceSubject(state.workspace, id, updated),
+        dirty: true,
+      };
+    }),
+
+  deleteLesson: (subTopicCode, lessonId) =>
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      const updated = specDeleteLessonFromSubTopic(subject, subTopicCode, lessonId);
+      return {
+        workspace: replaceSubject(state.workspace, id, updated),
+        dirty: true,
+      };
+    }),
+
+  duplicateSubTopic: (subTopicCode) =>
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      const updated = specDuplicateSubTopic(subject, subTopicCode);
+      return {
+        workspace: replaceSubject(state.workspace, id, updated),
+        dirty: true,
+      };
+    }),
+
+  deleteSubTopic: (subTopicCode) =>
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      const updated = specDeleteSubTopicFromSubject(subject, subTopicCode);
       return {
         workspace: replaceSubject(state.workspace, id, updated),
         dirty: true,

@@ -18,6 +18,16 @@ export interface LessonHalfTermCellProps {
   readonly halfTerm: HalfTerm;
   readonly onOpenBlockModal: (placedBlockId: string) => void;
   readonly onOpenLessonModal: (subTopicCode: string, lessonId: string) => void;
+  /** DEC-052: right-click on a lesson card opens a context menu. */
+  readonly onLessonContextMenu?: (
+    args: {
+      readonly subTopicCode: string;
+      readonly lessonId: string;
+      readonly placedBlockId: string;
+      readonly localLessonIdx: number;
+    },
+    coords: { readonly x: number; readonly y: number }
+  ) => void;
 }
 
 export function LessonHalfTermCell({
@@ -25,6 +35,7 @@ export function LessonHalfTermCell({
   halfTerm,
   onOpenBlockModal,
   onOpenLessonModal,
+  onLessonContextMenu,
 }: LessonHalfTermCellProps): JSX.Element {
   const { setNodeRef, isOver } = useDroppable({
     id: `term:${halfTerm.id}`,
@@ -74,8 +85,11 @@ export function LessonHalfTermCell({
                   <PlacedBlockGroup
                     placed={pb}
                     subject={subject}
+                    termId={halfTerm.id}
+                    cellIndex={idx}
                     onOpenBlockModal={onOpenBlockModal}
                     onOpenLessonModal={onOpenLessonModal}
+                    {...(onLessonContextMenu ? { onLessonContextMenu } : {})}
                   />
                 </div>
               ))}
@@ -111,15 +125,31 @@ export function LessonHalfTermCell({
 interface PlacedBlockGroupProps {
   readonly placed: PlacedBlock;
   readonly subject: Subject;
+  /** Half-term id this block sits in — passed to lesson-slots for cross-sub-topic drops. */
+  readonly termId: string;
+  /** Cell-level index of this block within the cell's placedBlocks array. */
+  readonly cellIndex: number;
   readonly onOpenBlockModal: (placedBlockId: string) => void;
   readonly onOpenLessonModal: (subTopicCode: string, lessonId: string) => void;
+  readonly onLessonContextMenu?: (
+    args: {
+      readonly subTopicCode: string;
+      readonly lessonId: string;
+      readonly placedBlockId: string;
+      readonly localLessonIdx: number;
+    },
+    coords: { readonly x: number; readonly y: number }
+  ) => void;
 }
 
 function PlacedBlockGroup({
   placed,
   subject,
+  termId,
+  cellIndex,
   onOpenBlockModal,
   onOpenLessonModal,
+  onLessonContextMenu,
 }: PlacedBlockGroupProps): JSX.Element {
   if (placed.source.kind !== "sub-topic") {
     return <NonSubTopicGroup placed={placed} subject={subject} onOpen={onOpenBlockModal} />;
@@ -159,9 +189,10 @@ function PlacedBlockGroup({
               id={`lslot:${placed.id}:${absIdx}`}
               data={{
                 kind: "lesson-slot",
-                termId: "", // not used for same-sub-topic reorder
+                termId,
                 subTopicCode: subTopic.code,
                 lessonIdx: absIdx,
+                cellIndex,
               }}
               emphasis="subtle"
             />
@@ -173,6 +204,22 @@ function PlacedBlockGroup({
               displayNumber={displayNumber}
               colour={colour}
               onClick={() => onOpenLessonModal(subTopic.code, lesson.id)}
+              {...(onLessonContextMenu
+                ? {
+                    onContextMenu: (e: React.MouseEvent) => {
+                      e.preventDefault();
+                      onLessonContextMenu(
+                        {
+                          subTopicCode: subTopic.code,
+                          lessonId: lesson.id,
+                          placedBlockId: placed.id,
+                          localLessonIdx: localIdx,
+                        },
+                        { x: e.clientX, y: e.clientY }
+                      );
+                    },
+                  }
+                : {})}
             />
           </div>
         );
@@ -181,9 +228,12 @@ function PlacedBlockGroup({
         id={`lslot:${placed.id}:${start + lessons.length}`}
         data={{
           kind: "lesson-slot",
-          termId: "",
+          termId,
           subTopicCode: subTopic.code,
           lessonIdx: start + lessons.length,
+          // After-last lesson-slot maps to "insert AFTER this block at the
+          // cell level" for cross-sub-topic drops.
+          cellIndex: cellIndex + 1,
         }}
         emphasis="subtle"
       />
