@@ -2014,3 +2014,94 @@ I had built "one xlsx per HT/topic" — the opposite of what was wanted. Session
 - **Sub-topic order within a topic** is alphabetical (because no prefix). Stick with this or revisit naming?
 - **Empty HT folders** still appear in by-HT mode for visible-but-empty cells (planning slots). Keep, or omit?
 - Next: still nothing locked in. Options listed in the previous session's tail.
+
+## Session 28 — Long sprint: import guide → saved presets → context menus → spec editability → auto-split removal → security hardening
+**Date:** 2026-05-18 to 2026-05-21
+**Status:** Complete
+**Commits:** see git tags v1.3.0 through v1.14.2
+**Branch:** `claude/ecstatic-blackburn-d910b4` (also merged to `main`)
+
+### What was built (by version)
+
+This was a long iterative session with many small ship cycles. Each version landed on main and triggered the Release workflow to build Windows/macOS/Linux installers.
+
+| Tag | Feature / fix | Key files |
+|---|---|---|
+| **v1.3.0** | In-app "Importing your spec" modal with structured sections (required/optional columns, row composition, what-you'll-see-after-import) + copyable AI prompt for translating an exam-board spec into the import format. Trigger: `?` in header + "How to prepare your import file →" link on empty workspace. | [ImportGuideModal.tsx](src/components/ImportGuideModal.tsx) |
+| **v1.4.0** | Import accepts `.tsv` and `.csv` files alongside `.xlsx`. SheetJS auto-detects format from content; the importer wraps with PK-zip-header detection to choose binary vs UTF-8 text path. Open dialog filter widened; Save dialog stays xlsx-only. | [import.ts](src/model/import.ts), [electron/main.ts](electron/main.ts) |
+| **v1.5.0** | User-authored saved presets (DEC-045 in code, but actually DEC-046 by canonical numbering — see Surprises). Replaces the always-on algorithmic presets for non-example subjects. New `Subject.presets` field. Save current layout / Apply saved / Delete saved / Paste preset JSON. Algorithmic presets (three-spiral / frontloaded / interleaved) hidden outside the bundled example subject (`isExampleSubject` checks `meta.sourceFilename === "example_physics_spec.xlsx"`). | [presets.ts](src/model/presets.ts), [PresetPickerModal.tsx](src/components/PresetPickerModal.tsx), [docs/PRESET_FORMAT.md](docs/PRESET_FORMAT.md) |
+| **v1.6.0** | DEC-046 — auto-consolidate adjacent same-source placements. Within a half-term, no two sub-topic placements of the same code with adjacent lessonRanges exist as separate blocks. Every public mutator pipes through `consolidate`. "auto/split" badge removed. Multi-cell sub-topics get numbered name suffix ("Forces and motion", "Forces and motion 2"). | [placement.ts](src/model/placement.ts), [HalfTermCell.tsx](src/components/HalfTermCell.tsx) |
+| **v1.7.0** | DEC-047 — editable topic + sub-topic name/code/etc with cascading code updates. New TopicEditModal + SubTopicEditModal opened via pencil buttons in Pool. Code rename cascades through sub-topic codes (prefix-rewrite), PlacedBlocks, CustomBlock.revisits, SavedPreset placements + revisits. CodeConflictError surfaces inline. | [specEdits.ts](src/model/specEdits.ts), [TopicEditModal.tsx](src/components/TopicEditModal.tsx), [SubTopicEditModal.tsx](src/components/SubTopicEditModal.tsx) |
+| **v1.8.0** | DEC-048 — drop-between-blocks via insertion-slot droppables. N+1 slot droppables per cell; new placement-engine ops `placeBlockAtIndex` / `moveBlockToIndex` / `extractAndMoveLessonToIndex`. Dynamic lesson numbering: `LessonCard` displays the 1-based index in `subTopic.lessons`, not the import-time `lesson.number`. New `reorderLessonInSubTopic` for same-sub-topic lesson reorder. | [InsertionSlot.tsx](src/components/InsertionSlot.tsx), [placement.ts](src/model/placement.ts) |
+| **v1.9.0** | DEC-049 — Lesson-view pool of unplaced individual lessons. Drag a lesson out of the pool onto a cell (or a slot) to place it; drag a placed lesson onto the pool to release it. `placeLessonAtIndex` / `removePlacedLesson` engine ops + `getLessonPoolEntries` query. | [LessonPool.tsx](src/components/LessonPool.tsx) |
+| **v1.10.0** | DEC-050 — per-placement display-label override on `PlacedBlock.userEdits.title`. New "Display label" field in BlockEditModal + "Edit the underlying sub-topic →" cross-link to SubTopicEditModal. Pool pencil buttons always-visible (no longer hover-gated). TopicBlock gets a pencil → TopicEditModal. | [BlockEditModal.tsx](src/components/BlockEditModal.tsx) |
+| **v1.11.0** | DEC-051 cross-sub-topic lesson-drop fix (consolidator was over-eager; same-cell early-return in `extractAndMoveLessonToIndex` was wrong) + DEC-052 right-click context menus on placed blocks / lesson cards / pool sub-topics. New spec ops: `duplicateLesson`, `deleteLessonFromSubTopic` (with placement shrink/shift), `duplicateSubTopic`, `deleteSubTopicFromSubject` (with full cascade). | [placement.ts](src/model/placement.ts), [ContextMenu.tsx](src/components/ContextMenu.tsx), [specEdits.ts](src/model/specEdits.ts) |
+| **v1.12.0** | DEC-053 — per-year header count now includes custom blocks by default. New "Include customs" toggle in StatusBar (default ON, tooltip explains). Fixes "Y10 57/105 doesn't match cell load" misreport. | [export.ts:computeCoverageStats](src/model/export.ts), [StatusBar.tsx](src/components/StatusBar.tsx) |
+| **v1.12.1** | DEC-054 — inline rename/split inputs replacing `window.prompt()`, which is a silent no-op in Electron 27+ with `sandbox: true`. Subject rename (in SubjectTabs dropdown) + block split (in BlockEditModal) now use inline forms with Enter/Escape. | [SubjectTabs.tsx](src/components/SubjectTabs.tsx), [BlockEditModal.tsx](src/components/BlockEditModal.tsx) |
+| **v1.13.0** | DEC-055 — dragging a lesson onto a different sub-topic's lesson-slot now actually RE-PARENTS the lesson (moves it from source `subTopic.lessons[]` into target `subTopic.lessons[]` at the requested index). Source PBs shrink, target PB extends. New `moveLessonBetweenSubTopics` engine op. LessonEditModal grows a Sub-topic dropdown for re-parenting without dragging. | [specEdits.ts:moveLessonBetweenSubTopics](src/model/specEdits.ts), [LessonView.tsx](src/components/LessonView.tsx) |
+| **v1.14.0** | DEC-056 — full removal of auto-split / spillover / recombine / splitBlock. The user found auto-split caused more confusion than it solved. Deleted: `placeBlockWithSpillover`, `computeDistribution`, `splitBlock`, `recombineBlock`. `PlacedBlock` lost `splitFrom` and `splitType` fields. `SplitType` union deleted. `SubjectConfig.autoSpillover` marked optional/deprecated for legacy file load only. Algorithmic presets re-wired to use plain `placeBlock`. **762 lines deleted, 40 added.** Tests 398 → 375 (-23 dead-feature tests). | [placement.ts](src/model/placement.ts), [types.ts](src/model/types.ts) |
+| **v1.14.1** | DEC-057 — Pool pencil button was absolutely positioned over Block's trailing "2L" lesson-count chip. Restructured as flex sibling. | [Pool.tsx](src/components/Pool.tsx) |
+| **v1.14.2** | Security hardening (no DEC) — defense-in-depth path-segment allowlist on `file:saveFolderTree` IPC. `isSafePathSegment` rejects `""`, `"."`, `".."`, slashes, absolute paths, Windows drive-letter prefixes. Belt-and-braces with the renderer's existing `safe()` scrubbing in folderExport.ts. Needed for school IT review. | [electron/main.ts](electron/main.ts) |
+
+### Cross-cutting test + typecheck history
+Started session: 341 tests passing.
+Ended session: 375 tests passing (peak was 398 before the v1.14.0 auto-split removal dropped 23 dead-feature tests).
+Typecheck has been clean throughout every ship.
+
+### Deviations from BUILD_PLAN.md
+- None of this was on BUILD_PLAN.md. The whole session was user-driven iteration. Build plan stops at v1.0; everything from v1.1 onward is feature/fix work driven by usage feedback.
+
+### Decisions logged
+**Source-code DEC references created this session:**
+- DEC-046 — auto-consolidate adjacent same-source placements (cell-level, immediately-previous-only)
+- DEC-047 — editable topic/sub-topic codes with cascading rewrite of placements + customs + presets
+- DEC-048 — between-drops via N+1 insertion slots + dynamic lesson numbering = sub-topic index
+- DEC-049 — Lesson-view pool of unplaced lessons; new placement ops for single-lesson
+- DEC-050 — per-placement display-label override on `PlacedBlock.userEdits.title`
+- DEC-051 — consolidator merges only with immediately-previous block (not anywhere in cell); `extractAndMoveLessonToIndex` doesn't bail on same-cell
+- DEC-052 — right-click context menus + spec duplicate/delete ops
+- DEC-053 — per-year count includes custom blocks by default (toggleable)
+- DEC-054 — inline forms replace `window.prompt()` (Electron sandbox kills the native dialog)
+- DEC-055 — cross-sub-topic lesson-drop re-parents the lesson in workingSpec
+- DEC-056 — auto-split / spillover / recombine / splitBlock removed entirely
+- DEC-057 — Pool pencil layout fix (flex sibling, not overlay)
+
+**⚠ Numbering collision:** Saved-presets code (v1.5.0, in [presets.ts](src/model/presets.ts) + [types.ts](src/model/types.ts)) is tagged `DEC-045` in source comments, but DECISIONS.md DEC-045 is already "Folder export is a NESTED FOLDER TREE" from session 27. **None of DEC-046 through DEC-057 have been backfilled into DECISIONS.md** — that's a doc-debt cleanup for a future session. Code comments and this SESSION_LOG entry are the canonical record until then.
+
+### Surprises and gotchas
+- **`window.prompt()` is a silent no-op** in Electron 27+ with sandbox + contextIsolation enabled. Caught this only after the user reported "Rename does nothing". Fixed in v1.12.1 with inline form patterns. `alert()` and `confirm()` still work natively in Electron, so those didn't need changing. Worth remembering for any future feature that reaches for `prompt()` — always use an inline input.
+- **dnd-kit `attributes` adds `role="button"` to draggable elements**, so a draggable wrapping a Block (which also sets `role="button"` for its own onClick) ends up with TWO `[role="button"]` elements. Affects DOM queries during programmatic testing but is invisible to users.
+- **Consolidator over-eagerness** (DEC-051 bug): `merged.findIndex(b => same-code && adjacent-lessonRange)` would collapse `[T1a, T1b, T1a]` into `[T1a-merged, T1b]`, silently moving T1b to the end. Fix: only consider the immediately-previous block in cell order. Pair this with removing the same-cell early-return in `extractAndMoveLessonToIndex` to make cross-sub-topic in-cell drops survive consolidation.
+- **Auto-spillover was the source of much pain.** Removing it (DEC-056) simplified the data model dramatically — 762 lines deleted. Lessons:
+  - Same-cell `splitBlock` was a no-op after DEC-046 consolidation, so manual split UI was deceptive.
+  - `splitFrom` / `splitType` fields on PlacedBlock had no consumers except recombine, which was rarely used.
+  - The algorithmic presets used spillover for distribution; without it, they drop big blocks into single cells and let the user reshuffle. The user accepted this trade.
+- **Cross-sub-topic lesson re-parenting** (DEC-055) was the subtlest bug to root-cause. The user reported "lesson lands above instead of inside the target sub-topic group". The actual fix was a NEW engine op (`moveLessonBetweenSubTopics`) that mutates `workingSpec.topics[].subTopics[].lessons[]` AND rewrites every affected PlacedBlock lessonRange. The previous implementation was an `extractAndMoveLessonToIndex` that only moved placement and never changed sub-topic membership.
+- **Per-year header undercount** (DEC-053): `computeCoverageStats` only counted sub-topic placements, ignoring custom blocks. Inconsistent with cell-level `halfTermUsed`. Fix added an option (default true) to include customs in per-year count. Coverage stats stay sub-topic-only because those measure spec coverage by definition.
+- **Path traversal risk** (v1.14.2): the `file:saveFolderTree` IPC was trusting whatever path segments the renderer sent. The renderer's `safe()` in folderExport.ts strips `\/:*?"<>|` and trailing dots, so `".."` collapses to `""` and slashes never survive — but a future regression in `safe()` could re-expose this. Defense-in-depth `isSafePathSegment` guard added at the IPC boundary.
+- **The preview-screenshot tool was flaky throughout the session.** Many verifications were done via DOM inspection (`preview_eval` running `getBoundingClientRect`, `querySelector`, etc.) rather than visual screenshots. The DOM-based checks were sufficient for layout verification.
+
+### What's usable now (end of session)
+1. **Spec import** — `.xlsx` / `.tsv` / `.csv`, with an in-app guide modal explaining the format and an AI prompt for drafting.
+2. **In-app spec editing** — rename topics / sub-topics / lessons (incl. cascading code edits), reorder lessons within a sub-topic, move lessons between sub-topics, duplicate lessons / sub-topics, delete lessons / sub-topics (with confirmation and full cascade).
+3. **Cell layout** — drop between blocks (slots), per-placement display-label override, multi-cell sub-topics get "2", "3"... suffix, no more split-badge clutter, custom blocks counted in cell load by default.
+4. **Right-click context menu** on placed blocks / lesson cards / pool items: return to pool / rename / duplicate / delete.
+5. **Saved presets** per subject, with AI-authorable JSON format documented in [docs/PRESET_FORMAT.md](docs/PRESET_FORMAT.md). Algorithmic presets only on the example subject.
+6. **Honest per-year counts** in the StatusBar via "Include customs" toggle.
+7. **Security**: 100% offline. Sandbox + contextIsolation + nodeIntegration:false. Tiny IPC surface, dialog-gated. Defense-in-depth path-segment allowlist. No telemetry, no auto-update. See v1.14.2 commit + the security writeup in this session's chat history for the school-IT summary.
+
+### Open questions / known limitations for next session
+- **DECISIONS.md is stale** — DEC-046 through DEC-057 exist in source comments and this session log only. A future session should backfill each as a proper DECISIONS.md entry. Numbering should match the source-code refs to avoid further confusion.
+- **Saved-presets code is tagged DEC-045 in source comments** but the canonical DEC-045 in DECISIONS.md is "folder export". The saved-presets DEC needs its own number (probably DEC-058 to avoid renumbering everything) and the in-source comments updated.
+- **Topic view between-drops** weren't implemented in v1.8.0 — TopicBlock aggregates make "insert topic between two topics" semantically fuzzy. Sub-topic and lesson views handle precision drops; topic view stays append-only. Worth revisiting if the user complains.
+- **`splitBlock` UI was removed** in v1.14.0 along with auto-split. If a user wants to visually split a sub-topic across cells, they now have to extract individual lessons via lesson-view drag. Acceptable for now per the user's "auto-split caused more problems than it solved" direction.
+- **`SubjectConfig.autoSpillover`** kept as optional/deprecated field on legacy `.curriculum` files. Could be hard-removed in a future major version once legacy plans have been re-saved.
+- **No CSP meta tag in `index.html`** — defense in depth that the school-IT security note explicitly flagged as missing. Optional addition for next iteration.
+- **Algorithmic presets now drop whole blocks into single cells** (no spillover). Cells may overflow visibly. Acceptable per user direction; if it becomes annoying, replace with a "distribute by cell budget" computation inside `executePlan` that doesn't add splitFrom/splitType but just emits multiple `placeBlock` calls per planned placement.
+- **Worktree `claude/ecstatic-blackburn-d910b4` is still pushed to origin.** Main has all the work; the feature branch can be safely deleted (`git push origin --delete claude/ecstatic-blackburn-d910b4`) at the user's discretion.
+
+### Picking up from another device — quick start
+1. `git pull origin main` — everything is on `main`, no need to checkout the feature branch.
+2. Read this session log entry. Skim recent commits with `git log --oneline -30` to see the v1.3.0 → v1.14.2 arc.
+3. Check the GitHub Releases page for the latest installer if testing locally.
+4. The first job worth doing is backfilling DECISIONS.md per the "Open questions" section above — but it's documentation hygiene, not a feature gap.
