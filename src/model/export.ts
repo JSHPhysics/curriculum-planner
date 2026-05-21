@@ -70,6 +70,16 @@ export interface CoverageStatsOptions {
    * exports honour the user's visible-years filter (see DEC-036).
    */
   readonly respectHiddenYears?: boolean;
+  /**
+   * When true, custom-block placements (tests, retrieval blocks, bespoke
+   * lessons …) count toward `perYear.placed`. They do NOT contribute to
+   * `placedLessons` / `coveragePercent` — those measure *spec coverage*,
+   * which by definition excludes off-spec items. Defaults to true so the
+   * per-year header is honest about the actual lesson load in the cell
+   * (DEC-053). The StatusBar toggle drives this; the export Cover sheet
+   * passes false so coverage stays a sub-topic-only measure.
+   */
+  readonly includeCustomBlocksInPerYearPlaced?: boolean;
 }
 
 export function computeCoverageStats(
@@ -85,6 +95,8 @@ export function computeCoverageStats(
     ? new Set(subject.config.hiddenYears ?? [])
     : new Set<YearId>();
 
+  const includeCustoms = options.includeCustomBlocksInPerYearPlaced ?? true;
+
   let placedLessons = 0;
   const perYear = new Map<YearId, { placed: number; budget: number }>();
   for (const ht of subject.timeline.halfTerms) {
@@ -92,10 +104,15 @@ export function computeCoverageStats(
     const slot = perYear.get(ht.year) ?? { placed: 0, budget: 0 };
     slot.budget += ht.budget;
     for (const pb of ht.placedBlocks) {
-      if (pb.source.kind !== "sub-topic") continue;
-      const effective = effectiveLessonCountForPlacement(subject, pb);
-      slot.placed += effective;
-      placedLessons += effective;
+      if (pb.source.kind === "sub-topic") {
+        const effective = effectiveLessonCountForPlacement(subject, pb);
+        slot.placed += effective;
+        placedLessons += effective; // spec-coverage counter
+      } else if (includeCustoms) {
+        // Customs (tests, retrieval, bespoke lessons) consume cell budget
+        // but never count toward spec coverage. Add to perYear.placed only.
+        slot.placed += pb.lessonsClaimed;
+      }
     }
     perYear.set(ht.year, slot);
   }

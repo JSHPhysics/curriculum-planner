@@ -21,9 +21,16 @@ export function StatusBar({
     );
   }
 
-  const stats = computeCoverageStats(subject);
-  const unplaced = stats.totalSpecLessons - stats.placedLessons;
   const cfg = subject.config;
+  // DEC-053: respect the per-subject "include custom blocks in counts"
+  // preference. Default to true when the field is undefined (legacy files +
+  // freshly imported subjects), so the per-year header tells the truth
+  // about cell load instead of silently undercounting tests / retrievals.
+  const includeCustomsInCounts = cfg.includeCustomBlocksInCounts ?? true;
+  const stats = computeCoverageStats(subject, {
+    includeCustomBlocksInPerYearPlaced: includeCustomsInCounts,
+  });
+  const unplaced = stats.totalSpecLessons - stats.placedLessons;
   const years = getVisibleTimelineYears(subject);
 
   return (
@@ -69,6 +76,12 @@ export function StatusBar({
           title="Include the ★ depth-extension lessons in placement counts"
           checked={cfg.includeDepth}
           onChange={(v) => onToggleConfig({ includeDepth: v })}
+        />
+        <ConfigToggle
+          label="Include customs"
+          title="Custom blocks include tests, review lessons, and anything not defined in your specification or marked as a lesson"
+          checked={includeCustomsInCounts}
+          onChange={(v) => onToggleConfig({ includeCustomBlocksInCounts: v })}
         />
         <ConfigToggle
           label="Buffer"

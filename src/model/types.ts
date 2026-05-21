@@ -186,6 +186,16 @@ export interface SubjectConfig {
   readonly includeDepth: boolean;
   readonly lostLessonBuffer: boolean;
   readonly autoSpillover: boolean;
+  /**
+   * DEC-053: when true (default), custom-block lesson counts (tests,
+   * retrieval blocks, bespoke lessons, anything not from the spec) are
+   * included in the per-year "placed / budget" header counts. Sub-topic
+   * coverage stats (`placedLessons`, `coveragePercent`) are unaffected —
+   * those measure spec coverage, which by definition excludes off-spec
+   * items. Optional for legacy `.curriculum` files; deserializer treats
+   * missing as `true` so existing plans get the honest count immediately.
+   */
+  readonly includeCustomBlocksInCounts?: boolean;
   readonly retrievalWeights?: RetrievalWeights;
   readonly spacingThresholds?: SpacingThresholds;
   /**
