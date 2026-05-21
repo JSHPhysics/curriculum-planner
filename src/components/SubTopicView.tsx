@@ -50,6 +50,7 @@ export function SubTopicView({ subject }: SubTopicViewProps): JSX.Element {
   const editBlockLessons = useWorkspaceStore((s) => s.editBlockLessons);
   const addCustomBlock = useWorkspaceStore((s) => s.addCustomBlock);
   const updateCustomBlock = useWorkspaceStore((s) => s.updateCustomBlock);
+  const setPlacedBlockTitle = useWorkspaceStore((s) => s.setPlacedBlockTitle);
   const renameTopic = useWorkspaceStore((s) => s.renameTopic);
   const renameSubTopic = useWorkspaceStore((s) => s.renameSubTopic);
 
@@ -137,18 +138,41 @@ export function SubTopicView({ subject }: SubTopicViewProps): JSX.Element {
         {activeDrag ? <DragPreview drag={activeDrag} subject={subject} /> : null}
       </DragOverlay>
 
-      {openModal?.kind === "edit" && (
-        <BlockEditModal
-          subject={subject}
-          placedBlockId={openModal.placedBlockId}
-          onClose={() => setOpenModal(null)}
-          onEditLessons={(n) => editBlockLessons(openModal.placedBlockId, n)}
-          onSplit={(at) => splitBlock(openModal.placedBlockId, at)}
-          onRecombine={() => recombineBlock(openModal.placedBlockId)}
-          onRemove={() => removeBlock(openModal.placedBlockId)}
-          onUpdateRevisits={(cbId, revisits) => updateCustomBlock(cbId, { revisits })}
-        />
-      )}
+      {openModal?.kind === "edit" &&
+        (() => {
+          const placedId = openModal.placedBlockId;
+          const pb = subject.timeline.halfTerms
+            .flatMap((h) => h.placedBlocks)
+            .find((b) => b.id === placedId);
+          // Cross-link to underlying spec entity: only sub-topic placements
+          // get an "Edit underlying" affordance for now (custom-block edits
+          // would need a CustomBlockEditModal that doesn't yet exist).
+          const editUnderlying =
+            pb && pb.source.kind === "sub-topic"
+              ? {
+                  onEditUnderlying: () => {
+                    const code = (pb.source as { subTopicCode: string }).subTopicCode;
+                    setOpenModal({ kind: "edit-subtopic", subTopicCode: code });
+                  },
+                }
+              : {};
+          return (
+            <BlockEditModal
+              subject={subject}
+              placedBlockId={placedId}
+              onClose={() => setOpenModal(null)}
+              onEditLessons={(n) => editBlockLessons(placedId, n)}
+              onSplit={(at) => splitBlock(placedId, at)}
+              onRecombine={() => recombineBlock(placedId)}
+              onRemove={() => removeBlock(placedId)}
+              onUpdateRevisits={(cbId, revisits) =>
+                updateCustomBlock(cbId, { revisits })
+              }
+              onSetTitle={(title) => setPlacedBlockTitle(placedId, title)}
+              {...editUnderlying}
+            />
+          );
+        })()}
       {openModal?.kind === "custom" && (
         <CustomBlockModal
           subject={subject}

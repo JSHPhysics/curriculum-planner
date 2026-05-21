@@ -13,6 +13,7 @@ import {
   recombineBlock as plRecombineBlock,
   removeBlock as plRemoveBlock,
   removePlacedLesson as plRemovePlacedLesson,
+  setPlacedBlockTitle as plSetPlacedBlockTitle,
   splitBlock as plSplitBlock,
 } from "@/model/placement";
 import {
@@ -151,6 +152,12 @@ export interface WorkspaceStoreActions {
     placedBlockId: string,
     localLessonIdx: number
   ) => void;
+  /**
+   * Override the display title of a specific placement (DEC-050). Empty /
+   * whitespace-only `title` clears the override so the displayed name falls
+   * back to the underlying sub-topic / custom-block name.
+   */
+  readonly setPlacedBlockTitle: (placedBlockId: string, title: string) => void;
   /** Reorder a lesson within its sub-topic's lessons array. */
   readonly reorderLessonInSubTopic: (
     subTopicCode: string,
@@ -552,6 +559,14 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set) => ({
     set((state) => ({
       workspace: updateActiveTimeline(state.workspace, (tl) =>
         plRemovePlacedLesson(tl, placedBlockId, localLessonIdx)
+      ),
+      dirty: true,
+    })),
+
+  setPlacedBlockTitle: (placedBlockId, title) =>
+    set((state) => ({
+      workspace: updateActiveTimeline(state.workspace, (tl) =>
+        plSetPlacedBlockTitle(tl, placedBlockId, title)
       ),
       dirty: true,
     })),

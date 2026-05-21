@@ -16,6 +16,7 @@ import type { HalfTerm, Subject, YearId } from "@/model/types";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
 import { TopicBlock } from "./TopicBlock";
+import { TopicEditModal } from "./TopicEditModal";
 import { TopicHalfTermCell } from "./TopicHalfTermCell";
 import type { TopicBlockDragPayload } from "./TopicBlock";
 
@@ -25,12 +26,14 @@ export interface TopicViewProps {
 
 export function TopicView({ subject }: TopicViewProps): JSX.Element {
   const moveTopicInHalfTerm = useWorkspaceStore((s) => s.moveTopicInHalfTerm);
+  const renameTopic = useWorkspaceStore((s) => s.renameTopic);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } })
   );
 
   const [activeDrag, setActiveDrag] = useState<TopicBlockDragPayload | null>(null);
+  const [editingTopicCode, setEditingTopicCode] = useState<string | null>(null);
 
   function handleDragStart(e: DragStartEvent): void {
     const data = e.active.data.current as TopicBlockDragPayload | undefined;
@@ -76,7 +79,12 @@ export function TopicView({ subject }: TopicViewProps): JSX.Element {
                   }}
                 >
                   {terms.map((ht) => (
-                    <TopicHalfTermCell key={ht.id} subject={subject} halfTerm={ht} />
+                    <TopicHalfTermCell
+                      key={ht.id}
+                      subject={subject}
+                      halfTerm={ht}
+                      onEditTopic={(code) => setEditingTopicCode(code)}
+                    />
                   ))}
                 </div>
               </section>
@@ -88,6 +96,24 @@ export function TopicView({ subject }: TopicViewProps): JSX.Element {
       <DragOverlay dropAnimation={null}>
         {activeDrag ? <DragPreview drag={activeDrag} subject={subject} /> : null}
       </DragOverlay>
+
+      {editingTopicCode &&
+        (() => {
+          const topic = subject.workingSpec.topics.find(
+            (t) => t.code === editingTopicCode
+          );
+          if (!topic) return null;
+          return (
+            <TopicEditModal
+              topic={topic}
+              onCancel={() => setEditingTopicCode(null)}
+              onSave={(patch) => {
+                renameTopic(topic.code, patch);
+                setEditingTopicCode(null);
+              }}
+            />
+          );
+        })()}
     </DndContext>
   );
 }

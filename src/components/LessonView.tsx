@@ -46,6 +46,7 @@ export function LessonView({ subject }: LessonViewProps): JSX.Element {
   );
   const placeLessonAtIndex = useWorkspaceStore((s) => s.placeLessonAtIndex);
   const removePlacedLesson = useWorkspaceStore((s) => s.removePlacedLesson);
+  const setPlacedBlockTitle = useWorkspaceStore((s) => s.setPlacedBlockTitle);
   const reorderLessonInSubTopic = useWorkspaceStore((s) => s.reorderLessonInSubTopic);
   const splitBlock = useWorkspaceStore((s) => s.splitBlock);
   const recombineBlock = useWorkspaceStore((s) => s.recombineBlock);
@@ -207,6 +208,7 @@ export function LessonView({ subject }: LessonViewProps): JSX.Element {
           onRecombine={() => recombineBlock(openModal.placedBlockId)}
           onRemove={() => removeBlock(openModal.placedBlockId)}
           onUpdateRevisits={(cbId, revisits) => updateCustomBlock(cbId, { revisits })}
+          onSetTitle={(title) => setPlacedBlockTitle(openModal.placedBlockId, title)}
         />
       )}
       {openModal?.kind === "lesson" && (

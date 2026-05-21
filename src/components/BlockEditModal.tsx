@@ -19,10 +19,31 @@ export interface BlockEditModalProps {
    * and the block is a retrieval, the revisits picker is shown read-only.
    */
   readonly onUpdateRevisits?: (customBlockId: string, revisits: readonly string[]) => void;
+  /**
+   * DEC-050: per-placement display-title override. Falsy clears it.
+   */
+  readonly onSetTitle: (title: string) => void;
+  /**
+   * Open the underlying spec-entity edit modal (sub-topic for sub-topic
+   * blocks; custom block for custom blocks). Lets the user cascade-rename
+   * the source rather than just the per-placement label.
+   */
+  readonly onEditUnderlying?: () => void;
 }
 
 export function BlockEditModal(props: BlockEditModalProps): JSX.Element | null {
-  const { subject, placedBlockId, onClose, onEditLessons, onSplit, onRecombine, onRemove, onUpdateRevisits } = props;
+  const {
+    subject,
+    placedBlockId,
+    onClose,
+    onEditLessons,
+    onSplit,
+    onRecombine,
+    onRemove,
+    onUpdateRevisits,
+    onSetTitle,
+    onEditUnderlying,
+  } = props;
 
   const found = findPlacedBlock(subject.timeline, placedBlockId);
   const block = found?.block ?? null;
@@ -30,6 +51,8 @@ export function BlockEditModal(props: BlockEditModalProps): JSX.Element | null {
   const [lessons, setLessons] = useState<number>(block?.lessonsClaimed ?? 0);
   const [revisitsDraft, setRevisitsDraft] = useState<readonly string[]>([]);
   const [revisitsDirty, setRevisitsDirty] = useState(false);
+  const [titleDraft, setTitleDraft] = useState<string>(block?.userEdits.title ?? "");
+  const [titleDirty, setTitleDirty] = useState(false);
 
   // Resolve the underlying custom block (if any) for retrieval-kind editing.
   // TS can't see through the closure-narrowed source.kind narrative, so
@@ -43,7 +66,9 @@ export function BlockEditModal(props: BlockEditModalProps): JSX.Element | null {
 
   useEffect(() => {
     setLessons(block?.lessonsClaimed ?? 0);
-  }, [block?.lessonsClaimed, placedBlockId]);
+    setTitleDraft(block?.userEdits.title ?? "");
+    setTitleDirty(false);
+  }, [block?.lessonsClaimed, block?.userEdits.title, placedBlockId]);
 
   // Re-seed revisits draft whenever the underlying retrieval block changes.
   useEffect(() => {
@@ -75,6 +100,7 @@ export function BlockEditModal(props: BlockEditModalProps): JSX.Element | null {
     if (revisitsDirty && isRetrieval && customBlock && onUpdateRevisits) {
       onUpdateRevisits(customBlock.id, revisitsDraft);
     }
+    if (titleDirty) onSetTitle(titleDraft);
     onClose();
   }
 
@@ -142,6 +168,41 @@ export function BlockEditModal(props: BlockEditModalProps): JSX.Element | null {
         </header>
 
         <div className="px-5 py-4 space-y-4 overflow-y-auto">
+          <div>
+            <label htmlFor="block-display-title" className="block text-xs text-ink-dim mb-1">
+              Display label <span className="text-ink-fade">(this placement only)</span>
+            </label>
+            <input
+              id="block-display-title"
+              type="text"
+              value={titleDraft}
+              onChange={(e) => {
+                setTitleDraft(e.target.value);
+                setTitleDirty(true);
+              }}
+              placeholder={description.name}
+              className="w-full px-2 py-1 border border-line rounded text-sm"
+            />
+            <p className="text-[10px] text-ink-fade mt-1">
+              Overrides the displayed text on this block. Leave blank to fall back
+              to "{description.name}". Doesn't change the underlying{" "}
+              {block.source.kind === "custom" ? "custom block" : "sub-topic"}.
+            </p>
+            {onEditUnderlying && block.source.kind !== "eoht" && (
+              <button
+                type="button"
+                onClick={() => {
+                  onEditUnderlying();
+                  onClose();
+                }}
+                className="mt-2 text-[11px] text-navy underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy rounded"
+              >
+                Edit the underlying{" "}
+                {block.source.kind === "custom" ? "custom block" : "sub-topic"} →
+              </button>
+            )}
+          </div>
+
           <div>
             <label className="block text-xs text-ink-dim mb-1">Lessons claimed</label>
             <div className="flex items-center gap-2">

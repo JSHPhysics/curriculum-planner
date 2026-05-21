@@ -453,6 +453,34 @@ export function extractAndMoveLesson(
 }
 
 /**
+ * Set the per-placement display title (DEC-050). Stored in
+ * `PlacedBlock.userEdits.title`; falsy / empty input clears the override so
+ * the displayed name falls back to the underlying sub-topic / custom-block
+ * name. Re-uses the same in-place block replacement plumbing as edit lesson.
+ */
+export function setPlacedBlockTitle(
+  timeline: Timeline,
+  placedBlockId: string,
+  title: string
+): Timeline {
+  const found = findPlacedBlock(timeline, placedBlockId);
+  if (!found) {
+    throw new Error(`setPlacedBlockTitle: no placed block with id "${placedBlockId}"`);
+  }
+  const trimmed = title.trim();
+  const nextUserEdits = { ...found.block.userEdits };
+  if (trimmed === "") {
+    delete (nextUserEdits as { title?: string }).title;
+  } else {
+    (nextUserEdits as { title?: string }).title = trimmed;
+  }
+  const edited: PlacedBlock = { ...found.block, userEdits: nextUserEdits };
+  return consolidate(
+    replaceInTerm(timeline, found.termId, placedBlockId, [edited])
+  );
+}
+
+/**
  * Remove a single placed lesson, "releasing" it back into the unplaced pool
  * (DEC-049). Source block is shrunk or split using the same shape as
  * extractAndMoveLesson, but the extracted piece is discarded rather than

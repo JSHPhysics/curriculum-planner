@@ -195,8 +195,10 @@ function PoolSubTopic({
           dragging={isDragging}
         />
       </div>
-      {/* DEC-047: pencil button sits on top of the draggable block. Stop
-          propagation prevents the click from initiating a drag. */}
+      {/* DEC-047 + DEC-050: pencil button sits on top of the draggable block.
+          stopPropagation prevents the click from initiating a drag. Always
+          visible (not hover-gated) for discoverability — the user kept
+          missing it. */}
       <button
         onClick={(e) => {
           e.stopPropagation();
@@ -204,8 +206,8 @@ function PoolSubTopic({
         }}
         onPointerDown={(e) => e.stopPropagation()}
         aria-label={`Edit sub-topic ${code}`}
-        title="Edit sub-topic"
-        className="absolute top-1 right-1 text-[11px] leading-none text-ink-fade hover:text-ink opacity-0 group-hover:opacity-100 focus-visible:opacity-100 px-1 py-0.5 rounded bg-bg/90 border border-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
+        title="Edit sub-topic (name, code, difficulty, …)"
+        className="absolute top-1 right-1 text-[11px] leading-none text-ink-dim hover:text-ink hover:bg-surface px-1 py-0.5 rounded bg-bg/90 border border-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
       >
         ✎
       </button>

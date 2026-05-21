@@ -9,11 +9,13 @@ import { TopicBlock } from "./TopicBlock";
 export interface TopicHalfTermCellProps {
   readonly subject: Subject;
   readonly halfTerm: HalfTerm;
+  readonly onEditTopic?: (topicCode: string) => void;
 }
 
 export function TopicHalfTermCell({
   subject,
   halfTerm,
+  onEditTopic,
 }: TopicHalfTermCellProps): JSX.Element {
   const { setNodeRef, isOver } = useDroppable({
     id: `topic-term:${halfTerm.id}`,
@@ -51,6 +53,7 @@ export function TopicHalfTermCell({
             summary={s}
             halfTermId={halfTerm.id}
             workingSpec={subject.workingSpec}
+            {...(onEditTopic ? { onEdit: onEditTopic } : {})}
           />
         ))}
         {summaries.length === 0 && (

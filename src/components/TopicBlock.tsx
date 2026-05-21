@@ -14,12 +14,14 @@ export interface TopicBlockProps {
   readonly summary: TopicBlockSummary;
   readonly halfTermId: string;
   readonly workingSpec: Spec;
+  readonly onEdit?: (topicCode: string) => void;
 }
 
 export function TopicBlock({
   summary,
   halfTermId,
   workingSpec,
+  onEdit,
 }: TopicBlockProps): JSX.Element {
   const draggableId = `topic:${halfTermId}:${summary.topicCode}`;
   const payload: TopicBlockDragPayload = {
@@ -34,32 +36,54 @@ export function TopicBlock({
 
   return (
     <div
-      ref={setNodeRef}
-      {...listeners}
-      {...attributes}
-      className={
-        "touch-none flex flex-col gap-1 px-2 py-1.5 rounded-card border bg-surface " +
-        "cursor-grab active:cursor-grabbing transition " +
-        (isDragging ? "opacity-40 ring-2 ring-navy" : "hover:bg-surface-2 border-line")
-      }
+      className="relative group"
       style={{ borderLeft: `4px solid ${summary.colour}` }}
-      title={`${summary.topicCode} ${summary.topicName} — ${summary.totalLessons} lessons across ${summary.subTopics.length} sub-topic${summary.subTopics.length === 1 ? "" : "s"}`}
     >
-      <div className="flex items-baseline gap-2">
-        <span className="font-mono text-[10px] tracking-wider text-ink-fade uppercase">
-          {summary.topicCode}
-        </span>
-        <span className="flex-1 text-xs leading-tight truncate text-ink">
-          {summary.topicName}
-        </span>
-        <span className="text-[10px] text-ink-dim font-mono tabular-nums">
-          {summary.totalLessons}L
-        </span>
+      <div
+        ref={setNodeRef}
+        {...listeners}
+        {...attributes}
+        className={
+          "touch-none flex flex-col gap-1 px-2 py-1.5 rounded-card border bg-surface " +
+          "cursor-grab active:cursor-grabbing transition " +
+          (isDragging ? "opacity-40 ring-2 ring-navy" : "hover:bg-surface-2 border-line")
+        }
+        title={`${summary.topicCode} ${summary.topicName} — ${summary.totalLessons} lessons across ${summary.subTopics.length} sub-topic${summary.subTopics.length === 1 ? "" : "s"}`}
+      >
+        <div className="flex items-baseline gap-2">
+          <span className="font-mono text-[10px] tracking-wider text-ink-fade uppercase">
+            {summary.topicCode}
+          </span>
+          <span className="flex-1 text-xs leading-tight truncate text-ink">
+            {summary.topicName}
+          </span>
+          <span className="text-[10px] text-ink-dim font-mono tabular-nums">
+            {summary.totalLessons}L
+          </span>
+        </div>
+        <BreakdownBar summary={summary} workingSpec={workingSpec} />
+        <div className="text-[10px] font-mono text-ink-fade truncate">
+          {summary.subTopics.map((s) => `${s.subTopicCode}·${s.lessons}`).join("  ")}
+        </div>
       </div>
-      <BreakdownBar summary={summary} workingSpec={workingSpec} />
-      <div className="text-[10px] font-mono text-ink-fade truncate">
-        {summary.subTopics.map((s) => `${s.subTopicCode}·${s.lessons}`).join("  ")}
-      </div>
+      {/* DEC-050: pencil overlay opens the TopicEditModal. Stops propagation
+          so it doesn't initiate a drag. Always-visible so the user can find
+          it without hovering. */}
+      {onEdit && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit(summary.topicCode);
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          aria-label={`Edit topic ${summary.topicName}`}
+          title="Edit topic (name, code, paper)"
+          className="absolute top-1 right-1 text-[11px] leading-none text-ink-dim hover:text-ink px-1 py-0.5 rounded bg-bg/90 border border-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
+        >
+          ✎
+        </button>
+      )}
     </div>
   );
 }
