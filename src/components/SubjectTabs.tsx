@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { KeyStage, Subject } from "@/model/types";
 
@@ -26,18 +26,43 @@ export function SubjectTabs({
   onSetKeyStage,
 }: SubjectTabsProps): JSX.Element {
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  // DEC-054: native window.prompt() is a no-op in Electron with sandbox +
+  // contextIsolation (the default since Electron 27+), so the old
+  // prompt-based rename did literally nothing on click. Replaced with an
+  // inline input rendered inside the subject's menu.
+  const [renameFor, setRenameFor] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState<string>("");
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (renameFor && renameInputRef.current) {
+      renameInputRef.current.focus();
+      renameInputRef.current.select();
+    }
+  }, [renameFor]);
 
   function handleContextMenu(e: React.MouseEvent, subjectId: string): void {
     e.preventDefault();
     setMenuFor(subjectId === menuFor ? null : subjectId);
+    setRenameFor(null);
   }
 
-  function handleRename(subjectId: string, currentName: string): void {
-    const next = prompt("New subject name", currentName);
-    if (next && next.trim() && next.trim() !== currentName) {
-      onRename(subjectId, next.trim());
+  function beginRename(subjectId: string, currentName: string): void {
+    setRenameFor(subjectId);
+    setRenameDraft(currentName);
+  }
+
+  function commitRename(subjectId: string, currentName: string): void {
+    const trimmed = renameDraft.trim();
+    if (trimmed && trimmed !== currentName) {
+      onRename(subjectId, trimmed);
     }
+    setRenameFor(null);
     setMenuFor(null);
+  }
+
+  function cancelRename(): void {
+    setRenameFor(null);
   }
 
   function handleRestore(subjectId: string): void {
@@ -109,15 +134,64 @@ export function SubjectTabs({
             </button>
             {menuFor === s.id && (
               <div
-                className="absolute right-0 top-full mt-1 z-10 bg-surface border border-line rounded-card shadow-md py-1 min-w-[180px] text-sm"
-                onMouseLeave={() => setMenuFor(null)}
+                className="absolute right-0 top-full mt-1 z-10 bg-surface border border-line rounded-card shadow-md py-1 min-w-[220px] text-sm"
+                onMouseLeave={() => {
+                  // Don't close the menu if the rename input is active —
+                  // the user could be drifting toward the input mid-edit.
+                  if (renameFor !== s.id) setMenuFor(null);
+                }}
               >
-                <button
-                  onClick={() => handleRename(s.id, s.meta.name)}
-                  className="w-full text-left px-3 py-1.5 hover:bg-surface-2"
-                >
-                  Rename…
-                </button>
+                {renameFor === s.id ? (
+                  <div className="px-3 py-2 flex flex-col gap-1.5">
+                    <label
+                      htmlFor={`rename-${s.id}`}
+                      className="text-[10px] uppercase tracking-wider text-ink-fade"
+                    >
+                      New subject name
+                    </label>
+                    <input
+                      id={`rename-${s.id}`}
+                      ref={renameInputRef}
+                      type="text"
+                      value={renameDraft}
+                      onChange={(e) => setRenameDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          commitRename(s.id, s.meta.name);
+                        } else if (e.key === "Escape") {
+                          e.preventDefault();
+                          cancelRename();
+                        }
+                      }}
+                      className="w-full px-2 py-1 border border-line rounded text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
+                    />
+                    <div className="flex items-center gap-1.5 justify-end">
+                      <button
+                        type="button"
+                        onClick={cancelRename}
+                        className="px-2 py-0.5 text-xs border border-line rounded hover:bg-surface-2"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => commitRename(s.id, s.meta.name)}
+                        disabled={!renameDraft.trim() || renameDraft.trim() === s.meta.name}
+                        className="px-2 py-0.5 text-xs bg-navy text-bg rounded hover:bg-navy-dim disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => beginRename(s.id, s.meta.name)}
+                    className="w-full text-left px-3 py-1.5 hover:bg-surface-2"
+                  >
+                    Rename…
+                  </button>
+                )}
                 <button
                   onClick={() => handleRestore(s.id)}
                   className="w-full text-left px-3 py-1.5 hover:bg-surface-2"
