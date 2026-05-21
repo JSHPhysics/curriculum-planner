@@ -8,6 +8,7 @@ import {
   deleteSubTopicFromSubject,
   duplicateLesson,
   duplicateSubTopic,
+  moveLessonBetweenSubTopics,
   removeObjective,
   renameSubTopic,
   renameTopic,
@@ -563,5 +564,167 @@ describe("duplicateLesson / deleteLessonFromSubTopic / duplicateSubTopic / delet
       subTopicCode: "T2a",
     });
     expect(preset.customBlocks[0]?.revisits).toEqual([]);
+  });
+});
+
+describe("moveLessonBetweenSubTopics (DEC-055)", () => {
+  function makeMoveSubject(): Subject {
+    // T1a has L1, L2 (from makeSpec). Add a placement in Y9-A1 that covers
+    // T1a's [0, 2). Also seed a T2a sub-topic with one lesson + a placement
+    // in Y9-A1 covering [0, 1). So the drop cell Y9-A1 has BOTH source and
+    // target PBs side by side.
+    const base = makeSubject();
+    const withT2aLesson: Spec = {
+      topics: base.workingSpec.topics.map((t) =>
+        t.code !== "T2"
+          ? t
+          : {
+              ...t,
+              subTopics: t.subTopics.map((st) =>
+                st.code !== "T2a"
+                  ? st
+                  : {
+                      ...st,
+                      lessons: [
+                        {
+                          id: "T2a-L1",
+                          number: 1,
+                          title: "T2a lesson 1",
+                          practical: null,
+                          isDepth: false,
+                          separateOnly: false,
+                          objectives: [],
+                        },
+                      ],
+                    }
+              ),
+            }
+      ),
+    };
+    return {
+      ...base,
+      workingSpec: withT2aLesson,
+      importedSpec: withT2aLesson,
+      timeline: {
+        halfTerms: [
+          {
+            id: "Y9-A1",
+            year: "Y9",
+            label: "Aut 1",
+            dates: null,
+            budget: 12,
+            placedBlocks: [
+              {
+                id: "pb-t1a",
+                source: { kind: "sub-topic", subTopicCode: "T1a" },
+                lessonsClaimed: 2,
+                lessonRange: [0, 2],
+                splitFrom: null,
+                splitType: null,
+                userEdits: {},
+              },
+              {
+                id: "pb-t2a",
+                source: { kind: "sub-topic", subTopicCode: "T2a" },
+                lessonsClaimed: 1,
+                lessonRange: [0, 1],
+                splitFrom: null,
+                splitType: null,
+                userEdits: {},
+              },
+            ],
+          },
+        ],
+      },
+    };
+  }
+
+  it("re-parents a lesson and shrinks the source PB while extending the target PB", () => {
+    const before = makeMoveSubject();
+    // Move T1a's L1 (idx 0) into T2a at idx 0 (before T2a's existing lesson).
+    const after = moveLessonBetweenSubTopics(before, "T1a", "L1", "T2a", 0, "Y9-A1");
+
+    // T1a now has just L2.
+    const t1a = after.workingSpec.topics[0]?.subTopics[0];
+    expect(t1a?.lessons.map((l) => l.id)).toEqual(["L2"]);
+
+    // T2a now has [L1, T2a-L1].
+    const t2a = after.workingSpec.topics.find((t) => t.code === "T2")?.subTopics[0];
+    expect(t2a?.lessons.map((l) => l.id)).toEqual(["L1", "T2a-L1"]);
+
+    // Source PB shrunk from [0, 2) → [0, 1).
+    const sourcePb = after.timeline.halfTerms[0]?.placedBlocks.find(
+      (b) => b.id === "pb-t1a"
+    );
+    expect(sourcePb?.lessonRange).toEqual([0, 1]);
+    expect(sourcePb?.lessonsClaimed).toBe(1);
+
+    // Target PB extended from [0, 1) → [0, 2).
+    const targetPb = after.timeline.halfTerms[0]?.placedBlocks.find(
+      (b) => b.id === "pb-t2a"
+    );
+    expect(targetPb?.lessonRange).toEqual([0, 2]);
+    expect(targetPb?.lessonsClaimed).toBe(2);
+  });
+
+  it("drops the source PB entirely when the moved lesson was its only lesson", () => {
+    const before = makeMoveSubject();
+    // First shrink the T1a PB to cover only L1.
+    const subject: Subject = {
+      ...before,
+      timeline: {
+        halfTerms: before.timeline.halfTerms.map((ht) => ({
+          ...ht,
+          placedBlocks: ht.placedBlocks.map((pb) =>
+            pb.id !== "pb-t1a"
+              ? pb
+              : { ...pb, lessonsClaimed: 1, lessonRange: [0, 1] }
+          ),
+        })),
+      },
+    };
+    const after = moveLessonBetweenSubTopics(subject, "T1a", "L1", "T2a", 0, "Y9-A1");
+    const sourceSurvives = after.timeline.halfTerms[0]?.placedBlocks.find(
+      (b) => b.id === "pb-t1a"
+    );
+    expect(sourceSurvives).toBeUndefined();
+  });
+
+  it("noop when fromSubTopicCode === toSubTopicCode (use reorderLessonInSubTopic)", () => {
+    const before = makeMoveSubject();
+    const after = moveLessonBetweenSubTopics(before, "T1a", "L1", "T1a", 1, "Y9-A1");
+    expect(after).toBe(before);
+  });
+
+  it("clamps toIndexInTarget to the target sub-topic's lesson count", () => {
+    const before = makeMoveSubject();
+    const after = moveLessonBetweenSubTopics(
+      before,
+      "T1a",
+      "L1",
+      "T2a",
+      9999,
+      "Y9-A1"
+    );
+    const t2a = after.workingSpec.topics.find((t) => t.code === "T2")?.subTopics[0];
+    // L1 lands at end (after T2a-L1).
+    expect(t2a?.lessons.map((l) => l.id)).toEqual(["T2a-L1", "L1"]);
+  });
+
+  it("leaves the lesson unplaced when no target-sub-topic PB exists in the cell", () => {
+    // toTermId = "" → no cell match → no PB extends.
+    const before = makeMoveSubject();
+    const after = moveLessonBetweenSubTopics(before, "T1a", "L1", "T2a", 1, "");
+    // T1a PB shrunk.
+    const sourcePb = after.timeline.halfTerms[0]?.placedBlocks.find(
+      (b) => b.id === "pb-t1a"
+    );
+    expect(sourcePb?.lessonRange).toEqual([0, 1]);
+    // T2a PB unchanged — no extension because toTermId didn't match.
+    const targetPb = after.timeline.halfTerms[0]?.placedBlocks.find(
+      (b) => b.id === "pb-t2a"
+    );
+    expect(targetPb?.lessonRange).toEqual([0, 1]);
+    expect(targetPb?.lessonsClaimed).toBe(1);
   });
 });

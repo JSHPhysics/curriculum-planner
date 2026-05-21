@@ -690,3 +690,165 @@ export function deleteSubTopicFromSubject(
     ...(presets ? { presets } : {}),
   };
 }
+
+// ============================================================
+// Move a lesson between sub-topics (DEC-055)
+//
+// The "drag a lesson onto a different sub-topic's lesson-slot" gesture
+// actually RE-PARENTS the lesson — moves it out of the source sub-topic's
+// `lessons[]` and into the target sub-topic's `lessons[]` at the requested
+// index. The user said: "the imported curriculum (including how the sub-
+// topics are defined and what lessons are in them) must be editable".
+//
+// Placement bookkeeping is automatic:
+//   - Source-sub-topic PBs that covered the moved lesson shrink by 1.
+//   - Source-sub-topic PBs after the moved index shift down by 1.
+//   - Target-sub-topic PBs in the drop cell that contain the insert
+//     position expand by 1 (so the new lesson appears inside that block).
+//   - Target-sub-topic PBs in other cells starting at/after the insert
+//     position shift up by 1 to keep pointing at the same logical lessons.
+// ============================================================
+
+export function moveLessonBetweenSubTopics(
+  subject: Subject,
+  fromSubTopicCode: string,
+  lessonId: string,
+  toSubTopicCode: string,
+  toIndexInTarget: number,
+  toTermId: string
+): Subject {
+  if (fromSubTopicCode === toSubTopicCode) return subject;
+
+  // Resolve source + target sub-topics and the lesson itself.
+  let fromLessonIdx = -1;
+  let movedLesson: Lesson | null = null;
+  let toSubTopic: SubTopic | null = null;
+  for (const t of subject.workingSpec.topics) {
+    for (const st of t.subTopics) {
+      if (st.code === fromSubTopicCode) {
+        const idx = st.lessons.findIndex((l) => l.id === lessonId);
+        if (idx >= 0) {
+          fromLessonIdx = idx;
+          movedLesson = st.lessons[idx]!;
+        }
+      } else if (st.code === toSubTopicCode) {
+        toSubTopic = st;
+      }
+    }
+  }
+  if (!movedLesson || fromLessonIdx < 0 || !toSubTopic) return subject;
+
+  const clampedToIdx = Math.max(
+    0,
+    Math.min(toIndexInTarget, toSubTopic.lessons.length)
+  );
+
+  // Rebuild the spec with the lesson moved.
+  const newSpec: Spec = {
+    topics: subject.workingSpec.topics.map((t) => ({
+      ...t,
+      subTopics: t.subTopics.map((st) => {
+        if (st.code === fromSubTopicCode) {
+          return {
+            ...st,
+            lessons: st.lessons.filter((l) => l.id !== lessonId),
+          };
+        }
+        if (st.code === toSubTopicCode) {
+          const next = [...st.lessons];
+          next.splice(clampedToIdx, 0, movedLesson!);
+          return { ...st, lessons: next };
+        }
+        return st;
+      }),
+    })),
+  };
+
+  // Pick the target PB that the drop should land "inside" — the PB whose
+  // lessonRange covers `clampedToIdx` in the target cell (with the boundary
+  // case clampedToIdx === lessonRange.end counted as "at the end of"). Fall
+  // back to any target-sub-topic PB in that cell, or null if none — in the
+  // null case the lesson stays in the spec but the dropper sees no
+  // placement and can drag it from the pool.
+  let targetPbId: string | null = null;
+  const targetCell = subject.timeline.halfTerms.find((h) => h.id === toTermId);
+  if (targetCell) {
+    const matching = targetCell.placedBlocks.filter(
+      (pb) =>
+        pb.source.kind === "sub-topic" &&
+        pb.source.subTopicCode === toSubTopicCode
+    );
+    const containing = matching.find(
+      (pb) =>
+        clampedToIdx >= pb.lessonRange[0] && clampedToIdx <= pb.lessonRange[1]
+    );
+    targetPbId = containing?.id ?? matching[0]?.id ?? null;
+  }
+
+  // Walk every placement and apply the shrink/shift/extend rules.
+  const nextHalfTerms: HalfTerm[] = subject.timeline.halfTerms.map((ht) => {
+    const next: PlacedBlock[] = [];
+    for (const pb of ht.placedBlocks) {
+      if (pb.source.kind !== "sub-topic") {
+        next.push(pb);
+        continue;
+      }
+      const code = pb.source.subTopicCode;
+      const [start, end] = pb.lessonRange;
+
+      if (code === fromSubTopicCode) {
+        if (end <= fromLessonIdx) {
+          next.push(pb);
+        } else if (start > fromLessonIdx) {
+          next.push({ ...pb, lessonRange: [start - 1, end - 1] });
+        } else {
+          const newEnd = end - 1;
+          const newClaimed = newEnd - start;
+          if (newClaimed > 0) {
+            next.push({
+              ...pb,
+              lessonsClaimed: newClaimed,
+              lessonRange: [start, newEnd],
+            });
+          }
+          // else: drop the empty PB
+        }
+        continue;
+      }
+
+      if (code === toSubTopicCode) {
+        if (pb.id === targetPbId) {
+          // Extend this PB to include the new lesson.
+          next.push({
+            ...pb,
+            lessonsClaimed: pb.lessonsClaimed + 1,
+            lessonRange: [start, end + 1],
+          });
+        } else if (end <= clampedToIdx) {
+          next.push(pb);
+        } else if (start >= clampedToIdx) {
+          next.push({ ...pb, lessonRange: [start + 1, end + 1] });
+        } else {
+          // PB spans the insert point but isn't the drop target — defensive
+          // extension. Shouldn't happen if consolidation has been working
+          // (only one PB per (cell, sub-topic)).
+          next.push({
+            ...pb,
+            lessonsClaimed: pb.lessonsClaimed + 1,
+            lessonRange: [start, end + 1],
+          });
+        }
+        continue;
+      }
+
+      next.push(pb);
+    }
+    return { ...ht, placedBlocks: next };
+  });
+
+  return {
+    ...subject,
+    workingSpec: newSpec,
+    timeline: { halfTerms: nextHalfTerms },
+  };
+}

@@ -15,6 +15,14 @@ export interface LessonEditModalProps {
     separateOnly: boolean;
     objectives: readonly Objective[];
   }) => void;
+  /**
+   * DEC-055: re-parent the lesson into a different sub-topic. Called only
+   * if the user changes the sub-topic dropdown before saving. The lesson
+   * lands at the END of the target sub-topic's lessons array (user can
+   * then drag-reorder in lesson view). Caller must update its open-modal
+   * state to reflect the new subTopicCode + same lessonId after this fires.
+   */
+  readonly onMoveToSubTopic?: (toSubTopicCode: string) => void;
 }
 
 export function LessonEditModal({
@@ -23,6 +31,7 @@ export function LessonEditModal({
   lessonId,
   onClose,
   onSave,
+  onMoveToSubTopic,
 }: LessonEditModalProps): JSX.Element | null {
   const found = findTopicAndSubTopic(subject.workingSpec, subTopicCode);
   const lesson = found?.subTopic.lessons.find((l) => l.id === lessonId) ?? null;
@@ -34,6 +43,7 @@ export function LessonEditModal({
   const [objectives, setObjectives] = useState<readonly Objective[]>(
     lesson?.objectives ?? []
   );
+  const [targetSubTopicCode, setTargetSubTopicCode] = useState(subTopicCode);
 
   useEffect(() => {
     if (!lesson) return;
@@ -42,7 +52,8 @@ export function LessonEditModal({
     setIsDepth(lesson.isDepth);
     setSeparateOnly(lesson.separateOnly);
     setObjectives(lesson.objectives);
-  }, [lesson?.id]);
+    setTargetSubTopicCode(subTopicCode);
+  }, [lesson?.id, subTopicCode]);
 
   if (!found || !lesson) return null;
   const safeLesson = lesson;
@@ -80,6 +91,13 @@ export function LessonEditModal({
   }
 
   function save(): void {
+    // DEC-055: re-parent first if sub-topic dropdown changed, then apply
+    // the field edits. Caller is responsible for closing/refreshing modal
+    // state after a re-parent (the lessonId stays the same but its parent
+    // sub-topic code changes).
+    if (targetSubTopicCode !== subTopicCode && onMoveToSubTopic) {
+      onMoveToSubTopic(targetSubTopicCode);
+    }
     onSave({
       title: title.trim() || safeLesson.title,
       practical: practical.trim() ? practical.trim() : null,
@@ -88,6 +106,14 @@ export function LessonEditModal({
       objectives: objectives.filter((o) => o.text.trim()),
     });
     onClose();
+  }
+
+  // Flatten the spec into a list of selectable sub-topics for the dropdown.
+  const allSubTopics: Array<{ code: string; name: string; topicName: string }> = [];
+  for (const t of subject.workingSpec.topics) {
+    for (const st of t.subTopics) {
+      allSubTopics.push({ code: st.code, name: st.name, topicName: t.name });
+    }
   }
 
   return (
@@ -130,6 +156,40 @@ export function LessonEditModal({
               className="w-full px-2 py-1 border border-line rounded text-sm"
             />
           </div>
+
+          {onMoveToSubTopic && (
+            <div>
+              <label
+                htmlFor="lesson-edit-subtopic"
+                className="block text-xs text-ink-dim mb-1"
+              >
+                Sub-topic{" "}
+                <span className="text-ink-fade">
+                  (changing this re-parents the lesson)
+                </span>
+              </label>
+              <select
+                id="lesson-edit-subtopic"
+                value={targetSubTopicCode}
+                onChange={(e) => setTargetSubTopicCode(e.target.value)}
+                className="w-full px-2 py-1 border border-line rounded text-sm"
+              >
+                {allSubTopics.map((s) => (
+                  <option key={s.code} value={s.code}>
+                    {s.code} · {s.name} ({s.topicName})
+                  </option>
+                ))}
+              </select>
+              {targetSubTopicCode !== subTopicCode && (
+                <p className="text-[11px] text-warn mt-1">
+                  Saving will move this lesson into "{
+                    allSubTopics.find((s) => s.code === targetSubTopicCode)?.name
+                  }" — placements covering it on this side shrink, and the
+                  lesson lands at the end of the new sub-topic's lesson list.
+                </p>
+              )}
+            </div>
+          )}
 
           <div>
             <label className="block text-xs text-ink-dim mb-1">Practical</label>

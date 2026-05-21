@@ -49,6 +49,9 @@ export function LessonView({ subject }: LessonViewProps): JSX.Element {
   const removePlacedLesson = useWorkspaceStore((s) => s.removePlacedLesson);
   const setPlacedBlockTitle = useWorkspaceStore((s) => s.setPlacedBlockTitle);
   const reorderLessonInSubTopic = useWorkspaceStore((s) => s.reorderLessonInSubTopic);
+  const moveLessonBetweenSubTopics = useWorkspaceStore(
+    (s) => s.moveLessonBetweenSubTopics
+  );
   const duplicateLesson = useWorkspaceStore((s) => s.duplicateLesson);
   const deleteLesson = useWorkspaceStore((s) => s.deleteLesson);
   const splitBlock = useWorkspaceStore((s) => s.splitBlock);
@@ -167,35 +170,42 @@ export function LessonView({ subject }: LessonViewProps): JSX.Element {
     }
 
     // DEC-048: same-sub-topic, same-cell reorder via lesson-slot.
-    // DEC-051: cross-sub-topic lesson-slot drop falls through to a cell-level
-    // insert at the target block's cellIndex — previously silently ignored,
-    // causing the dragged lesson to appear to snap back to origin.
+    // DEC-055: cross-sub-topic lesson-slot drop now actually RE-PARENTS
+    // the lesson — moves it from the source sub-topic's lessons[] into
+    // the target sub-topic's lessons[] at the requested index. The
+    // target cell's existing PB extends to include the new lesson, so
+    // the moved card lands at the intended position inside the target
+    // sub-topic's group (the prior implementation created a phantom
+    // source-sub-topic block at the wrong spot).
     if (drop.kind === "lesson-slot") {
-      if (drag.subTopicCode === drop.subTopicCode) {
-        let lessonId: string | null = null;
-        for (const ht of subject.timeline.halfTerms) {
-          const pb = ht.placedBlocks.find((b) => b.id === drag.placedBlockId);
-          if (!pb || pb.source.kind !== "sub-topic") continue;
-          const found = findTopicAndSubTopic(subject.workingSpec, pb.source.subTopicCode);
-          if (!found) break;
-          const absIdx = pb.lessonRange[0] + drag.localLessonIdx;
-          lessonId = found.subTopic.lessons[absIdx]?.id ?? null;
-          break;
-        }
-        if (lessonId) {
-          reorderLessonInSubTopic(drop.subTopicCode, lessonId, drop.lessonIdx);
-        }
-        return;
+      // Resolve the lesson id from drag payload (source PB + local idx →
+      // absolute index in source sub-topic's lessons array).
+      let lessonId: string | null = null;
+      for (const ht of subject.timeline.halfTerms) {
+        const pb = ht.placedBlocks.find((b) => b.id === drag.placedBlockId);
+        if (!pb || pb.source.kind !== "sub-topic") continue;
+        const found = findTopicAndSubTopic(
+          subject.workingSpec,
+          pb.source.subTopicCode
+        );
+        if (!found) break;
+        const absIdx = pb.lessonRange[0] + drag.localLessonIdx;
+        lessonId = found.subTopic.lessons[absIdx]?.id ?? null;
+        break;
       }
-      // Cross-sub-topic: extract this lesson out of its current placement and
-      // insert it as a new single-lesson PlacedBlock at the target cell's
-      // cellIndex (next to or before the block whose lesson-slot was hit).
-      extractAndMoveLessonToIndex(
-        drag.placedBlockId,
-        drag.localLessonIdx,
-        drop.termId,
-        drop.cellIndex
-      );
+      if (!lessonId) return;
+
+      if (drag.subTopicCode === drop.subTopicCode) {
+        reorderLessonInSubTopic(drop.subTopicCode, lessonId, drop.lessonIdx);
+      } else {
+        moveLessonBetweenSubTopics(
+          drag.subTopicCode,
+          lessonId,
+          drop.subTopicCode,
+          drop.lessonIdx,
+          drop.termId
+        );
+      }
       return;
     }
 
@@ -298,8 +308,32 @@ export function LessonView({ subject }: LessonViewProps): JSX.Element {
           onClose={() => setOpenModal(null)}
           onSave={(patch) => {
             const { objectives, ...rest } = patch;
-            editLesson(openModal.subTopicCode, openModal.lessonId, rest);
-            setLessonObjectives(openModal.subTopicCode, openModal.lessonId, objectives);
+            // DEC-055: when the modal re-parents the lesson via
+            // onMoveToSubTopic below, the moveLessonBetweenSubTopics call
+            // fires before this onSave, so by the time editLesson runs we
+            // need to address the lesson by its NEW subTopicCode. The
+            // modal's local state holds the new target; the openModal still
+            // points at the old code. So fall back to walking the spec by
+            // lessonId rather than trusting openModal.subTopicCode.
+            const stCode = openModal.subTopicCode;
+            editLesson(stCode, openModal.lessonId, rest);
+            setLessonObjectives(stCode, openModal.lessonId, objectives);
+          }}
+          onMoveToSubTopic={(toCode) => {
+            // No specific target placement: insert at end of target
+            // sub-topic's lessons array, with no cell to extend. The
+            // lesson lands in the pool; user can drag it from there.
+            moveLessonBetweenSubTopics(
+              openModal.subTopicCode,
+              openModal.lessonId,
+              toCode,
+              Number.MAX_SAFE_INTEGER,
+              ""
+            );
+            // Update the open-modal state to the new subTopicCode so any
+            // subsequent edits within this same modal session (before
+            // close) address the right entity.
+            setOpenModal({ kind: "lesson", subTopicCode: toCode, lessonId: openModal.lessonId });
           }}
         />
       )}

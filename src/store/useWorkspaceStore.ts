@@ -35,6 +35,7 @@ import {
   deleteSubTopicFromSubject as specDeleteSubTopicFromSubject,
   duplicateLesson as specDuplicateLesson,
   duplicateSubTopic as specDuplicateSubTopic,
+  moveLessonBetweenSubTopics as specMoveLessonBetweenSubTopics,
   removeObjective as specRemoveObjective,
   renameSubTopic as specRenameSubTopic,
   renameTopic as specRenameTopic,
@@ -300,6 +301,19 @@ export interface WorkspaceStoreActions {
   readonly duplicateSubTopic: (subTopicCode: string) => void;
   /** Delete a sub-topic with full cascade (placements + revisits + presets). */
   readonly deleteSubTopic: (subTopicCode: string) => void;
+  /**
+   * Re-parent a lesson: remove it from `fromSubTopicCode`, insert at
+   * `toIndexInTarget` in `toSubTopicCode`, and reshape every PlacedBlock
+   * lessonRange accordingly. The target cell's existing PB of the target
+   * sub-topic (if any) extends to include the new lesson (DEC-055).
+   */
+  readonly moveLessonBetweenSubTopics: (
+    fromSubTopicCode: string,
+    lessonId: string,
+    toSubTopicCode: string,
+    toIndexInTarget: number,
+    toTermId: string
+  ) => void;
 }
 
 export type WorkspaceStore = WorkspaceStoreState & WorkspaceStoreActions;
@@ -995,6 +1009,26 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set) => ({
       const subject = state.workspace.subjects.find((s) => s.id === id);
       if (!subject) return {};
       const updated = specDeleteSubTopicFromSubject(subject, subTopicCode);
+      return {
+        workspace: replaceSubject(state.workspace, id, updated),
+        dirty: true,
+      };
+    }),
+
+  moveLessonBetweenSubTopics: (fromCode, lessonId, toCode, toIdx, toTermId) =>
+    set((state) => {
+      const id = state.workspace.activeSubjectId;
+      if (!id) return {};
+      const subject = state.workspace.subjects.find((s) => s.id === id);
+      if (!subject) return {};
+      const updated = specMoveLessonBetweenSubTopics(
+        subject,
+        fromCode,
+        lessonId,
+        toCode,
+        toIdx,
+        toTermId
+      );
       return {
         workspace: replaceSubject(state.workspace, id, updated),
         dirty: true,
