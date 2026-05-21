@@ -1,4 +1,4 @@
-import { placeBlockWithSpillover } from "./placement";
+import { placeBlock } from "./placement";
 import { getVisibleTimelineYears } from "./timeline";
 import type {
   CustomBlock,
@@ -445,12 +445,11 @@ function planInterleaved(
 
 // ============================================================
 // Step 3: Execute the plan against the cleared timeline.
-//   For each planned placement, locate its preferred cell id and
-//   call placeBlockWithSpillover. Spillover advances forward
-//   through cells (skipping hidden years naturally — they're not
-//   in the visible-cell list, but placeBlockWithSpillover only
-//   advances within the actual timeline, so we keep the
-//   preferredCellIdx mapped to a visible-cell index).
+//   For each planned placement, drop the whole block into its preferred
+//   cell with placeBlock — no auto-spillover (removed per DEC-056). If
+//   the cell ends up over-budget, the UI flags it and the teacher
+//   reshuffles by hand. The presets are meant as a rough starting point,
+//   not a final layout.
 // ============================================================
 
 function executePlan(
@@ -462,18 +461,6 @@ function executePlan(
   if (plan.length === 0) return timeline;
   if (visibleCells.length === 0) return timeline;
 
-  // preferredCellIdx is an index into `visibleCells` (the hidden-year-filtered
-  // list). Map it to the actual HalfTerm id so the placement engine starts in
-  // a visible cell.
-  //
-  // NOTE: `placeBlockWithSpillover` advances forward through the underlying
-  // timeline.halfTerms — if a visible cell overflows AND the next physical
-  // cell is hidden, spillover would dump lessons into the hidden cell. To
-  // prevent this we'd need to teach the placement engine about hidden years.
-  // For now, the common case (hidden years contiguous at the start or end of
-  // the timeline) is correct; the rare case (interleaved hidden years) leaks
-  // and the user sees it in the UI immediately. Documented as a known sharp
-  // edge in DEC-038.
   let next = timeline;
   for (const p of plan) {
     const idx = Math.min(p.preferredCellIdx, visibleCells.length - 1);
@@ -483,7 +470,7 @@ function executePlan(
       kind: "sub-topic",
       subTopicCode: p.subTopic.code,
     };
-    next = placeBlockWithSpillover(next, source, p.lessons, cell.id, options);
+    next = placeBlock(next, source, cell.id, p.lessons, options);
   }
   return next;
 }
@@ -592,7 +579,6 @@ export function saveCurrentAsPreset(
           source: { kind: "sub-topic", subTopicCode: pb.source.subTopicCode },
           lessonsClaimed: pb.lessonsClaimed,
           lessonRange: [pb.lessonRange[0], pb.lessonRange[1]],
-          ...(pb.splitType ? { splitType: pb.splitType } : {}),
         });
       } else if (pb.source.kind === "custom") {
         const customBlockId = pb.source.customBlockId;
@@ -609,7 +595,6 @@ export function saveCurrentAsPreset(
           source: { kind: "custom", customBlockRef: ref },
           lessonsClaimed: pb.lessonsClaimed,
           lessonRange: [pb.lessonRange[0], pb.lessonRange[1]],
-          ...(pb.splitType ? { splitType: pb.splitType } : {}),
         });
       }
       // eoht placements are legacy v1.x; v2 files have already been migrated
@@ -753,8 +738,6 @@ export function applySavedPreset(
       source,
       lessonsClaimed: p.lessonsClaimed,
       lessonRange: [p.lessonRange[0], p.lessonRange[1]],
-      splitFrom: null,
-      splitType: p.splitType ?? null,
       userEdits: {},
     };
     const ht = wipedHalfTerms[htIdx];
@@ -924,9 +907,6 @@ export function parseSavedPresetJson(
         lessonsClaimed,
         lessonRange: [lessonRangeRaw[0] as number, lessonRangeRaw[1] as number],
       };
-      if (p["splitType"] === "auto" || p["splitType"] === "manual") {
-        (out as { splitType?: "auto" | "manual" }).splitType = p["splitType"];
-      }
       return out;
     }
   );

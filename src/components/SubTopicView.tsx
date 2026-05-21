@@ -41,13 +41,10 @@ export interface SubTopicViewProps {
 
 export function SubTopicView({ subject }: SubTopicViewProps): JSX.Element {
   const placeBlock = useWorkspaceStore((s) => s.placeBlock);
-  const placeBlockWithSpillover = useWorkspaceStore((s) => s.placeBlockWithSpillover);
   const placeBlockAtIndex = useWorkspaceStore((s) => s.placeBlockAtIndex);
   const moveBlock = useWorkspaceStore((s) => s.moveBlock);
   const moveBlockToIndex = useWorkspaceStore((s) => s.moveBlockToIndex);
   const removeBlock = useWorkspaceStore((s) => s.removeBlock);
-  const splitBlock = useWorkspaceStore((s) => s.splitBlock);
-  const recombineBlock = useWorkspaceStore((s) => s.recombineBlock);
   const editBlockLessons = useWorkspaceStore((s) => s.editBlockLessons);
   const addCustomBlock = useWorkspaceStore((s) => s.addCustomBlock);
   const updateCustomBlock = useWorkspaceStore((s) => s.updateCustomBlock);
@@ -163,11 +160,7 @@ export function SubTopicView({ subject }: SubTopicViewProps): JSX.Element {
     }
 
     if (drag.kind === "pool" && drop.kind === "term") {
-      if (subject.config.autoSpillover) {
-        placeBlockWithSpillover(drag.source, drag.lessons, drop.termId);
-      } else {
-        placeBlock(drag.source, drop.termId, drag.lessons);
-      }
+      placeBlock(drag.source, drop.termId, drag.lessons);
       return;
     }
 
@@ -268,8 +261,6 @@ export function SubTopicView({ subject }: SubTopicViewProps): JSX.Element {
               placedBlockId={placedId}
               onClose={() => setOpenModal(null)}
               onEditLessons={(n) => editBlockLessons(placedId, n)}
-              onSplit={(at) => splitBlock(placedId, at)}
-              onRecombine={() => recombineBlock(placedId)}
               onRemove={() => removeBlock(placedId)}
               onUpdateRevisits={(cbId, revisits) =>
                 updateCustomBlock(cbId, { revisits })

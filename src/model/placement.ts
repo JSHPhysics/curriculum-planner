@@ -4,7 +4,6 @@ import type {
   PlacedBlockSource,
   Timeline,
 } from "./types";
-import { halfTermRoom } from "./timeline";
 
 export interface PlacementOptions {
   readonly idGen?: () => string;
@@ -50,177 +49,18 @@ export function placeBlock(
     source,
     lessonsClaimed,
     lessonRange: [0, lessonsClaimed],
-    splitFrom: null,
-    splitType: null,
     userEdits: {},
   };
   return consolidate(appendToTerm(timeline, termId, block));
 }
 
-export function placeBlockWithSpillover(
-  timeline: Timeline,
-  source: PlacedBlockSource,
-  lessonsClaimed: number,
-  termId: string,
-  options: PlacementOptions = {}
-): Timeline {
-  if (lessonsClaimed < 0) {
-    throw new Error(
-      `placeBlockWithSpillover: lessonsClaimed must be >= 0 (got ${lessonsClaimed})`
-    );
-  }
-  if (lessonsClaimed === 0) {
-    return placeBlock(timeline, source, termId, 0, options);
-  }
-  const idGen = options.idGen ?? defaultIdGen;
-  const startIdx = timeline.halfTerms.findIndex((ht) => ht.id === termId);
-  if (startIdx === -1) {
-    throw new Error(`placeBlockWithSpillover: unknown term "${termId}"`);
-  }
-
-  const distribution = computeDistribution(timeline, startIdx, lessonsClaimed);
-
-  if (distribution.length === 1) {
-    const first = distribution[0];
-    if (!first) {
-      throw new Error("placeBlockWithSpillover: empty distribution (unreachable)");
-    }
-    return placeBlock(timeline, source, first.termId, first.lessons, options);
-  }
-
-  const splitFrom = idGen();
-  let cursor = 0;
-  const pieces: { termId: string; block: PlacedBlock }[] = [];
-  for (const part of distribution) {
-    const block: PlacedBlock = {
-      id: idGen(),
-      source,
-      lessonsClaimed: part.lessons,
-      lessonRange: [cursor, cursor + part.lessons],
-      splitFrom,
-      splitType: "auto",
-      userEdits: {},
-    };
-    cursor += part.lessons;
-    pieces.push({ termId: part.termId, block });
-  }
-  return consolidate(
-    pieces.reduce(
-      (tl, p) => appendToTerm(tl, p.termId, p.block),
-      timeline
-    )
-  );
-}
-
-interface DistributionPart {
-  readonly termId: string;
-  readonly lessons: number;
-}
-
-function computeDistribution(
-  timeline: Timeline,
-  startIdx: number,
-  total: number
-): DistributionPart[] {
-  const distribution: DistributionPart[] = [];
-  let remaining = total;
-  for (
-    let i = startIdx;
-    i < timeline.halfTerms.length && remaining > 0;
-    i++
-  ) {
-    const ht = timeline.halfTerms[i];
-    if (!ht) continue;
-    const room = halfTermRoom(ht);
-    if (room === 0) continue;
-    const take = Math.min(room, remaining);
-    distribution.push({ termId: ht.id, lessons: take });
-    remaining -= take;
-  }
-  if (remaining > 0) {
-    const last = distribution[distribution.length - 1];
-    if (last) {
-      distribution[distribution.length - 1] = {
-        termId: last.termId,
-        lessons: last.lessons + remaining,
-      };
-    } else {
-      const startTerm = timeline.halfTerms[startIdx];
-      if (!startTerm) {
-        throw new Error("computeDistribution: invalid startIdx (unreachable)");
-      }
-      distribution.push({ termId: startTerm.id, lessons: remaining });
-    }
-  }
-  return distribution;
-}
-
-export function splitBlock(
-  timeline: Timeline,
-  placedBlockId: string,
-  atLessonIdx: number,
-  options: PlacementOptions = {}
-): Timeline {
-  const found = findPlacedBlock(timeline, placedBlockId);
-  if (!found) {
-    throw new Error(`splitBlock: no placed block with id "${placedBlockId}"`);
-  }
-  const { block } = found;
-  if (atLessonIdx < 1 || atLessonIdx >= block.lessonsClaimed) {
-    throw new Error(
-      `splitBlock: atLessonIdx must be between 1 and lessonsClaimed-1 ` +
-        `(got ${atLessonIdx}, lessonsClaimed=${block.lessonsClaimed})`
-    );
-  }
-  const idGen = options.idGen ?? defaultIdGen;
-  const splitFrom = block.splitFrom ?? block.id;
-  const [start, end] = block.lessonRange;
-  const mid = start + atLessonIdx;
-
-  const piece1: PlacedBlock = {
-    ...block,
-    id: idGen(),
-    lessonsClaimed: atLessonIdx,
-    lessonRange: [start, mid],
-    splitFrom,
-    splitType: "manual",
-  };
-  const piece2: PlacedBlock = {
-    ...block,
-    id: idGen(),
-    lessonsClaimed: block.lessonsClaimed - atLessonIdx,
-    lessonRange: [mid, end],
-    splitFrom,
-    splitType: "manual",
-  };
-  return consolidate(replaceInTerm(timeline, found.termId, placedBlockId, [piece1, piece2]));
-}
-
-export function recombineBlock(
-  timeline: Timeline,
-  placedBlockId: string
-): Timeline {
-  const found = findPlacedBlock(timeline, placedBlockId);
-  if (!found) {
-    throw new Error(
-      `recombineBlock: no placed block with id "${placedBlockId}"`
-    );
-  }
-  const groupKey = found.block.splitFrom;
-  if (!groupKey) {
-    throw new Error(
-      `recombineBlock: block "${placedBlockId}" has no splitFrom — nothing to recombine`
-    );
-  }
-  return consolidate({
-    halfTerms: timeline.halfTerms.map(
-      (ht): HalfTerm => ({
-        ...ht,
-        placedBlocks: ht.placedBlocks.filter((b) => b.splitFrom !== groupKey),
-      })
-    ),
-  });
-}
+// DEC-056: placeBlockWithSpillover, computeDistribution, splitBlock, and
+// recombineBlock were removed. Auto-spillover seemed nice in principle but
+// in practice created hard-to-reason-about layouts and orphaned references
+// to non-existent split groups. Same-cell manual split was a no-op after
+// the DEC-046 consolidator anyway. The codebase now has one placement op
+// per intent: placeBlock / placeBlockAtIndex / moveBlock / moveBlockToIndex
+// / extractAndMoveLesson* / removeBlock — no split / no spillover.
 
 export function removeBlock(
   timeline: Timeline,
@@ -305,8 +145,6 @@ export function placeBlockAtIndex(
     source,
     lessonsClaimed,
     lessonRange: [0, lessonsClaimed],
-    splitFrom: null,
-    splitType: null,
     userEdits: {},
   };
   return consolidate(insertIntoTermAt(timeline, termId, block, atIndex));
@@ -339,8 +177,6 @@ export function placeLessonAtIndex(
     source: { kind: "sub-topic", subTopicCode },
     lessonsClaimed: 1,
     lessonRange: [absLessonIdx, absLessonIdx + 1],
-    splitFrom: null,
-    splitType: null,
     userEdits: {},
   };
   return consolidate(insertIntoTermAt(timeline, termId, block, atIndex));
@@ -370,14 +206,11 @@ function removeBlockUnconsolidated(
 
 /**
  * Pluck a single lesson out of a placed block and move it to a different
- * half-term. The source block is shrunk or split as needed:
+ * half-term. The source block is shrunk as needed:
  *   - lesson at the start → source becomes [start+1, end)
  *   - lesson at the end   → source becomes [start, end-1)
  *   - lesson in the middle → source splits into [start, lessonPos) + [lessonPos+1, end)
  *   - lesson was the only one → source is removed entirely
- * The pulled-out lesson becomes a new PlacedBlock with `splitType: "manual"`
- * and the same splitFrom group as the source (so a later recombine still
- * picks up every piece).
  *
  * `localLessonIdx` is 0-indexed within the source block's lessonRange:
  *   block.lessonRange = [3, 7)  → localLessonIdx 0 = lesson position 3
@@ -414,7 +247,6 @@ export function extractAndMoveLesson(
   const idGen = options.idGen ?? defaultIdGen;
   const [start, end] = block.lessonRange;
   const lessonPos = start + localLessonIdx;
-  const groupKey = block.splitFrom ?? block.id;
 
   const replacement: PlacedBlock[] = [];
   if (lessonPos > start) {
@@ -423,8 +255,6 @@ export function extractAndMoveLesson(
       id: idGen(),
       lessonsClaimed: lessonPos - start,
       lessonRange: [start, lessonPos],
-      splitFrom: groupKey,
-      splitType: "manual",
     });
   }
   if (lessonPos + 1 < end) {
@@ -433,8 +263,6 @@ export function extractAndMoveLesson(
       id: idGen(),
       lessonsClaimed: end - (lessonPos + 1),
       lessonRange: [lessonPos + 1, end],
-      splitFrom: groupKey,
-      splitType: "manual",
     });
   }
 
@@ -443,8 +271,6 @@ export function extractAndMoveLesson(
     id: idGen(),
     lessonsClaimed: 1,
     lessonRange: [lessonPos, lessonPos + 1],
-    splitFrom: groupKey,
-    splitType: "manual",
   };
 
   let tl = replaceInTerm(timeline, found.termId, placedBlockId, replacement);
@@ -508,7 +334,6 @@ export function removePlacedLesson(
   const idGen = options.idGen ?? defaultIdGen;
   const [start, end] = block.lessonRange;
   const lessonPos = start + localLessonIdx;
-  const groupKey = block.splitFrom ?? block.id;
 
   const replacement: PlacedBlock[] = [];
   if (lessonPos > start) {
@@ -517,8 +342,6 @@ export function removePlacedLesson(
       id: idGen(),
       lessonsClaimed: lessonPos - start,
       lessonRange: [start, lessonPos],
-      splitFrom: groupKey,
-      splitType: "manual",
     });
   }
   if (lessonPos + 1 < end) {
@@ -527,8 +350,6 @@ export function removePlacedLesson(
       id: idGen(),
       lessonsClaimed: end - (lessonPos + 1),
       lessonRange: [lessonPos + 1, end],
-      splitFrom: groupKey,
-      splitType: "manual",
     });
   }
   return consolidate(
@@ -564,16 +385,10 @@ export function extractAndMoveLessonToIndex(
   if (!timeline.halfTerms.some((ht) => ht.id === toTermId)) {
     throw new Error(`extractAndMoveLessonToIndex: unknown term "${toTermId}"`);
   }
-  // DEC-051: don't bail on same-cell — the consolidator (also DEC-051) now
-  // only merges with the immediately-previous block, so cross-sub-topic
-  // inserts inside the same cell survive. Same-sub-topic same-cell drops
-  // still produce no visible change because the extracted piece re-merges
-  // with its source remainder.
 
   const idGen = options.idGen ?? defaultIdGen;
   const [start, end] = block.lessonRange;
   const lessonPos = start + localLessonIdx;
-  const groupKey = block.splitFrom ?? block.id;
 
   const replacement: PlacedBlock[] = [];
   if (lessonPos > start) {
@@ -582,8 +397,6 @@ export function extractAndMoveLessonToIndex(
       id: idGen(),
       lessonsClaimed: lessonPos - start,
       lessonRange: [start, lessonPos],
-      splitFrom: groupKey,
-      splitType: "manual",
     });
   }
   if (lessonPos + 1 < end) {
@@ -592,8 +405,6 @@ export function extractAndMoveLessonToIndex(
       id: idGen(),
       lessonsClaimed: end - (lessonPos + 1),
       lessonRange: [lessonPos + 1, end],
-      splitFrom: groupKey,
-      splitType: "manual",
     });
   }
 
@@ -602,8 +413,6 @@ export function extractAndMoveLessonToIndex(
     id: idGen(),
     lessonsClaimed: 1,
     lessonRange: [lessonPos, lessonPos + 1],
-    splitFrom: groupKey,
-    splitType: "manual",
   };
 
   let tl = replaceInTerm(timeline, found.termId, placedBlockId, replacement);
@@ -634,7 +443,6 @@ export function editBlockLessons(
     ...block,
     lessonsClaimed: newLessons,
     lessonRange: [start, start + newLessons],
-    splitType: block.splitType === "auto" ? "manual" : block.splitType,
   };
   return consolidate(replaceInTerm(timeline, found.termId, placedBlockId, [edited]));
 }
@@ -745,12 +553,6 @@ function consolidateCell(ht: HalfTerm): HalfTerm {
       ...existing,
       lessonsClaimed: newEnd - newStart,
       lessonRange: [newStart, newEnd],
-      // After a merge the surviving block is the "canonical" piece for this
-      // cell. We drop the splitType badge — the user wants visual cleanliness
-      // and the badge stops being informative once consecutive lessons live
-      // in one block. `splitFrom` is preserved so `recombineBlock` still
-      // finds the original split group across cells.
-      splitType: null,
       // If the incoming block carried user edits and the existing one
       // didn't, promote them — otherwise existing edits win (first-write).
       userEdits:

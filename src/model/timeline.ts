@@ -145,8 +145,6 @@ export function seedEndOfHalfTermTests(
               source: { kind: "custom", customBlockId: customBlock.id },
               lessonsClaimed: lessons,
               lessonRange: [0, lessons],
-              splitFrom: null,
-              splitType: null,
               userEdits: {},
             },
           ],

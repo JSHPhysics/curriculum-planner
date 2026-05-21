@@ -89,12 +89,6 @@ export function StatusBar({
           checked={cfg.lostLessonBuffer}
           onChange={(v) => onToggleConfig({ lostLessonBuffer: v })}
         />
-        <ConfigToggle
-          label="Auto-spillover"
-          title="When dropping a block into a full half-term, distribute it across the next ones"
-          checked={cfg.autoSpillover}
-          onChange={(v) => onToggleConfig({ autoSpillover: v })}
-        />
       </div>
     </div>
   );

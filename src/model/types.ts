@@ -55,15 +55,11 @@ export type PlacedBlockSource =
   | { readonly kind: "custom"; readonly customBlockId: string }
   | { readonly kind: "eoht" };
 
-export type SplitType = "auto" | "manual" | null;
-
 export interface PlacedBlock {
   readonly id: string;
   readonly source: PlacedBlockSource;
   readonly lessonsClaimed: number;
   readonly lessonRange: readonly [number, number];
-  readonly splitFrom: string | null;
-  readonly splitType: SplitType;
   readonly userEdits: PlacedBlockEdits;
 }
 
@@ -185,7 +181,12 @@ export type SpacingGranularity = "topic" | "sub-topic";
 export interface SubjectConfig {
   readonly includeDepth: boolean;
   readonly lostLessonBuffer: boolean;
-  readonly autoSpillover: boolean;
+  /**
+   * @deprecated DEC-056: auto-spillover removed entirely. Field kept
+   * optional only so legacy `.curriculum` files load without
+   * deserialization errors; no code reads it any more.
+   */
+  readonly autoSpillover?: boolean;
   /**
    * DEC-053: when true (default), custom-block lesson counts (tests,
    * retrieval blocks, bespoke lessons, anything not from the spec) are
@@ -286,7 +287,6 @@ export interface SavedPresetPlacement {
   readonly source: SavedPresetSource;
   readonly lessonsClaimed: number;
   readonly lessonRange: readonly [number, number];
-  readonly splitType?: SplitType;
 }
 
 /**

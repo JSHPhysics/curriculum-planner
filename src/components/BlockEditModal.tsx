@@ -11,8 +11,6 @@ export interface BlockEditModalProps {
   readonly placedBlockId: string;
   readonly onClose: () => void;
   readonly onEditLessons: (lessons: number) => void;
-  readonly onSplit: (atLessonIdx: number) => void;
-  readonly onRecombine: () => void;
   readonly onRemove: () => void;
   /**
    * Optional: only required when editing a retrieval custom block. If absent
@@ -37,8 +35,6 @@ export function BlockEditModal(props: BlockEditModalProps): JSX.Element | null {
     placedBlockId,
     onClose,
     onEditLessons,
-    onSplit,
-    onRecombine,
     onRemove,
     onUpdateRevisits,
     onSetTitle,
@@ -53,11 +49,6 @@ export function BlockEditModal(props: BlockEditModalProps): JSX.Element | null {
   const [revisitsDirty, setRevisitsDirty] = useState(false);
   const [titleDraft, setTitleDraft] = useState<string>(block?.userEdits.title ?? "");
   const [titleDirty, setTitleDirty] = useState(false);
-  // DEC-054: inline split prompt — native window.prompt() is a no-op in
-  // Electron with sandbox/contextIsolation.
-  const [splitOpen, setSplitOpen] = useState(false);
-  const [splitDraft, setSplitDraft] = useState<string>("");
-  const [splitError, setSplitError] = useState<string | null>(null);
 
   // Resolve the underlying custom block (if any) for retrieval-kind editing.
   // TS can't see through the closure-narrowed source.kind narrative, so
@@ -90,7 +81,6 @@ export function BlockEditModal(props: BlockEditModalProps): JSX.Element | null {
 
   const description = describeForModal(block, subject);
   const term = subject.timeline.halfTerms.find((h) => h.id === found?.termId);
-  const canRecombine = block.splitFrom !== null;
   const naturalLessons = naturalLessonCount(block, subject);
 
   function toggleRevisit(code: string): void {
@@ -109,36 +99,9 @@ export function BlockEditModal(props: BlockEditModalProps): JSX.Element | null {
     onClose();
   }
 
-  function openSplitInput(): void {
-    if (!block) return;
-    setSplitDraft(String(Math.floor(block.lessonsClaimed / 2)));
-    setSplitError(null);
-    setSplitOpen(true);
-  }
-
-  function commitSplit(): void {
-    if (!block) return;
-    const n = Number(splitDraft);
-    if (!Number.isInteger(n) || n < 1 || n >= block.lessonsClaimed) {
-      setSplitError(
-        `Pick an integer between 1 and ${block.lessonsClaimed - 1}.`
-      );
-      return;
-    }
-    onSplit(n);
-    onClose();
-  }
-
   function handleRemove(): void {
     if (confirm("Remove this block from the plan?")) {
       onRemove();
-      onClose();
-    }
-  }
-
-  function handleRecombine(): void {
-    if (confirm("Recombine all pieces of this block? They will be removed from the timeline and the sub-topic returns to the pool.")) {
-      onRecombine();
       onClose();
     }
   }
@@ -249,11 +212,6 @@ export function BlockEditModal(props: BlockEditModalProps): JSX.Element | null {
             )}
             <p className="text-[11px] text-ink-fade mt-1">
               Range in source: lessons {block.lessonRange[0] + 1}–{block.lessonRange[1]}
-              {block.splitType && (
-                <span className="ml-2">
-                  · {block.splitType === "auto" ? "auto-split piece" : "manually split piece"}
-                </span>
-              )}
             </p>
           </div>
 
@@ -278,79 +236,9 @@ export function BlockEditModal(props: BlockEditModalProps): JSX.Element | null {
               )}
             </div>
           )}
-
-          {splitOpen && (
-            <div className="border-t border-line pt-3 flex items-end gap-2">
-              <div className="flex-1">
-                <label
-                  htmlFor="block-split-pos"
-                  className="block text-xs text-ink-dim mb-1"
-                >
-                  Split position{" "}
-                  <span className="text-ink-fade">
-                    (lessons in first piece, 1–{block.lessonsClaimed - 1})
-                  </span>
-                </label>
-                <input
-                  id="block-split-pos"
-                  type="number"
-                  min={1}
-                  max={block.lessonsClaimed - 1}
-                  value={splitDraft}
-                  onChange={(e) => {
-                    setSplitDraft(e.target.value);
-                    setSplitError(null);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      commitSplit();
-                    } else if (e.key === "Escape") {
-                      e.preventDefault();
-                      setSplitOpen(false);
-                    }
-                  }}
-                  autoFocus
-                  className="w-24 px-2 py-1 border border-line rounded font-mono text-sm"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => setSplitOpen(false)}
-                className="px-2 py-1 text-xs border border-line rounded hover:bg-surface-2"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={commitSplit}
-                className="px-2 py-1 text-xs bg-navy text-bg rounded hover:bg-navy-dim"
-              >
-                Apply split
-              </button>
-            </div>
-          )}
-          {splitError && (
-            <p className="text-xs text-warn -mt-1">{splitError}</p>
-          )}
         </div>
 
         <footer className="px-5 py-3 border-t border-line flex items-center gap-2">
-          <button
-            onClick={openSplitInput}
-            disabled={block.lessonsClaimed < 2 || splitOpen}
-            className="px-3 py-1.5 text-sm border border-line rounded hover:bg-surface-2 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            Split…
-          </button>
-          {canRecombine && (
-            <button
-              onClick={handleRecombine}
-              className="px-3 py-1.5 text-sm border border-line rounded hover:bg-surface-2"
-            >
-              Recombine
-            </button>
-          )}
           <button
             onClick={handleRemove}
             className="px-3 py-1.5 text-sm border border-warn text-warn rounded hover:bg-warn/10"

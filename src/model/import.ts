@@ -140,7 +140,6 @@ export function importSpec(
     config: {
       includeDepth: false,
       lostLessonBuffer: false,
-      autoSpillover: true,
     },
   };
 

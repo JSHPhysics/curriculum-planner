@@ -4,7 +4,6 @@ export interface BlockProps {
   readonly lessons: number;
   readonly colour: string;
   readonly variant?: "pool" | "placed" | "eoht" | "custom";
-  readonly splitBadge?: "auto" | "manual" | null;
   readonly onClick?: () => void;
   readonly dragging?: boolean;
 }
@@ -15,7 +14,6 @@ export function Block({
   lessons,
   colour,
   variant = "placed",
-  splitBadge,
   onClick,
   dragging,
 }: BlockProps): JSX.Element {
@@ -44,17 +42,6 @@ export function Block({
       <span className="text-[10px] text-ink-dim font-mono tabular-nums">
         {lessons}L
       </span>
-      {splitBadge && (
-        <span
-          className={
-            "text-[9px] font-mono uppercase px-1 rounded " +
-            (splitBadge === "auto" ? "bg-line text-ink-dim" : "bg-gold/20 text-gold")
-          }
-          title={splitBadge === "auto" ? "Auto-split (drag to recombine)" : "Manually split"}
-        >
-          {splitBadge === "auto" ? "auto" : "split"}
-        </span>
-      )}
     </div>
   );
 }

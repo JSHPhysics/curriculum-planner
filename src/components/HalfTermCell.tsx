@@ -160,12 +160,6 @@ function PlacedBlockCard({
         lessons={placed.lessonsClaimed}
         colour={display.colour}
         variant={display.variant}
-        // DEC-046: the "auto"/"manual" split badge is suppressed at the
-        // sub-topic level. After consolidation, each cell holds at most one
-        // block per sub-topic, so the badge stops being informative — the
-        // numbered name suffix ("Forces and motion 2") already tells the
-        // reader "this is the second cell with this sub-topic in it."
-        splitBadge={null}
         dragging={isDragging}
         onClick={onClick}
       />

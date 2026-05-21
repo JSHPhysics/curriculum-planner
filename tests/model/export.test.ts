@@ -9,10 +9,7 @@ import {
   exportSubjectToXlsx,
 } from "@/model/export";
 import { importSpec } from "@/model/import";
-import {
-  placeBlock,
-  placeBlockWithSpillover,
-} from "@/model/placement";
+import { placeBlock } from "@/model/placement";
 import { createDefaultTimeline, createEoHTBlocks } from "@/model/timeline";
 import type { PlacedBlockSource, Subject } from "@/model/types";
 
@@ -245,12 +242,13 @@ describe("Sub-topic view sheet", () => {
     ]);
   });
 
-  it("emits one row per placement (with split placements producing multiple rows)", () => {
+  it("emits one row per placement when a sub-topic is placed in multiple cells", () => {
     let subj = placeSomeBlocks(loadExample());
-    // Force a split: place 10 in Y9-S1 then spillover 5 → splits across S1 and S2
     let tl = subj.timeline;
-    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T3a" }, "Y9-S1", 10, { idGen: counterIdGen() });
-    tl = placeBlockWithSpillover(tl, { kind: "sub-topic", subTopicCode: "T3b" }, 5, "Y9-S1", { idGen: counterIdGen() });
+    // Place T3b in two cells manually — checks the export emits one row per
+    // placement rather than collapsing.
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T3b" }, "Y9-S1", 3, { idGen: counterIdGen() });
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T3b" }, "Y9-S2", 2, { idGen: counterIdGen() });
     subj = { ...subj, timeline: tl };
 
     const buf = exportSubjectToXlsx(subj, { now: new Date("2026-05-15T10:00:00Z") });

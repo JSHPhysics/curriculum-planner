@@ -64,8 +64,6 @@ describe("createEoHTBlocks / seedEndOfHalfTermTests (DEC-044)", () => {
       const block = ht.placedBlocks[0];
       expect(block?.source.kind).toBe("custom");
       expect(block?.lessonsClaimed).toBe(1);
-      expect(block?.splitFrom).toBeNull();
-      expect(block?.splitType).toBeNull();
     }
   });
 
@@ -89,8 +87,6 @@ describe("createEoHTBlocks / seedEndOfHalfTermTests (DEC-044)", () => {
             source: { kind: "sub-topic" as const, subTopicCode: "T1a" },
             lessonsClaimed: 4,
             lessonRange: [0, 4] as const,
-            splitFrom: null,
-            splitType: null,
             userEdits: {},
           }],
         };
@@ -121,8 +117,6 @@ describe("halfTermUsed and halfTermRoom", () => {
           source: { kind: "sub-topic" as const, subTopicCode: "T1a" },
           lessonsClaimed: 5,
           lessonRange: [0, 5] as const,
-          splitFrom: null,
-          splitType: null,
           userEdits: {},
         },
         {
@@ -130,8 +124,6 @@ describe("halfTermUsed and halfTermRoom", () => {
           source: { kind: "sub-topic" as const, subTopicCode: "T1b" },
           lessonsClaimed: 3,
           lessonRange: [0, 3] as const,
-          splitFrom: null,
-          splitType: null,
           userEdits: {},
         },
       ],
@@ -151,8 +143,6 @@ describe("halfTermUsed and halfTermRoom", () => {
           source: { kind: "sub-topic" as const, subTopicCode: "T1a" },
           lessonsClaimed: 100,
           lessonRange: [0, 100] as const,
-          splitFrom: null,
-          splitType: null,
           userEdits: {},
         },
       ],

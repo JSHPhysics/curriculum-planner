@@ -109,38 +109,6 @@ describe("placement actions delegate to the active subject's timeline", () => {
     expect(placed.filter((p) => p.source.kind === "sub-topic")).toHaveLength(0);
   });
 
-  it("placeBlockWithSpillover distributes across half-terms when overflowing", () => {
-    const store = useWorkspaceStore.getState();
-    store.addSubject(loadExampleSubject("subj-1"));
-    // Y9-A1 budget is 12; EoHT placed = 1, so room = 11
-    store.placeBlock({ kind: "sub-topic", subTopicCode: "T1a" }, "Y9-A1", 10);
-    // Now room in Y9-A1 = 1; spillover a 5-lesson block
-    store.placeBlockWithSpillover({ kind: "sub-topic", subTopicCode: "T2a" }, 5, "Y9-A1");
-    const subj = useWorkspaceStore.getState().workspace.subjects[0]!;
-    const t2aPieces = subj.timeline.halfTerms.flatMap((h) =>
-      h.placedBlocks.filter((p) => p.source.kind === "sub-topic" && p.source.subTopicCode === "T2a")
-    );
-    expect(t2aPieces.length).toBeGreaterThan(1);
-    expect(t2aPieces.every((p) => p.splitType === "auto")).toBe(true);
-  });
-
-  it("split-in-same-cell + recombine wipes the (merged) placement (DEC-046)", () => {
-    const store = useWorkspaceStore.getState();
-    store.addSubject(loadExampleSubject("subj-1"));
-    store.placeBlock({ kind: "sub-topic", subTopicCode: "T2a" }, "Y9-S1", 6);
-    const subj = useWorkspaceStore.getState().workspace.subjects[0]!;
-    const piece = subj.timeline.halfTerms.find((h) => h.id === "Y9-S1")?.placedBlocks.find((p) => p.source.kind === "sub-topic")!;
-    store.splitBlock(piece.id, 2);
-    let s = useWorkspaceStore.getState().workspace.subjects[0]!;
-    let placed = s.timeline.halfTerms.find((h) => h.id === "Y9-S1")?.placedBlocks.filter((p) => p.source.kind === "sub-topic") ?? [];
-    // After DEC-046 the split immediately consolidates back to one block in
-    // the same cell. splitFrom is preserved on the merged block.
-    expect(placed).toHaveLength(1);
-    store.recombineBlock(placed[0]!.id);
-    s = useWorkspaceStore.getState().workspace.subjects[0]!;
-    placed = s.timeline.halfTerms.find((h) => h.id === "Y9-S1")?.placedBlocks.filter((p) => p.source.kind === "sub-topic") ?? [];
-    expect(placed).toHaveLength(0);
-  });
 
   it("moveBlock relocates a placement", () => {
     const store = useWorkspaceStore.getState();

@@ -8,13 +8,10 @@ import {
   moveBlockToIndex as plMoveBlockToIndex,
   placeBlock as plPlaceBlock,
   placeBlockAtIndex as plPlaceBlockAtIndex,
-  placeBlockWithSpillover as plPlaceBlockWithSpillover,
   placeLessonAtIndex as plPlaceLessonAtIndex,
-  recombineBlock as plRecombineBlock,
   removeBlock as plRemoveBlock,
   removePlacedLesson as plRemovePlacedLesson,
   setPlacedBlockTitle as plSetPlacedBlockTitle,
-  splitBlock as plSplitBlock,
 } from "@/model/placement";
 import {
   addPresetToSubject,
@@ -104,13 +101,6 @@ export interface WorkspaceStoreActions {
     termId: string,
     lessonsClaimed: number
   ) => void;
-  readonly placeBlockWithSpillover: (
-    source: PlacedBlockSource,
-    lessonsClaimed: number,
-    termId: string
-  ) => void;
-  readonly splitBlock: (placedBlockId: string, atLessonIdx: number) => void;
-  readonly recombineBlock: (placedBlockId: string) => void;
   readonly removeBlock: (placedBlockId: string) => void;
   readonly moveBlock: (placedBlockId: string, toTermId: string) => void;
   readonly moveTopicInHalfTerm: (
@@ -468,30 +458,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set) => ({
     set((state) => ({
       workspace: updateActiveTimeline(state.workspace, (tl) =>
         plPlaceBlock(tl, source, termId, lessonsClaimed)
-      ),
-      dirty: true,
-    })),
-
-  placeBlockWithSpillover: (source, lessonsClaimed, termId) =>
-    set((state) => ({
-      workspace: updateActiveTimeline(state.workspace, (tl) =>
-        plPlaceBlockWithSpillover(tl, source, lessonsClaimed, termId)
-      ),
-      dirty: true,
-    })),
-
-  splitBlock: (placedBlockId, atLessonIdx) =>
-    set((state) => ({
-      workspace: updateActiveTimeline(state.workspace, (tl) =>
-        plSplitBlock(tl, placedBlockId, atLessonIdx)
-      ),
-      dirty: true,
-    })),
-
-  recombineBlock: (placedBlockId) =>
-    set((state) => ({
-      workspace: updateActiveTimeline(state.workspace, (tl) =>
-        plRecombineBlock(tl, placedBlockId)
       ),
       dirty: true,
     })),

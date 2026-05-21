@@ -5,19 +5,15 @@ import {
   editBlockLessons,
   extractAndMoveLesson,
   extractAndMoveLessonToIndex,
-  findPlacedBlock,
   moveBlock,
   moveBlockToIndex,
   placeBlock,
   placeBlockAtIndex,
-  placeBlockWithSpillover,
   placeLessonAtIndex,
-  recombineBlock,
   removeBlock,
   removePlacedLesson,
-  splitBlock,
 } from "@/model/placement";
-import { createDefaultTimeline, halfTermUsed } from "@/model/timeline";
+import { createDefaultTimeline } from "@/model/timeline";
 import type { PlacedBlockSource, Timeline } from "@/model/types";
 
 function counterIdGen(): () => string {
@@ -44,8 +40,6 @@ describe("placeBlock", () => {
       source: T1a,
       lessonsClaimed: 4,
       lessonRange: [0, 4],
-      splitFrom: null,
-      splitType: null,
     });
   });
 
@@ -65,155 +59,6 @@ describe("placeBlock", () => {
   });
 });
 
-describe("placeBlockWithSpillover", () => {
-  it("places as a single block when it fits in the target term", () => {
-    const tl = placeBlockWithSpillover(createDefaultTimeline(), T1a, 4, "Y9-A1", {
-      idGen: counterIdGen(),
-    });
-    expect(blocksIn(tl, "Y9-A1")).toHaveLength(1);
-    expect(blocksIn(tl, "Y9-A1")[0]?.splitType).toBeNull();
-  });
-
-  it("auto-splits across consecutive half-terms when the target overflows", () => {
-    // Y9-A1 budget = 12. Pre-place 10 → 2 room left. Then add 5 → should put 2 in A1, 3 in A2.
-    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 10, { idGen: counterIdGen() });
-    tl = placeBlockWithSpillover(tl, T1b, 5, "Y9-A1", { idGen: counterIdGen() });
-    const a1 = blocksIn(tl, "Y9-A1").filter((b) => b.source.kind === "sub-topic" && b.source.subTopicCode === "T1b");
-    const a2 = blocksIn(tl, "Y9-A2").filter((b) => b.source.kind === "sub-topic" && b.source.subTopicCode === "T1b");
-    expect(a1).toHaveLength(1);
-    expect(a2).toHaveLength(1);
-    expect(a1[0]?.lessonsClaimed).toBe(2);
-    expect(a2[0]?.lessonsClaimed).toBe(3);
-    expect(a1[0]?.splitType).toBe("auto");
-    expect(a2[0]?.splitType).toBe("auto");
-    expect(a1[0]?.splitFrom).toBe(a2[0]?.splitFrom);
-  });
-
-  it("preserves ranges as contiguous slices of the source", () => {
-    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 10, { idGen: counterIdGen() });
-    tl = placeBlockWithSpillover(tl, T1b, 5, "Y9-A1", { idGen: counterIdGen() });
-    const t1bPieces = [
-      ...blocksIn(tl, "Y9-A1").filter((b) => b.source.kind === "sub-topic" && b.source.subTopicCode === "T1b"),
-      ...blocksIn(tl, "Y9-A2").filter((b) => b.source.kind === "sub-topic" && b.source.subTopicCode === "T1b"),
-    ];
-    expect(t1bPieces[0]?.lessonRange).toEqual([0, 2]);
-    expect(t1bPieces[1]?.lessonRange).toEqual([2, 5]);
-  });
-
-  it("skips terms with zero room and continues to the next available one", () => {
-    // Saturate Y9-A1 (budget 12) and Y9-A2 (budget 12), then spillover from A1
-    let tl = createDefaultTimeline();
-    tl = placeBlock(tl, T1a, "Y9-A1", 12, { idGen: counterIdGen() });
-    tl = placeBlock(tl, T1a, "Y9-A2", 12, { idGen: counterIdGen() });
-    tl = placeBlockWithSpillover(tl, T1b, 4, "Y9-A1", { idGen: counterIdGen() });
-    expect(blocksIn(tl, "Y9-A1").filter((b) => b.source.kind === "sub-topic" && b.source.subTopicCode === "T1b")).toHaveLength(0);
-    expect(blocksIn(tl, "Y9-A2").filter((b) => b.source.kind === "sub-topic" && b.source.subTopicCode === "T1b")).toHaveLength(0);
-    const s1 = blocksIn(tl, "Y9-S1").filter((b) => b.source.kind === "sub-topic" && b.source.subTopicCode === "T1b");
-    expect(s1).toHaveLength(1);
-    expect(s1[0]?.lessonsClaimed).toBe(4);
-    expect(s1[0]?.splitType).toBeNull();
-  });
-
-  it("stuffs leftover lessons into the last placement when no room remains anywhere", () => {
-    // Saturate every half-term, then try to place 5 from Y9-A1
-    let tl = createDefaultTimeline();
-    for (const ht of tl.halfTerms) {
-      tl = placeBlock(tl, T1a, ht.id, ht.budget, { idGen: counterIdGen() });
-    }
-    tl = placeBlockWithSpillover(tl, T1b, 5, "Y9-A1", { idGen: counterIdGen() });
-    const a1Pieces = blocksIn(tl, "Y9-A1").filter((b) => b.source.kind === "sub-topic" && b.source.subTopicCode === "T1b");
-    expect(a1Pieces).toHaveLength(1);
-    expect(a1Pieces[0]?.lessonsClaimed).toBe(5);
-    expect(a1Pieces[0]?.splitType).toBeNull();
-  });
-
-  it("treats lessonsClaimed = 0 as a single empty placement", () => {
-    const tl = placeBlockWithSpillover(createDefaultTimeline(), T1a, 0, "Y9-A1", {
-      idGen: counterIdGen(),
-    });
-    expect(blocksIn(tl, "Y9-A1")).toHaveLength(1);
-    expect(blocksIn(tl, "Y9-A1")[0]?.lessonsClaimed).toBe(0);
-  });
-
-  it("throws on unknown term id", () => {
-    expect(() =>
-      placeBlockWithSpillover(createDefaultTimeline(), T1a, 4, "BAD")
-    ).toThrow();
-  });
-});
-
-describe("splitBlock", () => {
-  it("immediately re-merges adjacent pieces in the same cell (DEC-046)", () => {
-    // splitBlock divides a placed block into two adjacent pieces, then the
-    // consolidator notices they share a sub-topic + sit in one cell and
-    // merges them back into one. Net effect: splitBlock-in-same-cell is a
-    // no-op at the data level. The user requested visual clarity — same-
-    // sub-topic adjacent placements always render as one merged block.
-    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 4, { idGen: counterIdGen() });
-    const blockId = blocksIn(tl, "Y9-A1")[0]!.id;
-    tl = splitBlock(tl, blockId, 1, { idGen: counterIdGen() });
-    const placed = blocksIn(tl, "Y9-A1");
-    expect(placed).toHaveLength(1);
-    expect(placed[0]?.lessonRange).toEqual([0, 4]);
-    expect(placed[0]?.lessonsClaimed).toBe(4);
-  });
-
-  it("preserves splitFrom across the merge so cross-cell recombine still works", () => {
-    // Two-cell split: place a block that auto-spills across A1+A2. Both
-    // pieces share splitFrom. Within each cell consolidation is a no-op
-    // (one piece per cell). Recombine should still find the group by
-    // splitFrom and wipe both pieces.
-    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 0, { idGen: counterIdGen() });
-    tl = removeBlock(tl, blocksIn(tl, "Y9-A1")[0]!.id);
-    tl = placeBlockWithSpillover(tl, T1a, 16, "Y9-A1", { idGen: counterIdGen() });
-    const pieces = [
-      ...blocksIn(tl, "Y9-A1").filter((b) => b.source.kind === "sub-topic"),
-      ...blocksIn(tl, "Y9-A2").filter((b) => b.source.kind === "sub-topic"),
-    ];
-    expect(pieces.length).toBeGreaterThanOrEqual(2);
-    expect(pieces.every((p) => p.splitFrom === pieces[0]!.splitFrom)).toBe(true);
-  });
-
-  it("throws when atLessonIdx is out of range", () => {
-    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 4, { idGen: counterIdGen() });
-    const blockId = blocksIn(tl, "Y9-A1")[0]!.id;
-    expect(() => splitBlock(tl, blockId, 0)).toThrow();
-    expect(() => splitBlock(tl, blockId, 4)).toThrow();
-    expect(() => splitBlock(tl, blockId, 5)).toThrow();
-  });
-
-  it("throws when the placed block id is unknown", () => {
-    expect(() => splitBlock(createDefaultTimeline(), "ghost", 1)).toThrow();
-  });
-});
-
-describe("recombineBlock", () => {
-  it("removes every PlacedBlock sharing the same splitFrom", () => {
-    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 10, { idGen: counterIdGen() });
-    tl = placeBlockWithSpillover(tl, T1b, 5, "Y9-A1", { idGen: counterIdGen() });
-    const someT1bPiece = blocksIn(tl, "Y9-A1").find(
-      (b) => b.source.kind === "sub-topic" && b.source.subTopicCode === "T1b"
-    )!;
-    tl = recombineBlock(tl, someT1bPiece.id);
-    const remaining = [
-      ...blocksIn(tl, "Y9-A1"),
-      ...blocksIn(tl, "Y9-A2"),
-    ].filter((b) => b.source.kind === "sub-topic" && b.source.subTopicCode === "T1b");
-    expect(remaining).toHaveLength(0);
-    // T1a placement is untouched
-    expect(blocksIn(tl, "Y9-A1").some((b) => b.source.kind === "sub-topic" && b.source.subTopicCode === "T1a")).toBe(true);
-  });
-
-  it("throws when called on a block with no splitFrom", () => {
-    const tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 4, { idGen: counterIdGen() });
-    const blockId = blocksIn(tl, "Y9-A1")[0]!.id;
-    expect(() => recombineBlock(tl, blockId)).toThrow();
-  });
-
-  it("throws on an unknown block id", () => {
-    expect(() => recombineBlock(createDefaultTimeline(), "ghost")).toThrow();
-  });
-});
 
 describe("removeBlock", () => {
   it("removes the placement from its half-term", () => {
@@ -256,7 +101,7 @@ describe("moveBlock", () => {
   });
 });
 
-describe("editBlockLessons (auto → manual demotion)", () => {
+describe("editBlockLessons", () => {
   it("changes lessonsClaimed and re-anchors lessonRange", () => {
     let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 4, { idGen: counterIdGen() });
     const id = blocksIn(tl, "Y9-A1")[0]!.id;
@@ -264,25 +109,6 @@ describe("editBlockLessons (auto → manual demotion)", () => {
     const edited = blocksIn(tl, "Y9-A1")[0];
     expect(edited?.lessonsClaimed).toBe(6);
     expect(edited?.lessonRange).toEqual([0, 6]);
-  });
-
-  it("demotes splitType from 'auto' to 'manual' on edit", () => {
-    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 10, { idGen: counterIdGen() });
-    tl = placeBlockWithSpillover(tl, T1b, 5, "Y9-A1", { idGen: counterIdGen() });
-    const piece = blocksIn(tl, "Y9-A1").find(
-      (b) => b.source.kind === "sub-topic" && b.source.subTopicCode === "T1b"
-    )!;
-    expect(piece.splitType).toBe("auto");
-    tl = editBlockLessons(tl, piece.id, piece.lessonsClaimed + 1);
-    const edited = findPlacedBlock(tl, piece.id)?.block;
-    expect(edited?.splitType).toBe("manual");
-  });
-
-  it("leaves splitType unchanged for non-auto blocks", () => {
-    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 4, { idGen: counterIdGen() });
-    const id = blocksIn(tl, "Y9-A1")[0]!.id;
-    tl = editBlockLessons(tl, id, 6);
-    expect(blocksIn(tl, "Y9-A1")[0]?.splitType).toBeNull();
   });
 
   it("is a no-op when newLessons === current count", () => {
@@ -308,9 +134,6 @@ describe("extractAndMoveLesson (Lesson view drag)", () => {
     expect(a2).toHaveLength(1);
     expect(a2[0]?.lessonRange).toEqual([0, 1]);
     expect(a2[0]?.lessonsClaimed).toBe(1);
-    // Both pieces share the same splitFrom (the original's id)
-    expect(a1[0]?.splitFrom).toBe(blockId);
-    expect(a2[0]?.splitFrom).toBe(blockId);
   });
 
   it("splits an interior lesson out of the middle into three placements", () => {
@@ -324,9 +147,6 @@ describe("extractAndMoveLesson (Lesson view drag)", () => {
     const a2 = blocksIn(tl, "Y9-A2").filter((b) => b.source.kind === "sub-topic");
     expect(a1.map((b) => b.lessonRange)).toEqual([[0, 2], [3, 5]]);
     expect(a2.map((b) => b.lessonRange)).toEqual([[2, 3]]);
-    expect(a1.every((b) => b.splitFrom === blockId && b.splitType === "manual")).toBe(true);
-    expect(a2[0]?.splitFrom).toBe(blockId);
-    expect(a2[0]?.splitType).toBe("manual");
   });
 
   it("removes the source block entirely when extracting its only lesson", () => {
@@ -335,21 +155,6 @@ describe("extractAndMoveLesson (Lesson view drag)", () => {
     tl = extractAndMoveLesson(tl, blockId, 0, "Y9-A2", { idGen: counterIdGen() });
     expect(blocksIn(tl, "Y9-A1").filter((b) => b.source.kind === "sub-topic")).toHaveLength(0);
     expect(blocksIn(tl, "Y9-A2").filter((b) => b.source.kind === "sub-topic")).toHaveLength(1);
-  });
-
-  it("preserves the existing splitFrom chain when extracting from an already-split piece", () => {
-    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 4, { idGen: counterIdGen() });
-    const origId = blocksIn(tl, "Y9-A1")[0]!.id;
-    tl = splitBlock(tl, origId, 2, { idGen: counterIdGen() });
-    const piecesAfterSplit = blocksIn(tl, "Y9-A1");
-    const pieceA = piecesAfterSplit[0]!;
-    // pieceA already has splitFrom = origId
-    tl = extractAndMoveLesson(tl, pieceA.id, 0, "Y9-A2", { idGen: counterIdGen() });
-    const allTouchedBlocks = [
-      ...blocksIn(tl, "Y9-A1"),
-      ...blocksIn(tl, "Y9-A2"),
-    ].filter((b) => b.source.kind === "sub-topic");
-    expect(allTouchedBlocks.every((b) => b.splitFrom === origId)).toBe(true);
   });
 
   it("is a no-op when toTermId equals the source term", () => {
@@ -376,66 +181,21 @@ describe("extractAndMoveLesson (Lesson view drag)", () => {
 });
 
 describe("prototype scenarios", () => {
-  it("auto-split → remove every piece → sub-topic fully unplaced", () => {
+  it("place multiple cells, then remove each → sub-topic fully unplaced", () => {
     let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 10, { idGen: counterIdGen() });
-    tl = placeBlockWithSpillover(tl, T1b, 5, "Y9-A1", { idGen: counterIdGen() });
-    // Collect every T1b piece across the timeline
+    tl = placeBlock(tl, T1b, "Y9-A1", 2, { idGen: counterIdGen() });
+    tl = placeBlock(tl, T1b, "Y9-A2", 3, { idGen: counterIdGen() });
     const t1bIds = tl.halfTerms.flatMap((ht) =>
       ht.placedBlocks
         .filter((b) => b.source.kind === "sub-topic" && b.source.subTopicCode === "T1b")
         .map((b) => b.id)
     );
-    expect(t1bIds.length).toBeGreaterThan(1);
+    expect(t1bIds.length).toBe(2);
     for (const id of t1bIds) tl = removeBlock(tl, id);
     const stillPlaced = tl.halfTerms.flatMap((ht) =>
       ht.placedBlocks.filter((b) => b.source.kind === "sub-topic" && b.source.subTopicCode === "T1b")
     );
     expect(stillPlaced).toHaveLength(0);
-  });
-
-  it("same-cell split → re-merges into one block (DEC-046)", () => {
-    // splitBlock + adjacency in same cell → consolidator merges back.
-    // Removing a piece (when there's only one piece left) is the
-    // single-block-removal case, so the cell ends up empty.
-    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 6, { idGen: counterIdGen() });
-    const origId = blocksIn(tl, "Y9-A1")[0]!.id;
-    tl = splitBlock(tl, origId, 2, { idGen: counterIdGen() });
-    expect(blocksIn(tl, "Y9-A1")).toHaveLength(1);
-    const onlyPieceId = blocksIn(tl, "Y9-A1")[0]!.id;
-    tl = removeBlock(tl, onlyPieceId);
-    expect(blocksIn(tl, "Y9-A1")).toHaveLength(0);
-  });
-
-  it("edited auto → demoted (post-edit, recombine still works via splitFrom)", () => {
-    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 10, { idGen: counterIdGen() });
-    tl = placeBlockWithSpillover(tl, T1b, 5, "Y9-A1", { idGen: counterIdGen() });
-    const piece = blocksIn(tl, "Y9-A1").find(
-      (b) => b.source.kind === "sub-topic" && b.source.subTopicCode === "T1b"
-    )!;
-    tl = editBlockLessons(tl, piece.id, piece.lessonsClaimed + 2);
-    const edited = findPlacedBlock(tl, piece.id)?.block;
-    expect(edited?.splitType).toBe("manual");
-    // recombineBlock still works on splitFrom even if one piece is now manual
-    tl = recombineBlock(tl, piece.id);
-    const remainingT1b = tl.halfTerms.flatMap((ht) =>
-      ht.placedBlocks.filter((b) => b.source.kind === "sub-topic" && b.source.subTopicCode === "T1b")
-    );
-    expect(remainingT1b).toHaveLength(0);
-  });
-
-  it("round-trip: place + spillover + recombine leaves the timeline back to baseline", () => {
-    const baseline = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 10, { idGen: counterIdGen() });
-    let tl = placeBlockWithSpillover(baseline, T1b, 5, "Y9-A1", { idGen: counterIdGen() });
-    const piece = blocksIn(tl, "Y9-A1").find(
-      (b) => b.source.kind === "sub-topic" && b.source.subTopicCode === "T1b"
-    )!;
-    tl = recombineBlock(tl, piece.id);
-    // Every half-term's used-count matches the baseline
-    for (const ht of baseline.halfTerms) {
-      const baseUsed = halfTermUsed(ht);
-      const after = tl.halfTerms.find((h) => h.id === ht.id)!;
-      expect(halfTermUsed(after)).toBe(baseUsed);
-    }
   });
 });
 
@@ -455,8 +215,6 @@ describe("cell consolidation (DEC-046)", () => {
               source: T1a,
               lessonsClaimed: 2,
               lessonRange: [0, 2],
-              splitFrom: null,
-              splitType: null,
               userEdits: {},
             },
             {
@@ -464,8 +222,6 @@ describe("cell consolidation (DEC-046)", () => {
               source: T1a,
               lessonsClaimed: 2,
               lessonRange: [2, 4],
-              splitFrom: null,
-              splitType: null,
               userEdits: {},
             },
           ],
@@ -495,8 +251,6 @@ describe("cell consolidation (DEC-046)", () => {
               source: T1a,
               lessonsClaimed: 2,
               lessonRange: [0, 2],
-              splitFrom: null,
-              splitType: null,
               userEdits: {},
             },
             {
@@ -504,8 +258,6 @@ describe("cell consolidation (DEC-046)", () => {
               source: T1a,
               lessonsClaimed: 2,
               lessonRange: [3, 5],
-              splitFrom: null,
-              splitType: null,
               userEdits: {},
             },
           ],
@@ -540,8 +292,6 @@ describe("cell consolidation (DEC-046)", () => {
               source: T1a,
               lessonsClaimed: 1,
               lessonRange: [0, 1],
-              splitFrom: null,
-              splitType: null,
               userEdits: {},
             },
             {
@@ -549,8 +299,6 @@ describe("cell consolidation (DEC-046)", () => {
               source: T1b,
               lessonsClaimed: 1,
               lessonRange: [0, 1],
-              splitFrom: null,
-              splitType: null,
               userEdits: {},
             },
             {
@@ -558,8 +306,6 @@ describe("cell consolidation (DEC-046)", () => {
               source: T1a,
               lessonsClaimed: 1,
               lessonRange: [1, 2],
-              splitFrom: null,
-              splitType: null,
               userEdits: {},
             },
           ],
@@ -575,16 +321,6 @@ describe("cell consolidation (DEC-046)", () => {
     expect(placed[2]?.id).toBe("t1a-2");
   });
 
-  it("preserves splitFrom through a merge so recombine still wipes both pieces", () => {
-    let tl = placeBlock(createDefaultTimeline(), T1a, "Y9-A1", 4, { idGen: counterIdGen() });
-    const origId = blocksIn(tl, "Y9-A1")[0]!.id;
-    tl = splitBlock(tl, origId, 2, { idGen: counterIdGen() });
-    const merged = blocksIn(tl, "Y9-A1");
-    expect(merged).toHaveLength(1);
-    expect(merged[0]?.splitFrom).not.toBeNull(); // recombine can still find it
-    tl = recombineBlock(tl, merged[0]!.id);
-    expect(blocksIn(tl, "Y9-A1")).toHaveLength(0);
-  });
 });
 
 describe("index-aware drops (DEC-048)", () => {
@@ -670,8 +406,6 @@ describe("index-aware drops (DEC-048)", () => {
               source: T1a,
               lessonsClaimed: 2,
               lessonRange: [2, 4],
-              splitFrom: null,
-              splitType: null,
               userEdits: {},
             },
           ],

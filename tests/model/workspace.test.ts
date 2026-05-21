@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { importSpec } from "@/model/import";
-import { placeBlock, placeBlockWithSpillover } from "@/model/placement";
+import { placeBlock } from "@/model/placement";
 import { createDefaultTimeline } from "@/model/timeline";
 import type { Subject } from "@/model/types";
 import {
@@ -223,12 +223,15 @@ describe("restoreSubjectToImport", () => {
     expect(result.orphans[0]?.source).toEqual({ kind: "custom", customBlockId: "missing-cb" });
   });
 
-  it("preserves placements with split pieces when their sub-topic still exists", () => {
+  it("preserves placements across multiple cells when their sub-topic still exists", () => {
     let ws = createWorkspace();
     let s = loadExampleSubject("subj-1");
     let tl = s.timeline;
     tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T2a" }, "Y9-A1", 10, { idGen: counterIdGen() });
-    tl = placeBlockWithSpillover(tl, { kind: "sub-topic", subTopicCode: "T2b" }, 5, "Y9-A1", { idGen: counterIdGen() });
+    // Two separate T2b placements in different cells — the restore must
+    // preserve both since the sub-topic still exists in the imported spec.
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T2b" }, "Y9-A2", 3, { idGen: counterIdGen() });
+    tl = placeBlock(tl, { kind: "sub-topic", subTopicCode: "T2b" }, "Y9-S1", 2, { idGen: counterIdGen() });
     s = { ...s, timeline: tl };
     ws = addSubject(ws, s);
     const result = restoreSubjectToImport(ws, "subj-1");
