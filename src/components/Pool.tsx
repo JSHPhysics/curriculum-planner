@@ -205,14 +205,19 @@ function PoolSubTopic({
   });
   return (
     <div
-      className="relative group"
+      className="flex items-stretch gap-1"
       onContextMenu={(e) => {
         if (!onContextMenu) return;
         e.preventDefault();
         onContextMenu({ x: e.clientX, y: e.clientY });
       }}
     >
-      <div ref={setNodeRef} {...listeners} {...attributes} className="touch-none">
+      <div
+        ref={setNodeRef}
+        {...listeners}
+        {...attributes}
+        className="touch-none flex-1 min-w-0"
+      >
         <Block
           code={code}
           name={name}
@@ -222,10 +227,10 @@ function PoolSubTopic({
           dragging={isDragging}
         />
       </div>
-      {/* DEC-047 + DEC-050: pencil button sits on top of the draggable block.
-          stopPropagation prevents the click from initiating a drag. Always
-          visible (not hover-gated) for discoverability — the user kept
-          missing it. */}
+      {/* DEC-047 + DEC-057: pencil is a SIBLING of the draggable block, not
+          an overlay — overlay positioning collided with Block's trailing
+          "lesson count" chip. stopPropagation on pointerdown keeps the
+          click from initiating a drag. */}
       <button
         onClick={(e) => {
           e.stopPropagation();
@@ -234,7 +239,7 @@ function PoolSubTopic({
         onPointerDown={(e) => e.stopPropagation()}
         aria-label={`Edit sub-topic ${code}`}
         title="Edit sub-topic (name, code, difficulty, …)"
-        className="absolute top-1 right-1 text-[11px] leading-none text-ink-dim hover:text-ink hover:bg-surface px-1 py-0.5 rounded bg-bg/90 border border-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
+        className="shrink-0 text-[11px] leading-none text-ink-dim hover:text-ink hover:bg-surface-2 px-1.5 rounded border border-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
       >
         ✎
       </button>
