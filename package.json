@@ -1,6 +1,6 @@
 {
   "name": "curriculum-planner",
-  "version": "1.14.1",
+  "version": "1.14.2",
   "description": "Desktop curriculum planning tool for teachers",
   "main": "dist-electron/main.js",
   "private": true,

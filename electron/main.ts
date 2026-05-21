@@ -189,6 +189,23 @@ interface SaveFolderTreeResult {
   readonly entryCount: number;
 }
 
+/**
+ * Reject path segments that would traverse out of the export root or land
+ * on an absolute path. The renderer's `safe()` in folderExport.ts already
+ * strips slashes + trailing dots, so a well-behaved renderer never sends
+ * these. This is defense-in-depth at the trust boundary: even if a future
+ * renderer change regressed, the main process would refuse to write
+ * outside the user-chosen folder.
+ */
+function isSafePathSegment(seg: string): boolean {
+  if (seg === "" || seg === "." || seg === "..") return false;
+  if (seg.includes("\\") || seg.includes("/")) return false;
+  if (path.isAbsolute(seg)) return false;
+  // Windows: also reject the special drive-letter shape "C:".
+  if (/^[A-Za-z]:/.test(seg)) return false;
+  return true;
+}
+
 ipcMain.handle(
   "file:saveFolderTree",
   async (event, args: SaveFolderTreeArgs): Promise<SaveFolderTreeResult | null> => {
@@ -202,8 +219,30 @@ ipcMain.handle(
       : dialog.showOpenDialog({ ...dialogOpts, properties: [...dialogOpts.properties] }));
     if (result.canceled || result.filePaths.length === 0) return null;
     const parent = result.filePaths[0]!;
+
+    // Validate the suggested root name as a single safe path segment.
+    if (!isSafePathSegment(args.suggestedRootName)) {
+      throw new Error(
+        `saveFolderTree: suggestedRootName "${args.suggestedRootName}" is not a safe single folder name`
+      );
+    }
     const rootPath = path.join(parent, args.suggestedRootName);
     await mkdir(rootPath, { recursive: true });
+
+    // Validate every entry path: split into segments, each must be safe.
+    // Empty path is the root marker, allowed.
+    for (const entry of args.entries) {
+      if (entry.path === "") continue;
+      const segments = entry.path.split("/");
+      for (const seg of segments) {
+        if (!isSafePathSegment(seg)) {
+          throw new Error(
+            `saveFolderTree: refusing unsafe path segment "${seg}" in entry "${entry.path}"`
+          );
+        }
+      }
+    }
+
     // Two-pass write: folder markers first (so mkdir -p has the right tree
     // even for branches with no leaf file), then files. Files implicitly
     // create their parent directories too via { recursive: true } on mkdir.
